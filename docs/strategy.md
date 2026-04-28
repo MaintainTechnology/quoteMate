@@ -1,5 +1,7 @@
 # QuoteMate — Strategy & Re-evaluation
 
+> **Current iteration: v3 (2026-04-28).** v1 trade pivoted from **painting** to **electrical** based on pilot-access reality. The prose in §1–§12 below is the v2 painting analysis, kept as audit-log record. See [Iteration history](#iteration-history) at the bottom for the v3 rationale and what changed.
+
 > Status: living document. Each iteration sharpens the analysis against the project assets and prior reasoning.
 
 This document supersedes the initial chat-based analysis. It is written to be honest about what was shallow or wrong before, and to give the project a more grounded plan.
@@ -412,6 +414,54 @@ The voice-first AI receptionist is a fundraise pitch, not a v1 product. **If you
 
 ## Iteration history
 
-- **v1** (2026-04-27, chat-only): initial 5-section analysis, 10-agent architecture, plumbing/electrical wedge, voice-first assumed. Many shallow points. Superseded by this document.
-- **v2** (2026-04-27, this doc): honest critique + tighter plan. Portal-first v1, painting wedge, 4 agents, eval-first, GTM included.
-- *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics).
+- **v1** (2026-04-27, chat-only): initial 5-section analysis, 10-agent architecture, plumbing/electrical wedge, voice-first assumed. Many shallow points. Superseded by v2.
+- **v2** (2026-04-27): honest critique + tighter plan. Portal-first v1, **painting wedge**, 4 agents, eval-first, GTM included. Trade-selection rationale (§7) anchored on regulatory simplicity. Superseded for trade selection by v3; everything else still stands.
+- **v3** (2026-04-28): **pivoted v1 trade from painting to electrical.** Architecture, agent design, build options, and feasibility verdict all unchanged.
+
+  **Why the pivot:**
+
+  v2 chose painting because the regulatory burden is lower (no per-state license display, no supervised-trade rules). That argument was correct in isolation but **anchored on the wrong dominant factor**. Pilot access dominates regulatory complexity. Without a real pilot tradie, no v1 ships.
+
+  The user-supplied operational content for electrical signalled that the pilot relationship is in electrical, not painting:
+
+    - 9 detailed job-flow question trees (downlights, GPOs, ceiling fans, smoke alarms, outdoor lighting, switchboards, oven/cooktop, EV charger, fault finding)
+    - Real AU electrician rates ($90–$130/hr, $120–$180 minimum call-out, 20–35% material margin)
+    - A considered "easy 5 vs hard 5" pilot recommendation (auto-quote downlights/GPOs/fans/alarms/outdoor; always inspection-route switchboards/fault-finding/EV/underground/renovations)
+
+  Content of that specificity comes from talking to actual electricians — not theorising about a market. **Painting was theoretical; electrical is operational.**
+
+  **What this changes:**
+
+  | Area | v2 (painting) | v3 (electrical) |
+  |---|---|---|
+  | v1 trade | Painting | **Electrical** |
+  | License display | Not required v1 | **Required v1** — per-state (NSW = NECA, VIC = ESV, QLD = QBCC); on every quote PDF |
+  | Schema | `organizations.licenses` deferred | `organizations.licenses` shipped Phase 1 (type, number, state, expiry) |
+  | Domain expert | "30-year painter" | "25-year electrician" (~$5k consulting) |
+  | Base assembly library | Painting assemblies (interior wall, prep+prime+coat, etc.) | Electrical assemblies (replace GPO, install downlight, hardwire smoke alarm, etc.) |
+  | Confidence-router defaults | All MED route (tradie validates) in v1 | **Inspection-only** for switchboards, fault finding, EV chargers, underground cabling, complex renovations. **Auto-quote candidates** (still MED in v1, HIGH later): downlights, GPOs, ceiling fans, smoke alarms, outdoor/deck lighting |
+  | Pricing structure | Sqm + paint × labour | Hourly rate + materials + sundries + 20–35% margin + risk buffer 10–20% on unknown access |
+  | GTM channels | "Painters of Australia" FB groups, Master Painters AU, Inspirations Paint suppliers | NECA member networks, sparky FB groups, Reece Electrical / L&H Group / MM Electrical suppliers |
+
+  **What stays the same (every v2 architectural decision):**
+
+  - Portal-first v1, voice deferred to v3+ premium tier
+  - 4 agents (Quote Drafter, Quote Reviewer, Inspection Coordinator, Conversion Engine)
+  - Build-with-tradie pricing book (overlay pattern)
+  - Eval framework before prompt iteration (100 hold-out pairs, 5-dim rubric)
+  - Stripe Connect Express
+  - No auto-send in v1 — tradie human-in-loop on every send
+  - Multi-tenant via Supabase RLS from day 1
+  - Mobile-first customer portal, Good/Better/Best, paid $199 inspection branch
+
+  **Cautions specific to electrical (vs painting):**
+
+  - Australian Consumer Law liability is *higher* for electrical than painting because work is safety-critical. Auto-send stays off in v1; even MED-confidence quotes go through tradie review
+  - Fault finding cannot be fixed-quoted — uses call-out + hourly diagnostic rate
+  - Switchboard work, EV chargers, anything with mains/underground cabling = always inspection-route
+  - Pre-1970 wiring may have asbestos in insulation — surface as a risk flag in Intake Engine
+  - Solar/EV interaction with switchboards requires three-phase awareness — ask the question at intake
+
+  **Operational reference:** the 9 job-flow question trees and pilot strategy live in `docs/build-guide.html` — they're operational artefacts, not strategy. This entry records the rationale only.
+
+- *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics, electrical multi-trade expansion to plumbing/HVAC).

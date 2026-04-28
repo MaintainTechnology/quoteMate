@@ -13,7 +13,7 @@ These were settled after substantive re-evaluation (see iteration history at the
 | Decision | What it means in practice |
 |---|---|
 | **Portal-first v1, not voice-first** | The AI receptionist (voice agent) is a v3+ premium tier. v1 is tradie-typed-intake on a portal. Voice has bad unit economics at SaaS price points (~$1,500/mo COGS per tradie at moderate call volume). |
-| **Painting (NSW) first, not plumbing/electrical** | Regulatory simplicity. Plumbing/electrical require per-state licensing display + supervised-trade rules from day 1; painting has none. |
+| **Electrical (NSW) first, not painting** | Pilot access dominates regulatory simplicity. v3 pivoted away from painting after operational electrical content (9 job-flow question trees, real AU electrician rates, considered "easy 5 vs hard 5" pilot strategy) signalled an actual electrician pilot relationship. License-display schema (per-state — NSW NECA, VIC ESV, QLD QBCC) is shipped Phase 1. See `docs/strategy.md` v3 entry for full rationale. |
 | **Four agents, not ten** | Quote Drafter, Quote Reviewer, Inspection Coordinator, Conversion Engine. Reception agent is reserved for v3. |
 | **Build the pricing book WITH the tradie** | Most owner-operators don't have a structured price list. Ship a base assembly library per trade (built by paid domain experts) and capture the tradie's overlay through guided onboarding. |
 | **Eval framework before prompt iteration** | 100 hold-out (intake → quote) pairs, scored by 5-dimension rubric. No prompt change ships without delta measurement. |
@@ -70,7 +70,7 @@ Don't add infrastructure speculatively — wait until the relevant phase begins.
 - **For strategy or product questions** — read `docs/strategy.md` first. It has the current thinking. The earlier chat-only analysis (recorded as v1 in the iteration history) is superseded.
 - **For visual context** — the assets in `assets/` are ground truth for the user-facing flow; both README and strategy doc reference them.
 - **When changing a "decisions that shape the work" entry** — append a new iteration entry to `docs/strategy.md` rather than editing the prior one in place. The history is the audit log.
-- **When in doubt about scope** — the v1 wedge is portal-first painting in NSW. If a proposed feature isn't needed for that, it likely belongs in v2 or v3, not v1.
+- **When in doubt about scope** — the v1 wedge is portal-first electrical in NSW, scoped to the "easy 5" job types (downlights, GPOs, ceiling fans, smoke alarms, outdoor/deck lighting). If a proposed feature isn't needed for those, it likely belongs in v2 or v3, not v1. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations are inspection-only routes — never auto-quoted in v1.
 - **After editing `docs/strategy.md`** — invoke the `strategy-reviewer` agent to catch any drift across README, CLAUDE.md, and the assets.
 
 ## Skills, agents, and commands toolkit

@@ -132,7 +132,7 @@ The build is planned in five phases over roughly six months to a paid launch wit
 | **4 — Conversion engine** (4 wks) | Availability nudge, SMS follow-up, calendar integration, basic CRM | +15% win-rate lift vs Phase 3 baseline |
 | **5 — Launch** | 50 tradies in the wedge segment, high-touch onboarding, second trade added | — |
 
-**Initial wedge:** plumbing OR electrical, residential, AU. Single trade keeps the pricing book + assembly library focused before going broad.
+**Initial wedge:** **electrical, NSW, residential.** Single trade keeps the pricing book + assembly library focused before going broad. v1 scope is the "easy 5" job types — downlights, GPOs, ceiling fans, smoke alarms, outdoor / deck lighting. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations are inspection-route only (never auto-quoted in v1). Per-state license display (NECA/ESV/QBCC) is shipped Phase 1. See [`docs/strategy.md`](docs/strategy.md) v3 entry for the rationale behind the painting → electrical pivot.
 
 ---
 

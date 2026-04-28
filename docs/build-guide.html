@@ -1,0 +1,2453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuoteMate — Automation Build Guide (Stages 01 → 05)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f5f5f5;
+      --bg-code: #f8f8f8;
+      --ink: #1a1a1a;
+      --ink-2: #2a2a2a;
+      --body: #4a4a4a;
+      --muted: #6b6b6b;
+      --line: #e0e0e0;
+      --line-strong: #cfcfcf;
+      --accent: #0066cc;
+      --accent-deep: #004999;
+      --warn-bg: #fff8e6;
+      --warn-line: #f0c75e;
+      --note-bg: #eef4fb;
+      --note-line: #b6cfe8;
+      --tip-bg: #ecf7ef;
+      --tip-line: #95cba2;
+      --skip-bg: #f4ecec;
+      --skip-line: #d6a5a5;
+
+      --stage-02: #ea580c;
+      --stage-03: #7c3aed;
+      --stage-04: #f59e0b;
+      --stage-05: #0891b2;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--body);
+      font-size: 17px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .container { max-width: 880px; margin: 0 auto; padding: 0 2rem; }
+    .container-wide { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+
+    /* ═══════════════ NAV ═══════════════ */
+    .nav {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 1.1rem 0;
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 800;
+      font-size: 1rem;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      background: var(--ink);
+      color: var(--bg);
+      display: grid;
+      place-items: center;
+      font-size: 0.75rem;
+      font-weight: 900;
+      border-radius: 5px;
+    }
+    .nav-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .nav-meta strong { color: var(--ink); font-weight: 700; }
+
+    /* ═══════════════ HERO ═══════════════ */
+    .hero {
+      padding: 7rem 0 5rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .hero-eyebrow {
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1.5rem;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 5.5vw, 3.8rem);
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 em {
+      font-style: normal;
+      color: var(--accent);
+    }
+    .hero-lede {
+      font-size: 1.2rem;
+      line-height: 1.55;
+      color: var(--body);
+      max-width: 680px;
+      margin-bottom: 2.5rem;
+    }
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--line);
+      font-size: 0.88rem;
+    }
+    .hero-meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+    .hero-meta-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .hero-meta-value { color: var(--ink); font-weight: 600; }
+
+    /* ═══════════════ INTRO ═══════════════ */
+    .intro {
+      padding: 5rem 0;
+      background: var(--bg-soft);
+      border-bottom: 1px solid var(--line);
+    }
+    .intro h2 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-bottom: 1.5rem;
+    }
+    .intro p { margin-bottom: 1.1rem; }
+    .intro p:last-child { margin-bottom: 0; }
+    .intro p strong { color: var(--ink); font-weight: 600; }
+
+    /* Pipeline diagram */
+    .pipeline {
+      margin: 3rem 0;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.8rem;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      padding: 2rem;
+      border-radius: 8px;
+    }
+    .p-step {
+      padding: 1rem 0.8rem;
+      border-radius: 6px;
+      background: var(--bg-soft);
+      border-top: 3px solid var(--ink);
+      position: relative;
+    }
+    .p-step:nth-child(2) { border-top-color: var(--stage-02); }
+    .p-step:nth-child(3) { border-top-color: var(--stage-03); }
+    .p-step:nth-child(4) { border-top-color: var(--stage-04); }
+    .p-step:nth-child(5) { border-top-color: var(--stage-05); }
+    .p-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.1em;
+    }
+    .p-name {
+      display: block;
+      font-weight: 700;
+      color: var(--ink);
+      font-size: 0.85rem;
+      margin: 0.4rem 0 0.3rem;
+      line-height: 1.25;
+    }
+    .p-desc {
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .scope-box {
+      margin-top: 2rem;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      padding: 1.8rem 2rem;
+      border-radius: 6px;
+    }
+    .scope-box-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+    }
+    .scope-box h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 0.6rem;
+    }
+    .scope-box ul { margin: 0.8rem 0 0 1.2rem; }
+    .scope-box li { margin-bottom: 0.4rem; font-size: 0.95rem; }
+
+    /* ═══════════════ TOC ═══════════════ */
+    .toc {
+      padding: 4rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .toc h2 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.015em;
+      margin-bottom: 2rem;
+    }
+    .toc-list { list-style: none; }
+    .toc-list li {
+      border-top: 1px solid var(--line);
+      padding: 1.1rem 0;
+      display: flex;
+      align-items: baseline;
+      gap: 1.2rem;
+    }
+    .toc-list li:last-child { border-bottom: 1px solid var(--line); }
+    .toc-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 500;
+      min-width: 2.5rem;
+    }
+    .toc-link {
+      color: var(--ink);
+      font-weight: 600;
+      font-size: 1.05rem;
+      text-decoration: none;
+      flex: 1;
+    }
+    .toc-link:hover { color: var(--accent); }
+    .toc-stage {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* ═══════════════ STEP SECTIONS ═══════════════ */
+    .step {
+      padding: 6rem 0 5rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .step:nth-of-type(even) { background: var(--bg-soft); }
+
+    .step-header {
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 2px solid var(--ink);
+    }
+    .step-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .step-num strong { color: var(--ink); font-weight: 700; }
+    .step-title {
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-bottom: 1rem;
+    }
+    .step-summary {
+      font-size: 1.1rem;
+      color: var(--body);
+      max-width: 720px;
+    }
+    .step h3 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 2.5rem 0 1rem;
+      letter-spacing: -0.01em;
+    }
+    .step h4 {
+      font-size: 1.08rem;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 1.8rem 0 0.7rem;
+    }
+    .step p { margin-bottom: 1.1rem; }
+    .step p strong { color: var(--ink); font-weight: 600; }
+    .step ul, .step ol { margin: 0.5rem 0 1.5rem 1.5rem; }
+    .step li { margin-bottom: 0.6rem; }
+    .step a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .step a:hover { color: var(--accent-deep); }
+
+    /* ═══════════════ TOOL BOX ═══════════════ */
+    .toolbox {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--ink);
+      padding: 1.8rem 2rem;
+      margin: 2rem 0;
+      border-radius: 6px;
+    }
+    .step:nth-of-type(even) .toolbox { background: var(--bg); }
+    .toolbox-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink);
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+    .toolbox-list { list-style: none; margin: 0 !important; }
+    .toolbox-list li {
+      padding: 0.55rem 0;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 1rem;
+      align-items: baseline;
+      flex-wrap: wrap;
+      margin-bottom: 0 !important;
+    }
+    .toolbox-list li:last-child { border-bottom: none; }
+    .tool-name {
+      font-weight: 700;
+      color: var(--ink);
+      min-width: 160px;
+    }
+    .tool-desc { color: var(--body); flex: 1; font-size: 0.95rem; }
+
+    /* ═══════════════ CALLOUTS ═══════════════ */
+    .callout {
+      padding: 1.4rem 1.6rem;
+      margin: 1.8rem 0;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+    }
+    .callout-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .callout p { margin-bottom: 0.7rem; }
+    .callout p:last-child { margin-bottom: 0; }
+    .callout.note { background: var(--note-bg); border-color: var(--note-line); }
+    .callout.note .callout-label { color: #1d4f8f; }
+    .callout.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+    .callout.warn .callout-label { color: #8a6310; }
+    .callout.tip { background: var(--tip-bg); border-color: var(--tip-line); }
+    .callout.tip .callout-label { color: #226d3a; }
+    .callout.skip { background: var(--skip-bg); border-color: var(--skip-line); }
+    .callout.skip .callout-label { color: #8a3a3a; }
+
+    /* ═══════════════ CODE ═══════════════ */
+    pre {
+      background: var(--ink);
+      color: #e8e8e8;
+      padding: 1.4rem 1.6rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1.5rem 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    pre .c { color: #8a8a8a; font-style: italic; }
+    pre .k { color: #ffb380; }
+    pre .s { color: #b8e6a0; }
+    pre .v { color: #a0c8ff; }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88em;
+      background: var(--bg-code);
+      color: var(--ink);
+      padding: 0.12em 0.4em;
+      border-radius: 3px;
+      border: 1px solid var(--line);
+    }
+    pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    /* ═══════════════ INSTRUCTION LIST ═══════════════ */
+    .instructions {
+      counter-reset: instr;
+      list-style: none;
+      margin: 1.5rem 0 !important;
+      padding: 0;
+    }
+    .instructions > li {
+      counter-increment: instr;
+      position: relative;
+      padding: 0 0 1.5rem 3rem;
+      margin: 0 0 0.5rem 0 !important;
+      border-left: 1px solid var(--line);
+      margin-left: 1rem !important;
+    }
+    .instructions > li:last-child { padding-bottom: 0; }
+    .instructions > li::before {
+      content: counter(instr);
+      position: absolute;
+      left: -1rem;
+      top: -0.1rem;
+      width: 2rem;
+      height: 2rem;
+      background: var(--ink);
+      color: var(--bg);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .instr-title {
+      font-weight: 700;
+      color: var(--ink);
+      font-size: 1rem;
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+
+    /* ═══════════════ COST TABLE ═══════════════ */
+    .cost-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.92rem;
+    }
+    .cost-table th, .cost-table td {
+      text-align: left;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .cost-table th {
+      background: var(--bg-soft);
+      font-weight: 700;
+      color: var(--ink);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .step:nth-of-type(even) .cost-table th { background: var(--bg); }
+    .cost-table td.right { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; }
+    .cost-table tr.total td { font-weight: 700; color: var(--ink); border-top: 2px solid var(--ink); border-bottom: none; }
+
+    /* ═══════════════ NEXT ═══════════════ */
+    .next {
+      padding: 6rem 0;
+      background: var(--ink);
+      color: #e8e8e8;
+    }
+    .next h2 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+    }
+    .next p { color: #c0c0c0; max-width: 700px; margin-bottom: 1.2rem; }
+    .next-list { list-style: none; margin: 2.5rem 0 0 0; padding: 0; }
+    .next-list li {
+      padding: 1.5rem 0;
+      border-top: 1px solid #333;
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 2rem;
+      align-items: baseline;
+    }
+    .next-list li:last-child { border-bottom: 1px solid #333; }
+    .next-num {
+      font-family: 'JetBrains Mono', monospace;
+      color: #888;
+      font-size: 0.85rem;
+    }
+    .next-title {
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.15rem;
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+    .next-desc { color: #b0b0b0; font-size: 0.95rem; }
+
+    .foot {
+      padding: 3rem 0;
+      border-top: 1px solid var(--line);
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @media (max-width: 720px) {
+      .container, .container-wide { padding: 0 1.25rem; }
+      .hero { padding: 4rem 0 3rem; }
+      .step { padding: 4rem 0 3rem; }
+      .hero-meta { flex-direction: column; gap: 1.2rem; }
+      .next-list li { grid-template-columns: 1fr; gap: 0.4rem; }
+      .pipeline { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════ NAV ═══════════════ -->
+  <nav class="nav">
+    <div class="container-wide nav-inner">
+      <a href="#" class="brand">
+        <span class="brand-mark">Q</span>
+        QuoteMate
+      </a>
+      <div class="nav-meta">
+        Automation Build Guide · <strong>Stages 01 → 05</strong>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══════════════ HERO ═══════════════ -->
+  <header class="hero">
+    <div class="container">
+      <span class="hero-eyebrow">Beginner Guide · Voice Automation Pipeline</span>
+      <h1>From the moment a customer dials, to a fully <em>drafted quote</em>.</h1>
+      <p class="hero-lede">
+        A step-by-step walkthrough for building the <strong>QuoteMate automation pipeline</strong> — the part that picks up an inbound phone call, has an AI conversation with the caller, structures what was said, and produces a real quote. Stages <strong>01 through 05</strong> of the wireframe, in plain English.
+      </p>
+      <div class="hero-meta">
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Audience</span>
+          <span class="hero-meta-value">Beginner / first-time builder</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">End state</span>
+          <span class="hero-meta-value">Phone rings → AI drafts a quote</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Stack</span>
+          <span class="hero-meta-value">Twilio · Vapi · Claude · Supabase</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════ INTRO ═══════════════ -->
+  <section class="intro">
+    <div class="container">
+      <h2>What we're building, in one paragraph.</h2>
+      <p>
+        A homeowner picks up the phone and calls a tradie's QuoteMate-provisioned number. <strong>An AI receptionist answers.</strong> It has a natural conversation: "What kind of job?" → "Where?" → "When?" → asks for photos via SMS if helpful. The conversation ends. A second AI <strong>structures everything that was said</strong> into clean fields — measurements, scope, risks, confidence score. A third AI <strong>looks up assemblies and prices</strong> and writes a draft quote with line items and exclusions.
+      </p>
+      <p>
+        That's the pipeline. The tradie doesn't even need to be near their phone for any of this to happen.
+      </p>
+
+      <div class="pipeline">
+        <div class="p-step">
+          <span class="p-num">01</span>
+          <span class="p-name">Customer / Homeowner</span>
+          <span class="p-desc">A homeowner has a job and reaches for their phone.</span>
+        </div>
+        <div class="p-step">
+          <span class="p-num">02</span>
+          <span class="p-name">Calls dedicated AI number</span>
+          <span class="p-desc">Twilio AU number routes the call to your AI.</span>
+        </div>
+        <div class="p-step">
+          <span class="p-num">03</span>
+          <span class="p-name">AI Receptionist</span>
+          <span class="p-desc">Vapi + Deepgram + ElevenLabs + Claude have a natural conversation.</span>
+        </div>
+        <div class="p-step">
+          <span class="p-num">04</span>
+          <span class="p-name">Intake Engine</span>
+          <span class="p-desc">Claude Sonnet structures the transcript into clean fields.</span>
+        </div>
+        <div class="p-step">
+          <span class="p-num">05</span>
+          <span class="p-name">Estimation Engine</span>
+          <span class="p-desc">Claude Opus writes a draft quote using tools + a pricing book.</span>
+        </div>
+      </div>
+
+      <div class="scope-box">
+        <div class="scope-box-label">In scope · This guide</div>
+        <h3>The five stages from the wireframe.</h3>
+        <ul>
+          <li>Provisioning the Australian phone number (Stage 02)</li>
+          <li>Building the voice agent that answers it (Stage 03)</li>
+          <li>Building the engine that structures what the caller said (Stage 04)</li>
+          <li>Building the engine that drafts the quote (Stage 05)</li>
+        </ul>
+      </div>
+
+      <div class="callout skip" style="margin-top: 1.5rem;">
+        <div class="callout-label">Out of scope · Not in this guide</div>
+        <p>The <strong>tradie portal, customer-facing quote view, payment flow, Stripe Connect, follow-up SMS, and calendar booking</strong> are stages 06 → 10 of the wireframe. Once you have a quote being drafted at the end of stage 05, you'll know what data the rest needs — those become a separate guide.</p>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-label">Honest cost warning</div>
+        <p>This pipeline is <strong>voice-first</strong>. Voice AI is significantly more expensive than typed-input AI. A 4-minute call costs roughly <strong>$0.50–$1.00</strong> in third-party fees (Twilio + Vapi + Deepgram + ElevenLabs + Claude). At 30 calls/day, that's $450–$900 per month per tradie just in API costs. See the cost table in Step 2 before you commit.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ PILOT STRATEGY ═══════════════ -->
+  <section class="step" id="pilot-strategy">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Strategy · <strong>What to scope first</strong></div>
+        <h2 class="step-title">Pilot scope — auto-quote vs inspection-only.</h2>
+        <p class="step-summary">v1 ships against <strong>5 bounded electrical job types</strong> where photos + structured intake are sufficient to draft a quote. The other 4 always trigger a paid site inspection — they're safety-critical or load-dependent and cannot be auto-quoted.</p>
+      </header>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 2rem 0;">
+        <div style="padding: 1.5rem; border: 1px solid #d1fae5; border-left: 4px solid #16a34a; background: #f0fdf4; border-radius: 4px;">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; margin-bottom: 0.75rem;">v1 · Auto-quote candidates</div>
+          <ol style="margin-left: 1.25rem; line-height: 1.8;">
+            <li>Downlights / lighting</li>
+            <li>Power points (GPOs)</li>
+            <li>Ceiling fans</li>
+            <li>Smoke alarms</li>
+            <li>Outdoor / deck lighting</li>
+          </ol>
+          <p style="font-size: 0.85rem; color: #065f46; margin-top: 1rem; line-height: 1.55;">Bounded scope · predictable materials · customer photos sufficient. Still go through tradie review in v1 — auto-send is off until the eval framework proves accuracy.</p>
+        </div>
+
+        <div style="padding: 1.5rem; border: 1px solid #fee2e2; border-left: 4px solid #dc2626; background: #fef2f2; border-radius: 4px;">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700; margin-bottom: 0.75rem;">v1 · Inspection-only routes</div>
+          <ol style="margin-left: 1.25rem; line-height: 1.8;">
+            <li>Switchboard work</li>
+            <li>Fault finding</li>
+            <li>EV chargers</li>
+            <li>Underground cabling</li>
+            <li>Complex renovations (multi-trade / mains)</li>
+          </ol>
+          <p style="font-size: 0.85rem; color: #991b1b; margin-top: 1rem; line-height: 1.55;">Hidden state can't be photographed. Surface as indicative range only and trigger the $199 paid site visit.</p>
+        </div>
+      </div>
+
+      <div class="callout note">
+        <div class="callout-label">Why split this way</div>
+        <ul>
+          <li><strong>Photos plus structured Q&amp;A are sufficient</strong> for the easy 5 — the customer can show "the area" and the AI can ask the 6–8 questions that bound the job</li>
+          <li><strong>Hidden state can't be photographed</strong> for the hard 5 — switchboard internals, cable runs in walls, fault root cause, EV load on existing supply</li>
+          <li><strong>Australian Consumer Law</strong> treats accepted quotes as binding contracts. Auto-quoting safety-critical work that turns out wrong creates personal liability for the licensed electrician</li>
+          <li><strong>The $199 inspection fee</strong> filters tire-kickers AND pays for the trip when the job doesn't convert — turns a cost into a revenue line</li>
+        </ul>
+      </div>
+
+      <p style="margin-top: 1.5rem; font-size: 0.9rem; color: var(--muted);">The 9 detailed job-flow question trees and Good / Better / Best logic are at the bottom of this page — see <a href="#job-flow-library">Job Flow Library</a>. They feed directly into the Vapi system prompt's question routing (Step 6) and the Estimator's lookup logic (Step 8).</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ TOC ═══════════════ -->
+  <section class="toc">
+    <div class="container">
+      <h2>The 9 steps.</h2>
+      <ol class="toc-list">
+        <li><span class="toc-num">01</span><a href="#step-1" class="toc-link">Set up your laptop</a><span class="toc-stage">Foundation</span></li>
+        <li><span class="toc-num">02</span><a href="#step-2" class="toc-link">Create the accounts you need</a><span class="toc-stage">Foundation</span></li>
+        <li><span class="toc-num">03</span><a href="#step-3" class="toc-link">Provision your AU phone number</a><span class="toc-stage">Stage 02</span></li>
+        <li><span class="toc-num">04</span><a href="#step-4" class="toc-link">Set up the backend skeleton</a><span class="toc-stage">Foundation</span></li>
+        <li><span class="toc-num">05</span><a href="#step-5" class="toc-link">Set up the database</a><span class="toc-stage">Foundation</span></li>
+        <li><span class="toc-num">06</span><a href="#step-6" class="toc-link">Build the AI Receptionist (Vapi)</a><span class="toc-stage">Stage 03</span></li>
+        <li><span class="toc-num">07</span><a href="#step-7" class="toc-link">Build the Intake Engine</a><span class="toc-stage">Stage 04</span></li>
+        <li><span class="toc-num">08</span><a href="#step-8" class="toc-link">Build the Estimation Engine</a><span class="toc-stage">Stage 05</span></li>
+        <li><span class="toc-num">09</span><a href="#step-9" class="toc-link">Test the full pipeline end to end</a><span class="toc-stage">Verify</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 1 ═══════════════ -->
+  <section class="step" id="step-1">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 01 · <strong>Foundation</strong></div>
+        <h2 class="step-title">Set up your laptop.</h2>
+        <p class="step-summary">Install the small handful of programs you need before you can write a single line of code or call any API. One-time setup.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>You'll need a code editor, a way to run JavaScript on your computer, a way to track changes, and a way to install third-party libraries. The pipeline lives in code — without these basics, none of it can be built or deployed.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools to install</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Node.js (LTS)</span><span class="tool-desc">Runs JavaScript on your computer. <a href="https://nodejs.org/">nodejs.org</a></span></li>
+          <li><span class="tool-name">pnpm</span><span class="tool-desc">A faster, tidier alternative to npm. <a href="https://pnpm.io/installation">pnpm.io</a></span></li>
+          <li><span class="tool-name">Git</span><span class="tool-desc">Tracks every change you make to your code. <a href="https://git-scm.com/">git-scm.com</a></span></li>
+          <li><span class="tool-name">VS Code</span><span class="tool-desc">The most common code editor for web devs. <a href="https://code.visualstudio.com/">code.visualstudio.com</a></span></li>
+          <li><span class="tool-name">ngrok</span><span class="tool-desc">Lets external services (Twilio, Vapi) call back to your laptop while developing. <a href="https://ngrok.com/">ngrok.com</a></span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Install Node.js</span>
+          Download the LTS installer from <a href="https://nodejs.org/">nodejs.org</a>. Run it. Then verify in a terminal:
+          <pre><code>node --version
+<span class="c"># should print v20.x.x or v22.x.x</span></code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Install pnpm</span>
+          <pre><code>npm install -g pnpm
+pnpm --version</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Install Git and configure your identity</span>
+          <pre><code>git config --global user.name "Your Name"
+git config --global user.email "you@example.com"</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Install VS Code</span>
+          From <a href="https://code.visualstudio.com/">code.visualstudio.com</a>. Open it once after install.
+        </li>
+        <li>
+          <span class="instr-title">Install ngrok</span>
+          Sign up at <a href="https://ngrok.com/">ngrok.com</a>, download the binary, and run <code>ngrok config add-authtoken YOUR_TOKEN</code>. You'll need this in Step 6 — Twilio and Vapi need a public URL to send webhooks to, and your laptop doesn't have one. ngrok creates a temporary public URL that tunnels to your local machine.
+        </li>
+      </ol>
+
+      <div class="callout tip">
+        <div class="callout-label">Tip</div>
+        <p>If a command "isn't recognised" after installing — close your terminal completely and open a fresh one. New programs only appear in terminals opened <em>after</em> the install finishes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 2 ═══════════════ -->
+  <section class="step" id="step-2">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 02 · <strong>Foundation</strong></div>
+        <h2 class="step-title">Create the accounts you need.</h2>
+        <p class="step-summary">Six service accounts. The voice pipeline depends on more vendors than a typed-input app does — that's the cost of voice. All have free tiers or pay-as-you-go.</p>
+      </header>
+
+      <h3>Why so many?</h3>
+      <p>Each service does exactly one thing well, and they connect together. <strong>Twilio</strong> owns the phone number. <strong>Vapi</strong> orchestrates the live conversation. <strong>Deepgram</strong> turns speech into text. <strong>ElevenLabs</strong> turns text into a natural-sounding voice. <strong>Anthropic</strong> provides the Claude AI brain. <strong>Supabase</strong> stores everything. Vapi can wrap Deepgram and ElevenLabs for you, but you still create accounts so you control the keys and the bills.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Accounts to create</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Twilio</span><span class="tool-desc">Phone numbers + SMS in Australia. <a href="https://www.twilio.com/try-twilio">twilio.com/try-twilio</a></span></li>
+          <li><span class="tool-name">Vapi</span><span class="tool-desc">Voice AI orchestration — the platform that runs the live call. <a href="https://vapi.ai/">vapi.ai</a></span></li>
+          <li><span class="tool-name">Deepgram</span><span class="tool-desc">Speech-to-text (STT). <a href="https://console.deepgram.com/signup">deepgram.com</a></span></li>
+          <li><span class="tool-name">ElevenLabs</span><span class="tool-desc">Text-to-speech (TTS) — the voice the caller hears. <a href="https://elevenlabs.io/">elevenlabs.io</a></span></li>
+          <li><span class="tool-name">Anthropic</span><span class="tool-desc">Claude AI — used for routing decisions, intake structuring, and quote drafting. <a href="https://console.anthropic.com/">console.anthropic.com</a></span></li>
+          <li><span class="tool-name">Supabase</span><span class="tool-desc">Postgres database (with pgvector) for assemblies, prices, intakes, quotes. <a href="https://supabase.com/dashboard/sign-up">supabase.com</a></span></li>
+          <li><span class="tool-name">Vercel</span><span class="tool-desc">Hosts the backend webhooks that receive call data. <a href="https://vercel.com/signup">vercel.com</a></span></li>
+        </ul>
+      </div>
+
+      <h3>Realistic running costs (per call)</h3>
+      <p>Estimates for a 4-minute call to the AI receptionist that produces one drafted quote:</p>
+      <table class="cost-table">
+        <thead>
+          <tr><th>Service</th><th>What you pay for</th><th class="right">Cost / call</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Twilio AU number</td><td>Inbound minutes (~$0.02 / min)</td><td class="right">~$0.08</td></tr>
+          <tr><td>Vapi</td><td>Orchestration (~$0.05 / min)</td><td class="right">~$0.20</td></tr>
+          <tr><td>Deepgram (STT)</td><td>Live transcription</td><td class="right">~$0.02</td></tr>
+          <tr><td>ElevenLabs (TTS)</td><td>Synthesised voice output</td><td class="right">~$0.10–0.30</td></tr>
+          <tr><td>Claude Haiku (routing)</td><td>In-call decisions</td><td class="right">~$0.01</td></tr>
+          <tr><td>Claude Sonnet (intake)</td><td>Structuring the transcript</td><td class="right">~$0.02</td></tr>
+          <tr><td>Claude Opus (estimation)</td><td>Drafting the quote</td><td class="right">~$0.05–0.10</td></tr>
+          <tr class="total"><td>Total</td><td>Per completed call → quote</td><td class="right">~$0.50–0.75</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Sign up for Twilio</span>
+          At <a href="https://www.twilio.com/try-twilio">twilio.com/try-twilio</a>. Add a credit card — you'll need it to buy an Australian phone number in Step 3 (around $1/month).
+        </li>
+        <li>
+          <span class="instr-title">Sign up for Vapi</span>
+          At <a href="https://vapi.ai/">vapi.ai</a>. Vapi gives you ~$10 of free credit to start — enough for ~50 test calls.
+        </li>
+        <li>
+          <span class="instr-title">Sign up for Deepgram</span>
+          At <a href="https://console.deepgram.com/signup">deepgram.com</a>. Generous free tier ($200 of credit).
+        </li>
+        <li>
+          <span class="instr-title">Sign up for ElevenLabs</span>
+          At <a href="https://elevenlabs.io/">elevenlabs.io</a>. Free tier covers ~10K characters/month — plenty for testing.
+        </li>
+        <li>
+          <span class="instr-title">Sign up for Anthropic and add a payment method</span>
+          At <a href="https://console.anthropic.com/">console.anthropic.com</a>. Add a card. Set a monthly spend limit of $20 while learning.
+        </li>
+        <li>
+          <span class="instr-title">Generate API keys for each service</span>
+          For each of Vapi, Deepgram, ElevenLabs, Anthropic — go to their dashboard, find "API Keys", create one, and save it somewhere safe (a password manager is ideal). Twilio uses an "Account SID" + "Auth Token" instead of an API key — find those in the Twilio Console home page. We'll plug all of these into env vars in Step 4.
+        </li>
+        <li>
+          <span class="instr-title">Sign up for Supabase + Vercel using GitHub</span>
+          At <a href="https://supabase.com/">supabase.com</a> and <a href="https://vercel.com/signup">vercel.com/signup</a>. Use "Continue with GitHub" for both.
+        </li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Never commit API keys</div>
+        <p>You'll soon have ~7 different API keys floating around. Store them all in a single <code>.env.local</code> file at your project root — Git ignores it by default. If you ever publish a key by accident, immediately revoke it in the relevant dashboard and create a new one.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 3 ═══════════════ -->
+  <section class="step" id="step-3">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 03 · <strong>Stage 02 — Calls dedicated AI number</strong></div>
+        <h2 class="step-title">Provision your Australian phone number.</h2>
+        <p class="step-summary">Buy a real AU phone number through Twilio. This is the number a homeowner will dial. Later, we'll point it at the AI receptionist.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>This is <strong>Stage 02 of the wireframe</strong>: "Calls dedicated AI phone number". Without a real phone number, there's no call to receive. Twilio is the project's chosen provider because it has good Australian local-number coverage, sensible pricing, and works with every voice AI orchestrator including Vapi.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Twilio Console</span><span class="tool-desc">Web dashboard at <a href="https://console.twilio.com/">console.twilio.com</a></span></li>
+          <li><span class="tool-name">Twilio AU local number</span><span class="tool-desc">~$1/month + per-minute charges</span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Verify your identity in Twilio</span>
+          To buy an Australian number, Twilio requires identity verification (it's a regulator requirement, not Twilio's choice). In the Console, go to <strong>Phone Numbers → Regulatory Compliance → Bundles</strong>, pick "Australia", and submit ID + a local address. Approval takes 1–3 business days.
+        </li>
+        <li>
+          <span class="instr-title">Buy an AU local number</span>
+          Once approved, go to <strong>Phone Numbers → Buy a number</strong>. Filter by Country = Australia. Pick a number from a city (Sydney, Melbourne, etc.) — local numbers feel more trustworthy to homeowners than 1300 numbers. Tick "Voice" capability. Click <strong>Buy</strong> (~AU$1.50/month).
+        </li>
+        <li>
+          <span class="instr-title">Note your credentials</span>
+          From the Twilio Console homepage, copy:
+          <ul>
+            <li><strong>Account SID</strong> — starts with <code>AC...</code></li>
+            <li><strong>Auth Token</strong> — click "show" to reveal</li>
+            <li><strong>Phone number</strong> — the one you just bought, in <code>+61...</code> format</li>
+          </ul>
+          Save these somewhere safe. They go into <code>.env.local</code> in Step 4.
+        </li>
+        <li>
+          <span class="instr-title">Test that it rings</span>
+          From your mobile, dial the new number. It should ring and Twilio's default voice will say "Hello, this is your Twilio number." That's all we need for now — in Step 6 we'll point it at Vapi instead.
+        </li>
+      </ol>
+
+      <div class="callout note">
+        <div class="callout-label">Why a local number, not 1300?</div>
+        <p>Homeowners are more likely to answer calls from local mobile or landline numbers. 1300 numbers feel like marketing or call-centre traffic. The wireframe specifies "AU long code" — that's industry shorthand for "regular Australian local phone number" (as opposed to short codes used for high-volume SMS).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 4 ═══════════════ -->
+  <section class="step" id="step-4">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 04 · <strong>Foundation</strong></div>
+        <h2 class="step-title">Set up the backend skeleton.</h2>
+        <p class="step-summary">Create a minimal Next.js project. It exists only to host the API endpoints that Vapi and Twilio call into. No UI yet — pure backend.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>The voice agent (Vapi) needs somewhere to send the call transcript when the conversation ends. The Intake Engine and Estimation Engine need to live somewhere too. We use Next.js because it gives us API routes + automatic deployment to Vercel out of the box — the cheapest, fastest way to host webhook endpoints.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Next.js (App Router)</span><span class="tool-desc">Just for its API routes. <a href="https://nextjs.org/">nextjs.org</a></span></li>
+          <li><span class="tool-name">TypeScript</span><span class="tool-desc">Catches bugs before they ship.</span></li>
+          <li><span class="tool-name">Vercel</span><span class="tool-desc">Free hosting for the API endpoints.</span></li>
+          <li><span class="tool-name">Vercel AI SDK</span><span class="tool-desc">Unified interface for calling Claude. <a href="https://sdk.vercel.ai/">sdk.vercel.ai</a></span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Generate the project</span>
+          In your terminal:
+          <pre><code>pnpm create next-app@latest quotemate-automation</code></pre>
+          Answer: TypeScript yes, ESLint yes, Tailwind no (we don't need a UI), src/ no, App Router yes, Turbopack yes.
+        </li>
+        <li>
+          <span class="instr-title">Open it and run it</span>
+          <pre><code>cd quotemate-automation
+code .
+pnpm dev</code></pre>
+          Visit <a href="http://localhost:3000">localhost:3000</a>. Default page loads. Backend is alive.
+        </li>
+        <li>
+          <span class="instr-title">Install the libraries you'll need</span>
+          <pre><code>pnpm add ai @ai-sdk/anthropic zod twilio @supabase/supabase-js</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Create your env file</span>
+          In the project root, create <code>.env.local</code> and paste in every key from Step 2 + Step 3:
+          <pre><code><span class="c"># Twilio</span>
+<span class="v">TWILIO_ACCOUNT_SID</span>=AC...
+<span class="v">TWILIO_AUTH_TOKEN</span>=...
+<span class="v">TWILIO_PHONE_NUMBER</span>=+61...
+
+<span class="c"># Vapi</span>
+<span class="v">VAPI_API_KEY</span>=...
+<span class="v">VAPI_WEBHOOK_SECRET</span>=...
+
+<span class="c"># Voice services</span>
+<span class="v">DEEPGRAM_API_KEY</span>=...
+<span class="v">ELEVENLABS_API_KEY</span>=...
+
+<span class="c"># Claude</span>
+<span class="v">ANTHROPIC_API_KEY</span>=sk-ant-...
+
+<span class="c"># Supabase (filled in Step 5)</span>
+<span class="v">NEXT_PUBLIC_SUPABASE_URL</span>=
+<span class="v">NEXT_PUBLIC_SUPABASE_ANON_KEY</span>=
+<span class="v">SUPABASE_SERVICE_ROLE_KEY</span>=</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Push to GitHub and connect to Vercel</span>
+          <pre><code>git init
+git add .
+git commit -m "Initial automation backend skeleton"</code></pre>
+          Create a GitHub repo called <code>quotemate-automation</code>, push to it, then go to <a href="https://vercel.com/new">vercel.com/new</a> and import the repo. After deploy, copy <strong>every env var from <code>.env.local</code></strong> into Vercel → Settings → Environment Variables. Without this, the deployed version can't talk to anything.
+        </li>
+        <li>
+          <span class="instr-title">Start ngrok in a second terminal</span>
+          For local development, Twilio and Vapi need a public URL pointing to your laptop. Open a new terminal:
+          <pre><code>ngrok http 3000</code></pre>
+          Copy the <code>https://abc123.ngrok.app</code> URL ngrok prints. We'll use it as the webhook target in Step 6.
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 5 ═══════════════ -->
+  <section class="step" id="step-5">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 05 · <strong>Foundation</strong></div>
+        <h2 class="step-title">Set up the database.</h2>
+        <p class="step-summary">Create a Supabase project, turn on the pgvector extension (needed for similar-job lookup in Stage 04), and create the small handful of tables the pipeline writes into.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>The Intake Engine needs to <strong>find similar past jobs</strong> using vector similarity (the wireframe Stage 04 spec). The Estimation Engine needs to <strong>read assemblies and prices</strong> (Stage 05). Both write their results to the database. Postgres + pgvector via Supabase is the project's chosen combination.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Supabase project</span><span class="tool-desc">Managed Postgres + storage. <a href="https://supabase.com/">supabase.com</a></span></li>
+          <li><span class="tool-name">pgvector extension</span><span class="tool-desc">Lets Postgres store and search vector embeddings. Built into Supabase — just toggle it on.</span></li>
+          <li><span class="tool-name">Supabase SQL Editor</span><span class="tool-desc">Run SQL right in your browser.</span></li>
+        </ul>
+      </div>
+
+      <h3>The tables, in plain English</h3>
+      <ul>
+        <li><strong>shared_assemblies</strong> — the electrical assembly library (e.g. "install LED downlight", "replace double GPO", "hardwire smoke alarm"). Read by Estimation Engine.</li>
+        <li><strong>shared_materials</strong> — downlights, GPOs, smoke alarms, fans, RCBOs, cabling, sundries with default prices. Read by Estimation Engine.</li>
+        <li><strong>pricing_book</strong> — the tradie's hourly rate, markup %, custom prices. Read by Estimation Engine.</li>
+        <li><strong>calls</strong> — one row per inbound call. Stores the Vapi call ID, transcript, audio URL.</li>
+        <li><strong>intakes</strong> — the structured output of Stage 04. JSON fields + an embedding for similarity search.</li>
+        <li><strong>quotes</strong> — the draft quote produced by Stage 05.</li>
+        <li><strong>quote_line_items</strong> — the line items inside a quote.</li>
+      </ul>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Create a Supabase project</span>
+          In the Supabase dashboard, click "New project". Name it <code>quotemate-automation-dev</code>, set a strong DB password (save it), pick the closest region. Wait ~2 minutes for provisioning.
+        </li>
+        <li>
+          <span class="instr-title">Copy your URL and keys into <code>.env.local</code></span>
+          Project Settings → API. Paste <code>Project URL</code>, <code>anon public</code>, and <code>service_role</code> into the empty Supabase slots in your <code>.env.local</code> from Step 4. Add the same three to Vercel.
+        </li>
+        <li>
+          <span class="instr-title">Enable the pgvector extension</span>
+          Database → Extensions → search "vector" → toggle on. This is what lets Stage 04 find similar past jobs.
+        </li>
+        <li>
+          <span class="instr-title">Create the library tables</span>
+          SQL Editor → New query → paste and run:
+          <pre><code><span class="k">create table</span> shared_assemblies (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  trade <span class="k">text not null default</span> <span class="s">'electrical'</span>,
+  name <span class="k">text not null</span>,
+  description <span class="k">text</span>,
+  default_unit <span class="k">text</span>,
+  default_unit_price_ex_gst <span class="k">numeric</span>(10,2),
+  default_labour_hours <span class="k">numeric</span>(6,2),
+  default_exclusions <span class="k">text</span>
+);
+
+<span class="k">create table</span> shared_materials (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  trade <span class="k">text not null default</span> <span class="s">'electrical'</span>,
+  name <span class="k">text not null</span>,
+  brand <span class="k">text</span>,
+  unit <span class="k">text</span>,
+  default_unit_price_ex_gst <span class="k">numeric</span>(10,2)
+);
+
+<span class="k">create table</span> pricing_book (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  hourly_rate <span class="k">numeric</span>(8,2) <span class="k">default</span> 110,                 <span class="c">-- AU sparky band $90–$130/hr</span>
+  call_out_minimum <span class="k">numeric</span>(8,2) <span class="k">default</span> 150,           <span class="c">-- $120–$180 typical</span>
+  apprentice_rate <span class="k">numeric</span>(8,2) <span class="k">default</span> 60,             <span class="c">-- $45–$75/hr if needed</span>
+  default_markup_pct <span class="k">numeric</span>(5,2) <span class="k">default</span> 28,           <span class="c">-- 20–35% on materials</span>
+  risk_buffer_pct <span class="k">numeric</span>(5,2) <span class="k">default</span> 15,              <span class="c">-- 10–20% for unknown access</span>
+  gst_registered <span class="k">boolean default true</span>,
+  licence_type <span class="k">text</span>,                                  <span class="c">-- e.g. 'NECA', 'ESV', 'QBCC'</span>
+  licence_number <span class="k">text</span>,
+  licence_state <span class="k">text</span>,                                 <span class="c">-- 'NSW', 'VIC', 'QLD' etc.</span>
+  licence_expiry <span class="k">date</span>,
+  overlays <span class="k">jsonb default</span> <span class="s">'{}'</span>::jsonb
+);</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Create the pipeline tables</span>
+          <pre><code><span class="k">create table</span> calls (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  vapi_call_id <span class="k">text unique</span>,
+  caller_number <span class="k">text</span>,
+  duration_seconds <span class="k">int</span>,
+  transcript <span class="k">text</span>,
+  recording_url <span class="k">text</span>,
+  photo_urls <span class="k">jsonb default</span> <span class="s">'[]'</span>::jsonb,
+  ended_at <span class="k">timestamptz</span>,
+  created_at <span class="k">timestamptz default now</span>()
+);
+
+<span class="k">create table</span> intakes (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  call_id <span class="k">uuid references</span> calls(id) <span class="k">on delete cascade</span>,
+  job_type <span class="k">text</span>,                                          <span class="c">-- enum: downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting, switchboard, oven_cooktop, ev_charger, fault_finding, renovation, other</span>
+  address <span class="k">text</span>,
+  suburb <span class="k">text</span>,
+  scope <span class="k">jsonb</span>,                                            <span class="c">-- { item_count, is_new_install, existing_wiring, indoor_outdoor, description }</span>
+  access <span class="k">jsonb</span>,                                           <span class="c">-- { roof_access, ceiling_type, wall_type, notes }</span>
+  property <span class="k">jsonb</span>,                                         <span class="c">-- { bedrooms, levels, pre_1970, has_solar, phase }</span>
+  risks <span class="k">jsonb</span>,                                            <span class="c">-- e.g. ['burning smell', 'ceramic-fuse switchboard', 'water damage near fixture']</span>
+  inspection_required <span class="k">boolean default false</span>,                <span class="c">-- true for switchboard / fault_finding / ev_charger / renovation / mains</span>
+  caller <span class="k">jsonb</span>,                                           <span class="c">-- { name, phone, email }</span>
+  timing <span class="k">jsonb</span>,                                           <span class="c">-- { urgency, preferred_date }</span>
+  confidence <span class="k">text</span>,                                        <span class="c">-- LOW / MEDIUM / HIGH</span>
+  confidence_reason <span class="k">text</span>,
+  embedding <span class="k">vector</span>(1536),
+  created_at <span class="k">timestamptz default now</span>()
+);
+
+<span class="k">create table</span> quotes (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  intake_id <span class="k">uuid references</span> intakes(id) <span class="k">on delete cascade</span>,
+  status <span class="k">text default</span> <span class="s">'draft'</span>,                       <span class="c">-- draft | sent | accepted | declined | expired</span>
+
+  <span class="c">-- Top-level explanatory fields (from Estimator output)</span>
+  scope_of_works <span class="k">text</span>,                                  <span class="c">-- plain-English summary</span>
+  assumptions <span class="k">jsonb default</span> <span class="s">'[]'</span>::jsonb,
+  risk_flags <span class="k">jsonb default</span> <span class="s">'[]'</span>::jsonb,
+
+  <span class="c">-- Three pricing tiers, each storing { label, line_items[], subtotal_ex_gst, timeframe }</span>
+  good <span class="k">jsonb</span>,
+  better <span class="k">jsonb</span>,
+  best <span class="k">jsonb</span>,
+
+  optional_upsells <span class="k">jsonb default</span> <span class="s">'[]'</span>::jsonb,
+  estimated_timeframe <span class="k">text</span>,
+  needs_inspection <span class="k">boolean default false</span>,
+  inspection_reason <span class="k">text</span>,
+  gst_note <span class="k">text</span>,
+
+  <span class="c">-- The tier the customer ultimately picks (default 'better' for portal display)</span>
+  selected_tier <span class="k">text default</span> <span class="s">'better'</span>,                 <span class="c">-- good | better | best</span>
+  subtotal_ex_gst <span class="k">numeric</span>(12,2),                          <span class="c">-- of the selected tier</span>
+  gst <span class="k">numeric</span>(12,2),
+  total_inc_gst <span class="k">numeric</span>(12,2),
+
+  created_at <span class="k">timestamptz default now</span>(),
+  sent_at <span class="k">timestamptz</span>,
+  accepted_at <span class="k">timestamptz</span>
+);
+
+<span class="c">-- Line items live inside the good/better/best JSONB on quotes.</span>
+<span class="c">-- This table is optional — only used to materialise the selected tier's items</span>
+<span class="c">-- for invoicing / job-card generation after the customer accepts.</span>
+<span class="k">create table</span> quote_line_items (
+  id <span class="k">uuid primary key default</span> gen_random_uuid(),
+  quote_id <span class="k">uuid references</span> quotes(id) <span class="k">on delete cascade</span>,
+  tier <span class="k">text not null</span>,                                    <span class="c">-- which tier this came from</span>
+  description <span class="k">text not null</span>,
+  quantity <span class="k">numeric</span>(10,2),
+  unit <span class="k">text</span>,                                              <span class="c">-- 'each' | 'hr' | 'lm'</span>
+  unit_price_ex_gst <span class="k">numeric</span>(10,2),
+  total_ex_gst <span class="k">numeric</span>(12,2),
+  source <span class="k">text</span>                                              <span class="c">-- 'assembly:UUID' | 'material:UUID' | 'labour' | 'callout'</span>
+);</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Create the similarity-search function</span>
+          This is what Stage 04 will use to find the 5 most similar past intakes:
+          <pre><code><span class="k">create or replace function</span> match_intakes(
+  query_embedding <span class="k">vector</span>(1536),
+  match_count <span class="k">int default</span> 5
+)
+<span class="k">returns table</span> (id <span class="k">uuid</span>, scope <span class="k">jsonb</span>, similarity <span class="k">float</span>)
+<span class="k">language</span> sql <span class="k">stable as</span> $$
+  <span class="k">select</span> id, scope, 1 - (embedding &lt;=&gt; query_embedding) <span class="k">as</span> similarity
+  <span class="k">from</span> intakes
+  <span class="k">where</span> embedding <span class="k">is not null</span>
+  <span class="k">order by</span> embedding &lt;=&gt; query_embedding
+  <span class="k">limit</span> match_count;
+$$;</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Seed the "easy 5" electrical assemblies + a default pricing book row</span>
+          <pre><code><span class="c">-- One assembly per "easy 5" job type — covers v1 auto-quote scope</span>
+<span class="k">insert into</span> shared_assemblies (trade, name, description, default_unit, default_unit_price_ex_gst, default_labour_hours, default_exclusions)
+<span class="k">values</span>
+  (<span class="s">'electrical'</span>, <span class="s">'Install LED downlight'</span>,                  <span class="s">'Cut hole, terminate, fit fixture, test'</span>,                  <span class="s">'each'</span>, 28.00, 0.40, <span class="s">'Excludes new wiring runs and ceiling repair'</span>),
+  (<span class="s">'electrical'</span>, <span class="s">'Replace double GPO'</span>,                    <span class="s">'Disconnect, remove old, fit new, test'</span>,                   <span class="s">'each'</span>, 22.00, 0.30, <span class="s">'Excludes new circuit work'</span>),
+  (<span class="s">'electrical'</span>, <span class="s">'Install customer-supplied ceiling fan'</span>,  <span class="s">'Mount, terminate to existing wiring, test'</span>,               <span class="s">'each'</span>, 35.00, 1.00, <span class="s">'Excludes ceiling reinforcement and supply of fan'</span>),
+  (<span class="s">'electrical'</span>, <span class="s">'Hardwire 240V smoke alarm'</span>,             <span class="s">'Mount, terminate, test interconnect'</span>,                     <span class="s">'each'</span>, 30.00, 0.50, <span class="s">'Excludes ceiling penetrations beyond standard'</span>),
+  (<span class="s">'electrical'</span>, <span class="s">'Install outdoor IP-rated LED light'</span>,    <span class="s">'Mount weatherproof fitting on existing circuit'</span>,           <span class="s">'each'</span>, 32.00, 0.60, <span class="s">'Excludes new circuit and underground cabling'</span>);
+
+<span class="c">-- A handful of materials so lookup_material has something to find</span>
+<span class="k">insert into</span> shared_materials (trade, name, brand, unit, default_unit_price_ex_gst)
+<span class="k">values</span>
+  (<span class="s">'electrical'</span>, <span class="s">'Basic LED downlight'</span>,             <span class="k">null</span>,         <span class="s">'each'</span>, 28.00),
+  (<span class="s">'electrical'</span>, <span class="s">'Tri-colour LED downlight'</span>,        <span class="k">null</span>,         <span class="s">'each'</span>, 48.00),
+  (<span class="s">'electrical'</span>, <span class="s">'Dimmable IP-rated downlight'</span>,     <span class="k">null</span>,         <span class="s">'each'</span>, 72.00),
+  (<span class="s">'electrical'</span>, <span class="s">'Standard double GPO'</span>,             <span class="s">'Clipsal'</span>,    <span class="s">'each'</span>, 25.00),
+  (<span class="s">'electrical'</span>, <span class="s">'USB double GPO'</span>,                  <span class="s">'Clipsal'</span>,    <span class="s">'each'</span>, 70.00),
+  (<span class="s">'electrical'</span>, <span class="s">'Hardwired smoke alarm'</span>,           <span class="s">'Clipsal'</span>,    <span class="s">'each'</span>, 95.00),
+  (<span class="s">'electrical'</span>, <span class="s">'RCBO safety switch'</span>,              <span class="s">'Clipsal'</span>,    <span class="s">'each'</span>, 85.00),
+  (<span class="s">'electrical'</span>, <span class="s">'Sundries (terminals, wire, clips)'</span>, <span class="k">null</span>,        <span class="s">'each'</span>, 50.00);
+
+<span class="c">-- Pricing book row with AU sparky defaults; update licence_* before sending real quotes</span>
+<span class="k">insert into</span> pricing_book (hourly_rate, default_markup_pct, licence_type, licence_state)
+<span class="k">values</span> (110, 28, <span class="s">'NECA'</span>, <span class="s">'NSW'</span>);</code></pre>
+        </li>
+      </ol>
+
+      <div class="callout note">
+        <div class="callout-label">Why no auth or RLS in this guide?</div>
+        <p>This is a <strong>pure automation pipeline</strong>, not a multi-tenant SaaS. There's no logged-in user — Twilio and Vapi call the endpoints directly using webhook secrets. We're using the service-role Supabase key from server code only. When you eventually add a tradie portal on top, you'll add auth and Row-Level Security at that point.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 6 ═══════════════ -->
+  <section class="step" id="step-6">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 06 · <strong>Stage 03 — AI Receptionist</strong></div>
+        <h2 class="step-title">Build the AI Receptionist.</h2>
+        <p class="step-summary">Create a Vapi assistant that answers the phone, has a structured conversation with the caller, and sends you the transcript when the call ends. This is <em>the</em> headline component.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>Vapi is the conductor. When a call comes in, Vapi picks it up, streams the audio to Deepgram for transcription, sends the transcript to Claude Haiku to decide what to say next, and uses ElevenLabs to speak the response back. This whole loop runs ~10 times a second so the conversation feels natural. When the call ends, Vapi POSTs the full transcript and recording URL to a webhook on your backend.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Vapi dashboard</span><span class="tool-desc">Where you create the assistant and configure the conversation. <a href="https://dashboard.vapi.ai/">dashboard.vapi.ai</a></span></li>
+          <li><span class="tool-name">Claude Haiku</span><span class="tool-desc">Fast, cheap LLM for in-call decisions.</span></li>
+          <li><span class="tool-name">Deepgram (via Vapi)</span><span class="tool-desc">Speech-to-text.</span></li>
+          <li><span class="tool-name">ElevenLabs (via Vapi)</span><span class="tool-desc">Text-to-speech — pick a friendly Australian voice.</span></li>
+          <li><span class="tool-name">Twilio number (from Step 3)</span><span class="tool-desc">The phone number callers dial.</span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Connect Twilio to Vapi</span>
+          In the Vapi dashboard → <strong>Phone Numbers → Import from Twilio</strong>. Paste your Twilio Account SID, Auth Token, and the AU number from Step 3. Vapi takes over the number's voice webhook automatically.
+        </li>
+        <li>
+          <span class="instr-title">Plug in your own Deepgram + ElevenLabs + Anthropic keys</span>
+          Vapi → <strong>Settings → Provider Keys</strong>. Pasting your own keys means you're billed at retail rates by each provider, not a Vapi markup. Recommended.
+        </li>
+        <li>
+          <span class="instr-title">Create the assistant</span>
+          Vapi → <strong>Assistants → New Assistant</strong>. Configure:
+          <ul>
+            <li><strong>Transcriber:</strong> Deepgram (model <code>nova-2</code>, language <code>en-AU</code>)</li>
+            <li><strong>Voice:</strong> ElevenLabs — pick an Australian or neutral English voice. Test it.</li>
+            <li><strong>Model:</strong> Anthropic Claude Haiku (fast and cheap, perfect for the live conversation loop)</li>
+            <li><strong>First message:</strong> "G'day, you've reached [electrician/business name]'s quoting line. I'm an AI assistant — I can take down all the details for your electrical job and have a quote sent through. This call may be recorded for quality and quote-drafting purposes. Sound good?"</li>
+          </ul>
+        </li>
+        <li>
+          <span class="instr-title">Write the system prompt</span>
+          The system prompt teaches the AI what to ask. A starting point:
+          <pre><code><span class="c">// In the Vapi assistant config, paste this as the System Prompt.</span>
+<span class="c">// Every field below maps 1:1 to the IntakeSchema in Step 7 — the Intake</span>
+<span class="c">// Engine uses Claude Sonnet to extract these from your transcript.</span>
+
+ROLE
+You are an AI receptionist for an Australian licensed electrical business.
+You answer the phone and capture exactly the information the Estimation
+Engine needs to draft a quote. You never give electrical advice, never
+confirm safety, and never commit to a price.
+
+TONE
+Friendly, conversational, brief. ONE question at a time. Always confirm
+what you heard. Use plain language unless the customer uses trade terms first.
+
+WHAT YOU'RE CAPTURING (maps to IntakeSchema in Step 7)
+  caller.name           caller.phone         caller.email
+  suburb                address              job_type
+  scope.description     scope.item_count     scope.is_new_install
+  scope.existing_wiring scope.indoor_outdoor access.*
+  property.*            risks[]              inspection_required
+  timing.urgency        timing.preferred_date  photo URLs (sent via SMS)
+  confidence            confidence_reason
+
+JOB-TYPE CLASSIFICATION — set first, drives everything that follows
+Pick exactly one:
+  downlights | power_points | ceiling_fans | smoke_alarms | outdoor_lighting
+  switchboard | oven_cooktop | ev_charger | fault_finding | renovation | other
+
+OPENING (after Vapi's first message has played)
+"No worries, I'll grab a few quick details so we can get you an accurate
+quote. It should only take a minute. First — what's your name?"
+
+Then: name → confirm mobile (Vapi has caller ID) → suburb → "What do you
+need done?" → from that, classify job_type.
+
+═══ AUTO-QUOTE 5 (job_type ∈ {downlights, power_points, ceiling_fans,
+                  smoke_alarms, outdoor_lighting}) ════════════════════
+
+DOWNLIGHTS
+1. How many downlights?                         → scope.item_count
+2. Replacing existing or new install?           → scope.is_new_install
+3. Is the wiring already run?                   → scope.existing_wiring
+4. Indoor or outdoor / under a deck?            → scope.indoor_outdoor
+5. Is the ceiling flat, raked, or high?         → access.ceiling_type
+6. Roof / ceiling access available?             → access.roof_access
+7. Warm white, cool white, tri-colour, dimmable, or smart?
+                                                → scope.description
+8. Send photos of the ceiling and the existing switch
+                                                → call send_sms_photo_link
+
+POWER_POINTS
+1. How many power points?                       → scope.item_count
+2. New or replacing existing?                   → scope.is_new_install
+3. Indoor or outdoor?                           → scope.indoor_outdoor
+4. Wall type — plaster, brick, concrete, tile?  → access.wall_type
+5. Is there power nearby?                       → scope.existing_wiring
+6. Single, double, USB, weatherproof, smart?    → scope.description
+7. Send a photo of the location                 → call send_sms_photo_link
+NOTE: if customer mentions "new circuit" or "extra circuit" →
+  add to risks: "new circuit needed — confirm switchboard capacity"
+  set inspection_required = true
+
+CEILING_FANS
+1. How many fans?                               → scope.item_count
+2. Existing light or fan there now?             → scope.existing_wiring
+3. Customer-supplied fan or do we supply?       → scope.description
+4. Remote or wall control?                      → scope.description
+5. Ceiling — flat, raked, or high?              → access.ceiling_type
+6. Roof access available?                       → access.roof_access
+
+SMOKE_ALARMS
+1. How many bedrooms?                           → property.bedrooms
+2. How many levels?                             → property.levels
+3. Owner-occupied, rental, or being sold?       → scope.description
+4. Need compliance certification?               → scope.description
+5. Existing smoke alarms there?                 → scope.is_new_install
+                                                  (false if replacing)
+6. Battery, hardwired, or interconnected?       → scope.description
+
+OUTDOOR_LIGHTING
+1. Covered or weather-exposed?                  → scope.indoor_outdoor='outdoor'
+2. How many lights?                             → scope.item_count
+3. Cabling already run?                         → scope.existing_wiring
+4. Distance from existing power?                → scope.description
+5. Switching, sensor, dimmer, or smart control? → scope.description
+6. Functional or feature lighting?              → scope.description
+7. Send photos of the deck/area, the switchboard, and any existing power
+                                                → call send_sms_photo_link
+
+═══ INSPECTION-ONLY (always inspection_required=true) ════════════════
+
+SWITCHBOARD
+1. Send a photo of the switchboard right now (close-up if safe)
+                                                → call send_sms_photo_link FIRST
+2. Old ceramic fuses or modern circuit breakers?→ scope.description, risks
+3. Adding a circuit, or full board upgrade?     → scope.is_new_install
+4. Any tripping, buzzing, burning smell, overheating?
+                                                → risks (if any: SEE EMERGENCY OVERRIDE)
+5. Solar, EV charger, pool, large appliances?   → property.has_solar
+6. Single phase or three phase if known?        → property.phase
+
+EV_CHARGER
+1. What vehicle make/model?                     → scope.description
+2. Charger model — do you have one in mind?     → scope.description
+3. Single phase or three phase property?        → property.phase
+4. Distance from your switchboard to install location?
+                                                → access.notes
+5. Wall-mounted, garage, driveway, or outdoor?  → access.notes, scope.indoor_outdoor
+6. Solar on the property?                       → property.has_solar
+7. Send photos of the switchboard and install location
+                                                → call send_sms_photo_link
+
+FAULT_FINDING — diagnostic only, NEVER fixed-priced
+1. What's happening?                            → scope.description, risks
+2. When did it start?                           → scope.description
+3. Whole house or one area?                     → scope.description
+4. Are breakers tripping?                       → risks
+5. Burning smell, buzzing, sparks, water damage?→ risks; if YES: EMERGENCY
+6. Recent storms, renovations, new appliances?  → scope.description
+At end: "Faults need testing onsite. We'll attend, diagnose, then quote
+the repair separately. Diagnostic call-out is around $120–$180 plus the
+hourly rate while we're there."
+
+RENOVATION — multi-trade and complex
+1. What's the broader project?                  → scope.description
+2. Single trade or multi-trade?                 → scope.description
+3. Plans available?                             → trigger SMS for plans + switchboard photo
+4. Existing circuits being extended?            → risks
+
+═══ CASE-BY-CASE ═════════════════════════════════════════════════════
+
+OVEN_COOKTOP
+1. Oven, cooktop, or both?                      → scope.description
+2. Gas, electric, or induction?                 → scope.description
+3. Replacing existing or new install?           → scope.is_new_install
+4. Model number?                                → scope.description
+5. Wiring already in place?                     → scope.existing_wiring
+6. Does the new appliance need a dedicated circuit?
+   IF YES: risks: ["new dedicated circuit needed"], inspection_required = true
+7. Send photos of old appliance, new specs, switchboard
+                                                → call send_sms_photo_link
+
+═══ EMERGENCY OVERRIDE (overrides any flow) ══════════════════════════
+If the customer mentions ANY of:
+  burning smell · smoke · fire · sparks · electric shock · "got shocked"
+  no power + whole house · water + electrical/switchboard/powerpoint
+
+IMMEDIATELY:
+1. Stay calm. Say: "That sounds urgent — please switch off the main switch
+   at your switchboard if it's safe, and don't use anything electrical
+   until we get there."
+2. Set timing.urgency = 'emergency'
+3. Set inspection_required = true
+4. Skip detailed Q&A. Confirm: name, suburb, best contact number.
+5. End the call: "I've alerted [tradie name]. They'll call you back within
+   15 minutes to dispatch."
+
+═══ PHOTO CAPTURE PROTOCOL ═══════════════════════════════════════════
+When you ask for photos, call function send_sms_photo_link. Be specific
+about what you need:
+
+  downlights        → ceiling area, existing fitting, wall switch
+  power_points      → wall location, nearest existing GPO
+  ceiling_fans      → ceiling, current light/fan
+  smoke_alarms      → existing alarm if any, ceiling
+  outdoor_lighting  → deck/area, switchboard, existing power
+  switchboard       → CLOSE-UP of board (cover off if safe), full view, labels
+  oven_cooktop      → old appliance, new appliance specs sticker, switchboard
+  ev_charger        → switchboard, install location with distance reference
+  fault_finding     → switchboard, affected area, anything visible
+  renovation        → switchboard, plans, key areas
+
+═══ CONFIDENCE SCORING (set at end of call) ═════════════════════════
+HIGH:    job_type ∈ AUTO-QUOTE 5 AND inspection_required=false AND
+         photos received AND all key questions answered AND no risks.
+
+MEDIUM:  AUTO-QUOTE 5 job but photos missing OR a key question unanswered
+         (e.g. ceiling type unknown), OR oven_cooktop with confirmed wiring.
+
+LOW:     job_type ∈ {switchboard, ev_charger, fault_finding, renovation},
+         OR any risks flagged, OR scope is vague,
+         OR oven_cooktop needing a new circuit.
+
+confidence_reason: one short sentence explaining why.
+
+═══ CLOSING ═════════════════════════════════════════════════════════
+Summarise back: "Just to confirm — [N] [job type] in [suburb], [is/is not]
+a new install, [photos received / sending now]. [Tradie name] will [send a
+quote / call you to book a site visit] within [SLA — an hour for auto-quote,
+end of day for inspection]. Anything else I should note?"
+
+Then close: "Great, we'll prepare a quote with a few options. If anything
+looks unclear from the photos, we may recommend a quick site visit before
+final pricing."
+
+═══ THINGS YOU NEVER DO ═════════════════════════════════════════════
+- Quote a price (even a range — that's the Estimation Engine's job)
+- Confirm work is safe / unsafe
+- Diagnose a fault
+- Recommend a brand
+- Promise an arrival time
+- Promise warranty
+- Tell the customer to do anything electrical themselves
+- Skip photo asks for switchboard / EV / outdoor / oven jobs</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Set the end-of-call webhook</span>
+          In the assistant config → <strong>Server URL</strong> → paste your ngrok URL from Step 4 plus the path: <code>https://abc123.ngrok.app/api/vapi/webhook</code>. Vapi will POST the call transcript to this URL when the conversation ends.
+        </li>
+        <li>
+          <span class="instr-title">Build the webhook receiver in your Next.js project</span>
+          Create <code>app/api/vapi/webhook/route.ts</code>:
+          <pre><code><span class="k">import</span> { createClient } <span class="k">from</span> <span class="s">'@supabase/supabase-js'</span>
+
+<span class="k">const</span> supabase = createClient(
+  process.env.<span class="v">NEXT_PUBLIC_SUPABASE_URL</span>!,
+  process.env.<span class="v">SUPABASE_SERVICE_ROLE_KEY</span>!
+)
+
+<span class="k">export async function</span> <span class="v">POST</span>(req: Request) {
+  <span class="k">const</span> payload = <span class="k">await</span> req.json()
+
+  <span class="c">// Vapi sends an event with type 'end-of-call-report'</span>
+  <span class="k">if</span> (payload.message?.type !== <span class="s">'end-of-call-report'</span>) {
+    <span class="k">return</span> Response.json({ ok: <span class="k">true</span> })
+  }
+
+  <span class="k">const</span> call = payload.message.call
+  <span class="k">const</span> { data: callRow } = <span class="k">await</span> supabase.from(<span class="s">'calls'</span>).insert({
+    vapi_call_id: call.id,
+    caller_number: call.customer?.number,
+    duration_seconds: payload.message.durationSeconds,
+    transcript: payload.message.transcript,
+    recording_url: payload.message.recordingUrl,
+    ended_at: <span class="k">new</span> Date().toISOString(),
+  }).select().single()
+
+  <span class="c">// Kick off Stage 04 — the Intake Engine — without blocking Vapi's webhook</span>
+  fetch(<span class="s">`${process.env.APP_URL}/api/intake/structure`</span>, {
+    method: <span class="s">'POST'</span>,
+    body: JSON.stringify({ callId: callRow!.id }),
+  })
+
+  <span class="k">return</span> Response.json({ ok: <span class="k">true</span> })
+}</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Test the call</span>
+          With <code>pnpm dev</code> running and <code>ngrok http 3000</code> running in another terminal, dial your Twilio number from your mobile. The AI should answer, ask the structured questions, then say goodbye. After it ends, check your Supabase <code>calls</code> table — a new row should appear with the full transcript.
+        </li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Recording consent — Australian law</div>
+        <p>Australian states have varying rules on call recording. NSW and Victoria require <strong>at least one party</strong> to consent (you do). To be safe, your assistant's first message should announce: "this call may be recorded for quality and quote-drafting purposes." Add that line to the "First message" field in Vapi.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 7 ═══════════════ -->
+  <section class="step" id="step-7">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 07 · <strong>Stage 04 — Intake Engine</strong></div>
+        <h2 class="step-title">Build the Intake Engine.</h2>
+        <p class="step-summary">A second AI takes the transcript from Stage 03 and turns it into clean, structured data — fields the Estimation Engine can actually work with.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>A free-text transcript ("yeah, six downlights in the kitchen, and a couple of power points in the bedroom — the wiring's already there I think, but the switchboard's pretty old, looks like ceramic fuses…") is useless to the Estimation Engine. The Intake Engine reads that transcript and produces structured JSON: <code>job_type: "downlights"</code>, <code>scope: { item_count: 6, is_new_install: false, existing_wiring: true, indoor_outdoor: "indoor" }</code>, <code>risks: ["old ceramic-fuse switchboard — recommend inspection before any new circuit"]</code>, <code>inspection_required: false</code>, <code>confidence: "MEDIUM"</code>. We use Claude Sonnet because it's strong at extraction and supports vision (for analysing any photos the customer sent).</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Claude Sonnet 4.6</span><span class="tool-desc">Strong extraction + vision. Cheaper than Opus.</span></li>
+          <li><span class="tool-name">Vercel AI SDK</span><span class="tool-desc"><code>generateObject</code> with a Zod schema enforces structured output.</span></li>
+          <li><span class="tool-name">Anthropic embeddings</span><span class="tool-desc">For the similar-job vector search via pgvector.</span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Define the intake schema</span>
+          Create <code>lib/intake/schema.ts</code>:
+          <pre><code><span class="k">import</span> { z } <span class="k">from</span> <span class="s">'zod'</span>
+
+<span class="k">export const</span> <span class="v">IntakeSchema</span> = z.object({
+  job_type: z.enum([
+    <span class="s">'downlights'</span>,
+    <span class="s">'power_points'</span>,
+    <span class="s">'ceiling_fans'</span>,
+    <span class="s">'smoke_alarms'</span>,
+    <span class="s">'outdoor_lighting'</span>,
+    <span class="s">'switchboard'</span>,
+    <span class="s">'oven_cooktop'</span>,
+    <span class="s">'ev_charger'</span>,
+    <span class="s">'fault_finding'</span>,
+    <span class="s">'renovation'</span>,
+    <span class="s">'other'</span>,
+  ]),
+  address: z.string(),
+  suburb: z.string(),
+  scope: z.object({
+    item_count: z.number().optional(),                                       <span class="c">// e.g., # of downlights, # of GPOs</span>
+    is_new_install: z.boolean().optional(),                                  <span class="c">// vs replacing existing</span>
+    existing_wiring: z.boolean().optional(),                                 <span class="c">// is wiring already there?</span>
+    indoor_outdoor: z.enum([<span class="s">'indoor'</span>, <span class="s">'outdoor'</span>, <span class="s">'both'</span>, <span class="s">'unknown'</span>]).optional(),
+    description: z.string(),
+  }),
+  access: z.object({
+    roof_access: z.boolean().optional(),
+    ceiling_type: z.enum([<span class="s">'flat'</span>, <span class="s">'raked'</span>, <span class="s">'high'</span>, <span class="s">'unknown'</span>]).optional(),
+    wall_type: z.enum([<span class="s">'plaster'</span>, <span class="s">'brick'</span>, <span class="s">'concrete'</span>, <span class="s">'tile'</span>, <span class="s">'unknown'</span>]).optional(),
+    notes: z.string().optional(),
+  }).optional(),
+  property: z.object({
+    bedrooms: z.number().optional(),                                         <span class="c">// for smoke-alarm jobs</span>
+    levels: z.number().optional(),
+    pre_1970: z.boolean().optional(),                                        <span class="c">// asbestos / lead risk</span>
+    has_solar: z.boolean().optional(),                                       <span class="c">// affects switchboard / EV-charger work</span>
+    phase: z.enum([<span class="s">'single'</span>, <span class="s">'three'</span>, <span class="s">'unknown'</span>]).optional(),
+  }).optional(),
+  risks: z.array(z.string()),                                                <span class="c">// burning smell, tripping breakers, water damage, asbestos, old switchboard</span>
+  inspection_required: z.boolean(),                                          <span class="c">// true for switchboard, fault_finding, ev_charger, renovation, anything with mains/underground</span>
+  caller: z.object({
+    name: z.string(),
+    phone: z.string(),
+    email: z.string().optional(),
+  }),
+  timing: z.object({
+    urgency: z.enum([<span class="s">'emergency'</span>, <span class="s">'this_week'</span>, <span class="s">'this_month'</span>, <span class="s">'flexible'</span>]).optional(),
+    preferred_date: z.string().optional(),
+  }).optional(),
+  confidence: z.enum([<span class="s">'LOW'</span>, <span class="s">'MEDIUM'</span>, <span class="s">'HIGH'</span>]),
+  confidence_reason: z.string(),
+})
+
+<span class="k">export type</span> <span class="v">Intake</span> = z.infer&lt;<span class="k">typeof</span> <span class="v">IntakeSchema</span>&gt;</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Build the structuring function</span>
+          Create <code>lib/intake/structure.ts</code>:
+          <pre><code><span class="k">import</span> { anthropic } <span class="k">from</span> <span class="s">'@ai-sdk/anthropic'</span>
+<span class="k">import</span> { generateObject } <span class="k">from</span> <span class="s">'ai'</span>
+<span class="k">import</span> { <span class="v">IntakeSchema</span> } <span class="k">from</span> <span class="s">'./schema'</span>
+
+<span class="k">export async function</span> <span class="v">structureIntake</span>(transcript: string, photoUrls: string[] = []) {
+  <span class="k">const</span> { object } = <span class="k">await</span> generateObject({
+    model: anthropic(<span class="s">'claude-sonnet-4-6'</span>),
+    schema: <span class="v">IntakeSchema</span>,
+    system: <span class="s">`You extract structured intake data from electrical quoting calls.
+Be conservative — if unsure, leave fields blank and lower confidence.
+
+Surface real risks:
+- burning smell, buzzing, sparks → mark inspection_required=true, urgency=emergency
+- tripping breakers, recurring faults → mark inspection_required=true
+- water damage near electrical fixtures → add to risks + inspection_required=true
+- pre-1970 properties → flag asbestos / lead-paint risk on cabling work
+- unknown switchboard age or ceramic fuses → recommend inspection
+- difficult access (high ceilings, raked ceilings, no roof access, brick/concrete walls)
+- mains, underground cabling, three-phase work → always inspection_required=true
+
+Auto-quote candidates (inspection_required=false) when scope is clear and photos look clean:
+downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting.
+
+Always inspection_required=true: switchboard, ev_charger, fault_finding, renovation, and
+any oven_cooktop / power_points / outdoor_lighting job that mentions new circuits, mains,
+or switchboard work.`</span>,
+    messages: [{
+      role: <span class="s">'user'</span>,
+      content: [
+        { type: <span class="s">'text'</span>, text: <span class="s">`Transcript:\n${transcript}`</span> },
+        ...photoUrls.map(url =&gt; ({ type: <span class="s">'image'</span> <span class="k">as const</span>, image: url })),
+      ],
+    }],
+  })
+  <span class="k">return</span> object
+}</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Build the embedding helper for pgvector</span>
+          Create <code>lib/intake/embed.ts</code>:
+          <pre><code><span class="k">import</span> { anthropic } <span class="k">from</span> <span class="s">'@ai-sdk/anthropic'</span>
+<span class="k">import</span> { embed } <span class="k">from</span> <span class="s">'ai'</span>
+<span class="k">import</span> <span class="k">type</span> { <span class="v">Intake</span> } <span class="k">from</span> <span class="s">'./schema'</span>
+
+<span class="k">export async function</span> <span class="v">embedIntake</span>(intake: <span class="v">Intake</span>) {
+  <span class="k">const</span> summary = <span class="s">`${intake.job_type} count=${intake.scope.item_count ?? '?'} new=${intake.scope.is_new_install ?? '?'} ${intake.scope.indoor_outdoor ?? ''} ${intake.risks.join(' ')}`</span>
+  <span class="k">const</span> { embedding } = <span class="k">await</span> embed({
+    model: anthropic.embedding(<span class="s">'voyage-3'</span>),
+    value: summary,
+  })
+  <span class="k">return</span> embedding
+}</code></pre>
+          <p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--muted);">Note: Anthropic recommends Voyage AI for embeddings. If you'd rather, OpenAI's <code>text-embedding-3-small</code> works fine too — just swap the model line.</p>
+        </li>
+        <li>
+          <span class="instr-title">Build the API route that ties it together</span>
+          Create <code>app/api/intake/structure/route.ts</code>:
+          <pre><code><span class="k">import</span> { createClient } <span class="k">from</span> <span class="s">'@supabase/supabase-js'</span>
+<span class="k">import</span> { structureIntake } <span class="k">from</span> <span class="s">'@/lib/intake/structure'</span>
+<span class="k">import</span> { embedIntake } <span class="k">from</span> <span class="s">'@/lib/intake/embed'</span>
+
+<span class="k">const</span> supabase = createClient(
+  process.env.<span class="v">NEXT_PUBLIC_SUPABASE_URL</span>!,
+  process.env.<span class="v">SUPABASE_SERVICE_ROLE_KEY</span>!
+)
+
+<span class="k">export async function</span> <span class="v">POST</span>(req: Request) {
+  <span class="k">const</span> { callId } = <span class="k">await</span> req.json()
+
+  <span class="c">// 1. Load the call transcript</span>
+  <span class="k">const</span> { data: call } = <span class="k">await</span> supabase.from(<span class="s">'calls'</span>).select(<span class="s">'*'</span>).eq(<span class="s">'id'</span>, callId).single()
+  <span class="k">if</span> (!call) <span class="k">return</span> Response.json({ error: <span class="s">'call not found'</span> }, { status: 404 })
+
+  <span class="c">// 2. Structure it</span>
+  <span class="k">const</span> intake = <span class="k">await</span> structureIntake(call.transcript, call.photo_urls)
+
+  <span class="c">// 3. Embed it for similarity search</span>
+  <span class="k">const</span> embedding = <span class="k">await</span> embedIntake(intake)
+
+  <span class="c">// 4. Save it</span>
+  <span class="k">const</span> { data: intakeRow } = <span class="k">await</span> supabase.from(<span class="s">'intakes'</span>).insert({
+    call_id: callId,
+    job_type: intake.job_type,
+    address: intake.address,
+    suburb: intake.suburb,
+    scope: intake.scope,
+    access: intake.access,
+    property: intake.property,
+    risks: intake.risks,
+    inspection_required: intake.inspection_required,
+    caller: intake.caller,
+    timing: intake.timing,
+    confidence: intake.confidence,
+    confidence_reason: intake.confidence_reason,
+    embedding,
+  }).select().single()
+
+  <span class="c">// 5. Hand off to Stage 05 — the Estimation Engine</span>
+  fetch(<span class="s">`${process.env.APP_URL}/api/estimate/draft`</span>, {
+    method: <span class="s">'POST'</span>,
+    body: JSON.stringify({ intakeId: intakeRow!.id }),
+  })
+
+  <span class="k">return</span> Response.json({ ok: <span class="k">true</span>, intakeId: intakeRow!.id })
+}</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Test it manually</span>
+          Make a call to your Twilio number, hang up, then check the <code>intakes</code> table. A new row should appear with structured fields. Inspect them — are the surfaces correct? Did the AI flag the right risks? If not, refine the system prompt.
+        </li>
+      </ol>
+
+      <div class="callout note">
+        <div class="callout-label">Why <code>generateObject</code>?</div>
+        <p>Free-text LLM output is hard to parse reliably. <code>generateObject</code> from the Vercel AI SDK enforces a Zod schema — Claude is required to produce JSON that matches it. If it can't, the SDK retries automatically. This eliminates a whole category of "the AI returned weird text" bugs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 8 ═══════════════ -->
+  <section class="step" id="step-8">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 08 · <strong>Stage 05 — Estimation Engine</strong></div>
+        <h2 class="step-title">Build the Estimation Engine.</h2>
+        <p class="step-summary">The third AI agent. Takes the structured intake from Stage 04, looks up assemblies and prices using <em>tools</em>, applies the tradie's markup, and writes the final draft quote.</p>
+      </header>
+
+      <h3>What we're building &amp; why</h3>
+      <p>The Estimation Engine is a Claude Opus prompt with <strong>tool use</strong>. Instead of letting Claude invent prices (which it would, badly), we hand it a small set of tools it can call: <code>lookup_assembly</code>, <code>lookup_material</code>, <code>apply_markup</code>, <code>flag_inspection_needed</code>. The AI decides which tools to call and in what order; the tools do the actual database lookups. This pattern — <strong>LLM reasoning + deterministic tools</strong> — is what keeps prices honest.</p>
+
+      <div class="toolbox">
+        <div class="toolbox-label">Tools used</div>
+        <ul class="toolbox-list">
+          <li><span class="tool-name">Claude Opus 4.7</span><span class="tool-desc">Strongest reasoning. The wireframe specifies it for this stage.</span></li>
+          <li><span class="tool-name">Vercel AI SDK <code>generateText</code></span><span class="tool-desc">With the <code>tools</code> parameter for tool-use loops.</span></li>
+          <li><span class="tool-name">Zod</span><span class="tool-desc">Defines each tool's input schema.</span></li>
+          <li><span class="tool-name">Prompt caching</span><span class="tool-desc">Caches the system prompt + library between calls. Big cost saver.</span></li>
+        </ul>
+      </div>
+
+      <h3>Step-by-step</h3>
+      <ol class="instructions">
+        <li>
+          <span class="instr-title">Define the four tools</span>
+          Create <code>lib/estimate/tools.ts</code>. Each tool is a Zod schema + a function that runs against Supabase:
+          <pre><code><span class="k">import</span> { tool } <span class="k">from</span> <span class="s">'ai'</span>
+<span class="k">import</span> { z } <span class="k">from</span> <span class="s">'zod'</span>
+<span class="k">import</span> { createClient } <span class="k">from</span> <span class="s">'@supabase/supabase-js'</span>
+
+<span class="k">const</span> supabase = createClient(
+  process.env.<span class="v">NEXT_PUBLIC_SUPABASE_URL</span>!,
+  process.env.<span class="v">SUPABASE_SERVICE_ROLE_KEY</span>!
+)
+
+<span class="k">export const</span> <span class="v">lookupAssembly</span> = tool({
+  description: <span class="s">'Search the electrical assembly library (e.g. "install LED downlight", "replace double GPO", "hardwire smoke alarm")'</span>,
+  parameters: z.object({ query: z.string() }),
+  execute: <span class="k">async</span> ({ query }) =&gt; {
+    <span class="k">const</span> { data } = <span class="k">await</span> supabase
+      .from(<span class="s">'shared_assemblies'</span>)
+      .select(<span class="s">'*'</span>)
+      .ilike(<span class="s">'name'</span>, <span class="s">`%${query}%`</span>)
+      .limit(5)
+    <span class="k">return</span> data ?? []
+  },
+})
+
+<span class="k">export const</span> <span class="v">lookupMaterial</span> = tool({
+  description: <span class="s">'Search electrical materials (downlights, GPOs, smoke alarms, ceiling fans, RCBOs, cabling, sundries) by name or brand'</span>,
+  parameters: z.object({ query: z.string() }),
+  execute: <span class="k">async</span> ({ query }) =&gt; {
+    <span class="k">const</span> { data } = <span class="k">await</span> supabase
+      .from(<span class="s">'shared_materials'</span>)
+      .select(<span class="s">'*'</span>)
+      .or(<span class="s">`name.ilike.%${query}%,brand.ilike.%${query}%`</span>)
+      .limit(5)
+    <span class="k">return</span> data ?? []
+  },
+})
+
+<span class="k">export const</span> <span class="v">applyMarkup</span> = tool({
+  description: <span class="s">'Apply the tradie\'s markup percentage to a base material price. Always pass markupPct explicitly using pricingBook.default_markup_pct (default falls back to 28% — the AU electrical median — only as a safety net).'</span>,
+  parameters: z.object({ basePrice: z.number(), markupPct: z.number().optional() }),
+  execute: <span class="k">async</span> ({ basePrice, markupPct }) =&gt; {
+    <span class="k">const</span> pct = markupPct ?? 28                                <span class="c">// matches pricing_book default</span>
+    <span class="k">return</span> { final: +(basePrice * (1 + pct / 100)).toFixed(2), markupPct: pct }
+  },
+})
+
+<span class="k">export const</span> <span class="v">flagInspectionNeeded</span> = tool({
+  description: <span class="s">'Flag that this job is too complex to quote without a site visit'</span>,
+  parameters: z.object({ reason: z.string() }),
+  execute: <span class="k">async</span> ({ reason }) =&gt; ({ flagged: <span class="k">true</span>, reason }),
+})</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Write the system prompt</span>
+          Create <code>lib/estimate/prompt.ts</code>:
+          <pre><code><span class="c">// systemPrompt receives the pricingBook from the database. Every field below</span>
+<span class="c">// comes from the pricing_book row created in Step 5.</span>
+<span class="k">export function</span> <span class="v">systemPrompt</span>(pricingBook: {
+  hourly_rate: number;
+  call_out_minimum: number;
+  apprentice_rate: number;
+  default_markup_pct: number;
+  risk_buffer_pct: number;
+  gst_registered: boolean;
+  licence_type: string | null;
+  licence_state: string | null;
+}) {
+  <span class="k">return</span> <span class="s">`ROLE
+You are an expert Australian electrical estimator working for a licensed
+electrical contractor. You receive a structured intake (the IntakeSchema
+from Step 7) and produce a customer-ready draft quote with Good / Better /
+Best options. Your output is parsed by the API route and inserted directly
+into the quotes table — the JSON must match the shape below exactly.
+
+NON-NEGOTIABLE RULES
+1. NEVER invent prices. Every line-item price comes from a tool result.
+2. ALWAYS call lookup_assembly first for each work item. If no match, call
+   flag_inspection_needed — do not estimate from thin air.
+3. Use lookup_material to find specific products (downlights, GPOs, RCBOs)
+   when the assembly's default material isn't specific enough.
+4. Apply markup ONLY via apply_markup — never multiply yourself.
+5. If intake.inspection_required === true → call flag_inspection_needed and
+   use the INSPECTION FALLBACK shape below (no fixed line items).
+6. For job_type === 'fault_finding' → use the FAULT-FINDING shape (call-out
+   + hourly), never a fixed-price quote.
+7. All prices in your output are EX-GST. The API layer applies GST.
+
+YOUR INPUT (intake — see lib/intake/schema.ts)
+  job_type, address, suburb, scope, access, property,
+  risks[], inspection_required, caller, timing, confidence, confidence_reason
+
+PRICING BOOK (passed in)
+  hourly_rate         = \${pricingBook.hourly_rate}        // typical AU sparky $90–$130
+  call_out_minimum    = \${pricingBook.call_out_minimum}   // $120–$180
+  apprentice_rate     = \${pricingBook.apprentice_rate}    // $45–$75 if needed
+  default_markup_pct  = \${pricingBook.default_markup_pct} // 20–35% on materials
+  risk_buffer_pct     = \${pricingBook.risk_buffer_pct}    // 10–20% for unknown access
+  gst_registered      = \${pricingBook.gst_registered}
+  licence_type        = \${pricingBook.licence_type ?? <span class="s">'(unset)'</span>}
+  licence_state       = \${pricingBook.licence_state ?? <span class="s">'(unset)'</span>}
+
+YOUR TOOLS — exact signatures
+  lookup_assembly({ query: string })
+    → returns up to 5 rows from shared_assemblies:
+      { id, trade, name, description, default_unit, default_unit_price_ex_gst,
+        default_labour_hours, default_exclusions }
+    Use queries like: "install LED downlight", "replace double GPO",
+    "hardwire smoke alarm", "install ceiling fan", "outdoor IP-rated light".
+
+  lookup_material({ query: string })
+    → returns up to 5 rows from shared_materials:
+      { id, trade, name, brand, unit, default_unit_price_ex_gst }
+    Use for products: "tri-colour downlight", "USB GPO", "RCBO safety switch",
+    "Clipsal Iconic".
+
+  apply_markup({ basePrice: number, markupPct?: number })
+    → returns { final, markupPct }
+    If markupPct omitted, uses default_markup_pct.
+
+  flag_inspection_needed({ reason: string })
+    → returns { flagged: true, reason }
+    Call when intake.inspection_required, OR no assembly match for a critical
+    item, OR risks demand on-site verification.
+
+OUTPUT FORMAT — strict JSON, parsed by the API route
+{
+  "scope_of_works":      "string — plain-English summary",
+  "assumptions":         ["..."],
+  "risk_flags":          ["..."],
+  "good":   { "label": "...", "line_items": [...], "subtotal_ex_gst": N, "timeframe": "..." },
+  "better": { "label": "...", "line_items": [...], "subtotal_ex_gst": N, "timeframe": "..." },
+  "best":   { "label": "...", "line_items": [...], "subtotal_ex_gst": N, "timeframe": "..." },
+  "optional_upsells":    [{ "name": "...", "price_ex_gst": N }],
+  "estimated_timeframe": "string",
+  "needs_inspection":    boolean,
+  "inspection_reason":   "string | null",
+  "gst_note":            "string"
+}
+
+LINE_ITEM SHAPE (each entry inside good/better/best.line_items)
+{
+  "description":       "string — what the customer reads",
+  "quantity":          N,
+  "unit":              "each" | "hr" | "lm",
+  "unit_price_ex_gst": N,
+  "total_ex_gst":      N,
+  "source":            "assembly:UUID" | "material:UUID" | "labour" | "callout"
+}
+
+GOOD / BETTER / BEST FRAMING (per job_type)
+  downlights         → G: standard LED · B: tri-colour · X: dimmable IP-rated/smart
+  power_points       → G: standard double GPO · B: USB GPO · X: weatherproof/smart + circuit
+  ceiling_fans       → G: install customer-supplied · B: supply quality + remote ·
+                       X: premium DC + light + wall control
+  smoke_alarms       → G: like-for-like · B: compliant interconnected (10-yr lithium) ·
+                       X: full property compliance package (AS3786:2014)
+  outdoor_lighting   → G: basic outdoor-rated · B: IP65+ quality · X: dimmable/smart
+  oven_cooktop       → G: like-for-like (existing wiring confirmed) ·
+                       B: install + circuit verification + new isolation switch ·
+                       X: dedicated circuit / switchboard upgrade
+
+INSPECTION FALLBACK (when intake.inspection_required, OR you call
+flag_inspection_needed — for switchboard, ev_charger, renovation)
+Don't produce real line items. Instead emit indicative ranges:
+  good   = { label: "Indicative · minor scope",   line_items: [],
+             subtotal_ex_gst: <range_low>,  timeframe: "Subject to inspection" }
+  better = { label: "Indicative · partial scope", line_items: [],
+             subtotal_ex_gst: <range_mid>,  timeframe: "Subject to inspection" }
+  best   = { label: "Indicative · full scope",    line_items: [],
+             subtotal_ex_gst: <range_high>, timeframe: "Subject to inspection" }
+  needs_inspection: true
+  inspection_reason: customer-friendly explanation referencing the $199 site fee
+  assumptions: list what we'd verify on-site
+  scope_of_works: high-level description; mark as INDICATIVE
+
+FAULT-FINDING SPECIAL CASE (job_type === 'fault_finding')
+Override G/B/B framing entirely:
+  good = {
+    label: "Diagnostic call-out (1 hour onsite)",
+    line_items: [
+      { description: "Diagnostic call-out", quantity: 1, unit: "each",
+        unit_price_ex_gst: \${pricingBook.call_out_minimum},
+        total_ex_gst:      \${pricingBook.call_out_minimum},
+        source: "callout" },
+      { description: "Diagnostic time", quantity: 1, unit: "hr",
+        unit_price_ex_gst: \${pricingBook.hourly_rate},
+        total_ex_gst:      \${pricingBook.hourly_rate},
+        source: "labour" }
+    ],
+    subtotal_ex_gst: \${pricingBook.call_out_minimum + pricingBook.hourly_rate},
+    timeframe: "Same week"
+  }
+  better = same shape, 2 hours of diagnostic time
+  best   = null
+  scope_of_works: "Faults are diagnosed first. Repairs are quoted separately
+                   once the cause is confirmed."
+  assumptions: [
+    "Diagnostic time only — repair work excluded.",
+    "Straightforward repairs may be done in the same visit at additional time + materials."
+  ]
+  needs_inspection: true
+  inspection_reason: "Faults must be diagnosed onsite — cannot be quoted blind."
+
+CALCULATION ORDER (per option — Good, Better, Best)
+1. For each work item:
+   a. lookup_assembly({ query }) → pick best match
+   b. quantity = intake.scope.item_count (or 1 if not applicable)
+   c. labour_hours = quantity × assembly.default_labour_hours
+   d. labour_total = labour_hours × hourly_rate
+   e. material_total = quantity × assembly.default_unit_price_ex_gst
+   f. (Optional) lookup_material → override material price for the chosen tier
+   g. material_marked_up = apply_markup({ basePrice: material_total }).final
+   h. line_total = labour_total + material_marked_up
+2. Apply risk buffer if conditions are met (see below)
+3. Sum to subtotal_ex_gst for that option
+
+RISK-BUFFER TRIGGERS (multiply subtotal by 1 + risk_buffer_pct/100 if ANY)
+  intake.access.ceiling_type ∈ {'raked', 'high'}
+  intake.access.roof_access === false
+  intake.access.wall_type ∈ {'brick', 'concrete'}
+  intake.scope.existing_wiring === false
+  intake.property.pre_1970 === true
+
+INTAKE-DRIVEN RISK FLAGS (add to risk_flags[] when conditions match)
+  intake.scope.existing_wiring === false →
+    "Wiring not confirmed — new circuit may be required pending inspection."
+  intake.property.pre_1970 === true →
+    "Pre-1970 property — possible asbestos in existing cabling. Requires
+     confirmation before any work that disturbs walls/ceilings."
+  intake.property.has_solar === true AND job_type ∈ {'ev_charger','switchboard'} →
+    "Existing solar requires load assessment before new high-load work."
+  intake.timing.urgency === 'emergency' →
+    "Customer reported emergency — same-day attendance required."
+
+OPTIONAL UPSELLS (add to optional_upsells[] when relevant)
+  Any new wiring work:
+    { name: "Add RCBO safety switch", price_ex_gst: 95 }
+  Switchboard-adjacent jobs (oven_cooktop / ev_charger / partial board upgrade):
+    { name: "Switchboard health check", price_ex_gst: 150 }
+  Smoke-alarm work in older homes:
+    { name: "Per-property compliance certificate", price_ex_gst: 80 }
+
+SCOPE_OF_WORKS WRITING STYLE
+- Plain English; customer-readable in 10 seconds
+- 2–4 sentences max
+- Mention key assumptions inline (e.g. "subject to existing wiring being in
+  good condition")
+- Minimal jargon
+
+GST_NOTE
+- if gst_registered:  "All prices are ex-GST. Customer total includes 10% GST."
+- else:               "GST not applicable — this business is not GST-registered."
+
+ESTIMATED_TIMEFRAME
+- 1–2 hr jobs                 → "Same day"
+- 2–4 hr jobs                 → "1–2 business days"
+- Half-day to full day        → "Within the week"
+- 1+ day                      → "1–2 weeks subject to scheduling"
+- inspection_required = true  → "After site visit (within 5 business days)"
+
+LICENCE COMPLIANCE
+The PDF generator (Stage 06) reads pricingBook.licence_* and prints it on the
+quote PDF. Do NOT add licence text inline in your output.
+
+CONSISTENCY CHECK BEFORE EMITTING
+- Did every line_item price come from a tool result? (or call_out / labour rate)
+- Does intake.scope.item_count match the quantities in line_items?
+- If inspection_required, did you use INSPECTION FALLBACK shape?
+- If job_type === 'fault_finding', did you use the FAULT-FINDING shape?
+- Is the JSON valid and matches the OUTPUT FORMAT exactly?
+`</span>
+}</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Build the agent runner</span>
+          Create <code>lib/estimate/run.ts</code>:
+          <pre><code><span class="k">import</span> { anthropic } <span class="k">from</span> <span class="s">'@ai-sdk/anthropic'</span>
+<span class="k">import</span> { generateText } <span class="k">from</span> <span class="s">'ai'</span>
+<span class="k">import</span> { systemPrompt } <span class="k">from</span> <span class="s">'./prompt'</span>
+<span class="k">import</span> * <span class="k">as</span> tools <span class="k">from</span> <span class="s">'./tools'</span>
+
+<span class="k">export async function</span> <span class="v">runEstimation</span>(intake: <span class="k">any</span>, pricingBook: <span class="k">any</span>) {
+  <span class="k">const</span> result = <span class="k">await</span> generateText({
+    model: anthropic(<span class="s">'claude-opus-4-7'</span>),
+    system: systemPrompt(pricingBook),
+    prompt: <span class="s">`Draft a quote for this intake:\n\n${JSON.stringify(intake, null, 2)}`</span>,
+    tools,
+    maxSteps: 10,
+  })
+  <span class="k">return</span> JSON.parse(result.text)
+}</code></pre>
+          <p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--muted);">The <code>maxSteps: 10</code> lets Claude call multiple tools in sequence — look up an assembly, then a material, then apply markup — before writing the final answer.</p>
+        </li>
+        <li>
+          <span class="instr-title">Build the API route</span>
+          Create <code>app/api/estimate/draft/route.ts</code>:
+          <pre><code><span class="k">import</span> { createClient } <span class="k">from</span> <span class="s">'@supabase/supabase-js'</span>
+<span class="k">import</span> { runEstimation } <span class="k">from</span> <span class="s">'@/lib/estimate/run'</span>
+
+<span class="k">const</span> supabase = createClient(
+  process.env.<span class="v">NEXT_PUBLIC_SUPABASE_URL</span>!,
+  process.env.<span class="v">SUPABASE_SERVICE_ROLE_KEY</span>!
+)
+
+<span class="k">export async function</span> <span class="v">POST</span>(req: Request) {
+  <span class="k">const</span> { intakeId } = <span class="k">await</span> req.json()
+
+  <span class="k">const</span> { data: intake } = <span class="k">await</span> supabase.from(<span class="s">'intakes'</span>).select(<span class="s">'*'</span>).eq(<span class="s">'id'</span>, intakeId).single()
+  <span class="k">const</span> { data: pricingBook } = <span class="k">await</span> supabase.from(<span class="s">'pricing_book'</span>).select(<span class="s">'*'</span>).single()
+
+  <span class="k">const</span> draft = <span class="k">await</span> runEstimation(intake, pricingBook)
+
+  <span class="c">// Default selected tier for the customer portal is "better".</span>
+  <span class="c">// Falls through to "good" if better is missing (e.g. fault_finding has no best).</span>
+  <span class="k">const</span> defaultTier = draft.better ?? draft.good
+  <span class="k">const</span> selectedSubtotal = defaultTier?.subtotal_ex_gst ?? 0
+  <span class="k">const</span> gst = pricingBook.gst_registered ? +(selectedSubtotal * 0.10).toFixed(2) : 0
+  <span class="k">const</span> total = +(selectedSubtotal + gst).toFixed(2)
+
+  <span class="k">const</span> { data: quote } = <span class="k">await</span> supabase.from(<span class="s">'quotes'</span>).insert({
+    intake_id: intakeId,
+    status: <span class="s">'draft'</span>,
+    scope_of_works:      draft.scope_of_works,
+    assumptions:         draft.assumptions      ?? [],
+    risk_flags:          draft.risk_flags       ?? [],
+    good:                draft.good             ?? <span class="k">null</span>,
+    better:              draft.better           ?? <span class="k">null</span>,
+    best:                draft.best             ?? <span class="k">null</span>,
+    optional_upsells:    draft.optional_upsells ?? [],
+    estimated_timeframe: draft.estimated_timeframe,
+    needs_inspection:    draft.needs_inspection,
+    inspection_reason:   draft.inspection_reason,
+    gst_note:            draft.gst_note,
+    selected_tier:       <span class="s">'better'</span>,
+    subtotal_ex_gst:     selectedSubtotal,
+    gst,
+    total_inc_gst:       total,
+  }).select().single()
+
+  <span class="c">// Line items live inside the good/better/best JSONB columns —</span>
+  <span class="c">// no separate quote_line_items insert is needed at draft time.</span>
+  <span class="c">// (We materialise quote_line_items only after the customer accepts a tier.)</span>
+
+  <span class="k">return</span> Response.json({ ok: <span class="k">true</span>, quoteId: quote!.id })
+}</code></pre>
+        </li>
+        <li>
+          <span class="instr-title">Verify a draft quote was written</span>
+          After your test call from Step 6 → 7 finishes, check the <code>quotes</code> and <code>quote_line_items</code> tables. You should see a draft quote with real line items, prices that come from your seeded assemblies, and a sensible total inc-GST.
+        </li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Don't auto-send to the customer (yet)</div>
+        <p>Australian Consumer Law treats accepted quotes as binding contracts. The wireframe is firm: in v1, no quote auto-sends without tradie review. This guide stops at "draft saved" — actually delivering it to the customer is part of stages 06 and 07, which need a human-in-the-loop step in between.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STEP 9 ═══════════════ -->
+  <section class="step" id="step-9">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Step 09 · <strong>Verify</strong></div>
+        <h2 class="step-title">Test the full pipeline end to end.</h2>
+        <p class="step-summary">Make one real phone call. Watch the data flow through every stage. Check the quote at the end. This is the moment of truth.</p>
+      </header>
+
+      <h3>Pre-flight checklist</h3>
+      <ul>
+        <li><code>pnpm dev</code> running in one terminal</li>
+        <li><code>ngrok http 3000</code> running in another, with the public URL pasted into the Vapi assistant's Server URL</li>
+        <li>Vapi assistant connected to your Twilio number</li>
+        <li>Supabase has seeded assemblies + a pricing_book row</li>
+        <li>All env vars set in <code>.env.local</code></li>
+      </ul>
+
+      <h3>The full-flow test</h3>
+      <ol>
+        <li>Dial your Twilio AU number from your mobile phone</li>
+        <li>Answer the AI's questions naturally — describe a real-feeling job ("I need six LED downlights in the kitchen, replacing the old halogens. The wiring's already there. Single-storey house, plaster ceiling, roof access is fine.")</li>
+        <li>End the call</li>
+        <li><strong>Within ~10 seconds:</strong> a row appears in <code>calls</code> with the transcript</li>
+        <li><strong>Within ~20 seconds:</strong> a row appears in <code>intakes</code> with structured fields, an embedding, and a confidence score</li>
+        <li><strong>Within ~45 seconds:</strong> a row appears in <code>quotes</code> with the rich Estimator output — <code>scope_of_works</code>, <code>assumptions</code>, <code>risk_flags</code>, three <code>good</code> / <code>better</code> / <code>best</code> JSONB columns each holding label + line_items + subtotal + timeframe, plus <code>optional_upsells</code> and the selected-tier totals (<code>subtotal_ex_gst</code>, <code>gst</code>, <code>total_inc_gst</code>). The <code>quote_line_items</code> table stays empty at draft time — it's only populated when the customer accepts a tier.</li>
+        <li>Read each tier in the JSONB. Sanity-check that prices match your seeded assemblies. Check the GST math against the selected tier (<code>better.subtotal_ex_gst × 1.10 = total_inc_gst</code>).</li>
+        <li>Verify the route was applied correctly — auto-quote-5 jobs (downlights, GPOs, fans, alarms, outdoor lighting) should produce three real tiers; switchboards / EV / fault finding should set <code>needs_inspection: true</code> and use indicative ranges.</li>
+      </ol>
+
+      <h3>Run a deliberately complex call</h3>
+      <p>Call again with a vague or risky job: "I'm getting a burning smell from the switchboard, and breakers keep tripping, also I want to add an EV charger — it's an old place, the switchboard's still got ceramic fuses." The pipeline should:</p>
+      <ul>
+        <li>Capture the risks in the <code>intakes.risks</code> array (burning smell, tripping breakers, ceramic-fuse switchboard, EV charger on old board)</li>
+        <li>Mark <code>confidence: "LOW"</code> and <code>inspection_required: true</code></li>
+        <li>Set <code>timing.urgency: "emergency"</code> based on the burning smell</li>
+        <li>The Estimation Engine should call <code>flag_inspection_needed</code> and set <code>quotes.needs_inspection = true</code></li>
+        <li>Produce only an indicative range (not fixed pricing) with a strong "subject to inspection" exclusion</li>
+      </ul>
+
+      <h3>Common things that break</h3>
+      <ul>
+        <li><strong>Vapi webhook never fires</strong> — your ngrok tunnel restarted (URL changed) or your assistant's Server URL is wrong. Check the Vapi call logs.</li>
+        <li><strong>Intake structuring returns garbage</strong> — the system prompt isn't strict enough. Add example transcripts + expected outputs.</li>
+        <li><strong>Estimation returns text, not JSON</strong> — Opus fell out of structured mode. Use <code>generateObject</code> instead of <code>generateText</code> for stricter JSON output.</li>
+        <li><strong>Tool calls return empty</strong> — your seeded library only has 5 assemblies. Real coverage needs the electrical domain expert input from <a href="strategy.md">strategy.md §3</a> (a 25-year sparky for ~$5k consulting builds the base library across the 9 job types).</li>
+        <li><strong>GST math is off</strong> — line items are stored ex-GST, totals displayed inc-GST. If everything looks 10% wrong, this is it.</li>
+      </ul>
+
+      <div class="callout tip">
+        <div class="callout-label">Capture this as your eval baseline</div>
+        <p>Save 10–20 of these test calls as your hold-out set. Each one: the call audio, the intake the AI structured, the quote it produced, and a 0–5 score on whether the quote is right. Every future change to the prompts or tools must be measured against this set. Without it, you're iterating blind. (See <a href="strategy.md">strategy.md §6</a> for the full eval rubric.)</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ JOB FLOW LIBRARY ═══════════════ -->
+  <section class="step" id="job-flow-library">
+    <div class="container">
+      <header class="step-header">
+        <div class="step-num">Reference · <strong>Job Flow Library</strong></div>
+        <h2 class="step-title">The 9 electrical job flows.</h2>
+        <p class="step-summary">For each job type, this is what the AI Receptionist asks at intake and how the Estimator structures the Good / Better / Best options. These feed directly into the Vapi system prompt (Step 6) and the Estimator's lookup logic (Step 8). Colour bars indicate v1 routing: <span style="color:#16a34a;font-weight:600;">green = auto-quote candidate</span>, <span style="color:#f59e0b;font-weight:600;">amber = case-by-case</span>, <span style="color:#dc2626;font-weight:600;">red = inspection-only</span>.</p>
+      </header>
+
+      <!-- A · Downlights -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #16a34a;">A</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Downlights / Lighting</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #16a34a; border-radius: 3px;">auto-quote candidate</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>How many downlights?</li>
+          <li>New install or replacement?</li>
+          <li>Is cabling already run?</li>
+          <li>What type of ceiling — flat, raked, high?</li>
+          <li>Indoor, outdoor, under deck, or weather-exposed?</li>
+          <li>Warm white, cool white, tri-colour, dimmable, or smart?</li>
+          <li>Roof / ceiling access available?</li>
+          <li>Photos of ceiling and switch location?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Standard LED downlights</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Tri-colour LED downlights</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Dimmable / IP-rated / smart</div>
+        </div>
+      </div>
+
+      <!-- B · Power Points -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #16a34a;">B</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Power Points (GPOs)</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #16a34a; border-radius: 3px;">auto-quote candidate</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>How many power points?</li>
+          <li>New points or replacing existing?</li>
+          <li>Indoor or outdoor?</li>
+          <li>Wall type — plaster, brick, concrete, tile?</li>
+          <li>Is power nearby?</li>
+          <li>Single, double, USB, weatherproof, or smart GPO?</li>
+          <li>Photos of location?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Standard double GPO</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Premium / USB GPO</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Weatherproof / smart / extra circuit</div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.78rem; color: var(--muted); font-style: italic;">Note: any "extra circuit" upgrade triggers <code>inspection_required=true</code> — check the existing switchboard before quoting.</p>
+      </div>
+
+      <!-- C · Ceiling Fans -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #16a34a;">C</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Ceiling Fans</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #16a34a; border-radius: 3px;">auto-quote candidate</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>How many fans?</li>
+          <li>Existing light or fan there?</li>
+          <li>Customer-supplied fan, or do we supply?</li>
+          <li>Remote control or wall control?</li>
+          <li>Ceiling — flat, raked, or high?</li>
+          <li>Roof access available?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Install customer-supplied fan to existing wiring</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Supply &amp; install quality fan with remote</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Premium DC fan + light + wall control</div>
+        </div>
+      </div>
+
+      <!-- D · Smoke Alarms -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #16a34a;">D</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Smoke Alarms</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #16a34a; border-radius: 3px;">auto-quote candidate</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>How many bedrooms?</li>
+          <li>How many levels?</li>
+          <li>Owner-occupied, rental, or being sold?</li>
+          <li>Need compliance certification?</li>
+          <li>Existing smoke alarms?</li>
+          <li>Battery, hardwired, or interconnected?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Replace like-for-like alarms</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Compliant interconnected alarms</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Full property compliance package</div>
+        </div>
+      </div>
+
+      <!-- E · Outdoor / Deck Lighting -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #16a34a;">E</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Outdoor / Deck Lighting</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #16a34a; border-radius: 3px;">auto-quote candidate</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>Covered or weather-exposed?</li>
+          <li>How many lights?</li>
+          <li>Cabling already run?</li>
+          <li>Distance from existing power?</li>
+          <li>Switching, sensor, dimmer, or smart control?</li>
+          <li>Functional lighting or feature lighting?</li>
+          <li>Photos of deck / ceiling / switchboard?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Basic outdoor-rated lights</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>IP-rated quality fittings</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Premium dimmable / smart / weatherproof</div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.78rem; color: var(--muted); font-style: italic;">Note: if cabling is NOT already run and a new circuit is needed → triggers <code>inspection_required=true</code>.</p>
+      </div>
+
+      <!-- F · Switchboard Work -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #dc2626; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #dc2626;">F</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Switchboard Work</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #dc2626; border-radius: 3px;">inspection-only</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>Photo of the switchboard?</li>
+          <li>Old ceramic fuses or modern breakers?</li>
+          <li>Adding a circuit or upgrading the board?</li>
+          <li>Tripping, buzzing, burning smell, or overheating?</li>
+          <li>Solar, EV charger, pool, or large appliances on the property?</li>
+          <li>Single phase or three phase (if known)?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — indicative only</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Minor breaker / RCBO addition</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Partial safety upgrade</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Full switchboard upgrade</div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.78rem; color: #b91c1c; font-weight: 500;">Always recommend inspection before fixed price. Burning smell / buzzing → mark <code>urgency=emergency</code>.</p>
+      </div>
+
+      <!-- G · Oven / Cooktop Install -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #f59e0b; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #f59e0b;">G</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Oven / Cooktop Install</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #f59e0b; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #f59e0b; border-radius: 3px;">case-by-case</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>Oven, cooktop, or both?</li>
+          <li>Gas, electric, or induction?</li>
+          <li>Replacing existing or new install?</li>
+          <li>Model number?</li>
+          <li>Wiring already in place?</li>
+          <li>Does the new appliance need a dedicated circuit?</li>
+          <li>Photos of old appliance, new specs, and switchboard?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — Good / Better / Best</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Like-for-like replacement</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Install + circuit check</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Dedicated circuit / switchboard upgrade</div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.78rem; color: #92400e; font-weight: 500;">Like-for-like with confirmed wiring → auto-quotable. Anything requiring a new circuit or switchboard work → triggers <code>inspection_required=true</code>.</p>
+      </div>
+
+      <!-- H · EV Charger -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #dc2626; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #dc2626;">H</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">EV Charger</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #dc2626; border-radius: 3px;">inspection-only</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>Vehicle make / model?</li>
+          <li>Charger model?</li>
+          <li>Single-phase or three-phase property?</li>
+          <li>Distance from switchboard to install location?</li>
+          <li>Wall-mounted, garage, driveway, or outdoor?</li>
+          <li>Solar on the property?</li>
+          <li>Photos of switchboard and install location?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — indicative only</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #94a3b8;"><strong>Good</strong><br/>Basic charger install near switchboard</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #f59e0b;"><strong>Better</strong><br/>Quality install + load assessment</div>
+          <div style="padding: 0.75rem 1rem; background: var(--bg-soft); border-left: 2px solid #16a34a;"><strong>Best</strong><br/>Smart charger with solar / load management</div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.78rem; color: #b91c1c; font-weight: 500;">Always recommend inspection. Load assessment is non-negotiable for safety + grid compliance.</p>
+      </div>
+
+      <!-- I · Fault Finding -->
+      <div style="margin: 2rem 0; padding: 1.5rem; border: 1px solid var(--line); border-left: 4px solid #dc2626; border-radius: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 800; color: #dc2626;">I</span>
+          <h3 style="margin: 0; font-size: 1.15rem;">Fault Finding</h3>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700; padding: 0.18rem 0.5rem; border: 1px solid #dc2626; border-radius: 3px;">no fixed quote</span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Ask at intake</div>
+        <ul style="font-size: 0.875rem; margin-bottom: 1.25rem; margin-left: 1.25rem; line-height: 1.7;">
+          <li>What's happening?</li>
+          <li>When did it start?</li>
+          <li>Affecting whole house or one area?</li>
+          <li>Any tripping breakers?</li>
+          <li>Burning smell, buzzing, sparks, or water damage?</li>
+          <li>Recent storms, renovations, or new appliances?</li>
+        </ul>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.5rem;">Quote logic — diagnostic only</div>
+        <div style="padding: 1rem 1.25rem; background: #fef2f2; border-left: 4px solid #dc2626; font-size: 0.875rem;">
+          <strong>Do not produce a fixed quote.</strong> Use call-out + hourly diagnostic rate ($120–$180 minimum + $90–$130/hr).<br/><br/>
+          <strong>Customer wording:</strong> <em>"Faults need testing onsite. We can attend, diagnose the issue, and provide repair options before proceeding with larger work."</em>
+        </div>
+      </div>
+
+      <div class="callout tip">
+        <div class="callout-label">How this maps to the system</div>
+        <p>The 9 <strong>Ask at intake</strong> blocks become the job-type-specific question routing in the Vapi system prompt (Step 6). The <strong>Quote logic</strong> blocks become the Estimator's tool-use targets (Step 8) — each Good/Better/Best option pulls assemblies and materials from <code>shared_assemblies</code> and <code>shared_materials</code> via <code>lookup_assembly</code> and <code>lookup_material</code>. The <strong>case-by-case / inspection-only</strong> tags become the <code>inspection_required</code> boolean in the intake schema (Step 7).</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════ NEXT ═══════════════ -->
+  <section class="next">
+    <div class="container">
+      <h2>What comes after Stage 05.</h2>
+      <p>You now have the full automation backbone — phone rings, AI converses, intake gets structured, quote gets drafted. The remaining wireframe stages turn this into a complete product:</p>
+      <ul class="next-list">
+        <li>
+          <span class="next-num">Stage 06</span>
+          <div>
+            <span class="next-title">Workflow Decision · Confidence-Based Routing</span>
+            <span class="next-desc">A rule layer that decides what happens to the draft: auto-send to customer (HIGH confidence), tradie review then send (MEDIUM), or trigger a paid $199 site inspection (LOW).</span>
+          </div>
+        </li>
+        <li>
+          <span class="next-num">Stage 07</span>
+          <div>
+            <span class="next-title">Customer-facing quote view (Good / Better / Best)</span>
+            <span class="next-desc">A mobile-first portal page where the homeowner opens the quote, sees three tiers, and clicks "accept + deposit" — Stripe Connect Express handles the money.</span>
+          </div>
+        </li>
+        <li>
+          <span class="next-num">Stage 08</span>
+          <div>
+            <span class="next-title">Availability Nudge</span>
+            <span class="next-desc">Automated SMS that reads the tradie's calendar and creates urgency: "We've had a spot open up this week."</span>
+          </div>
+        </li>
+        <li>
+          <span class="next-num">Stage 09</span>
+          <div>
+            <span class="next-title">Follow-Up Engine</span>
+            <span class="next-desc">SMS reminders on Day 1 / Day 3 / Day 7 for quotes that haven't accepted yet, with objection handling.</span>
+          </div>
+        </li>
+        <li>
+          <span class="next-num">Stage 10</span>
+          <div>
+            <span class="next-title">Job Won</span>
+            <span class="next-desc">The accept event triggers calendar booking, deposit capture, CRM update, and notifications to both sides.</span>
+          </div>
+        </li>
+      </ul>
+      <p style="margin-top: 3rem;">Refer to <a href="wireframe.html" style="color: #fff; text-decoration: underline;">docs/wireframe.html</a> for the full system diagram. Refer to <a href="strategy.md" style="color: #fff; text-decoration: underline;">docs/strategy.md</a> for the strategic context — particularly the cost analysis around voice infrastructure.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="container">
+      QuoteMate · Automation Build Guide · Wireframe stages 01 → 05
+    </div>
+  </footer>
+
+</body>
+</html>

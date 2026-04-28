@@ -25,7 +25,7 @@
 
 ---
 
-## Phase 1 — Portal MVP (painting NSW, manual intake, no voice)
+## Phase 1 — Portal MVP (electrical NSW, manual intake, no voice)
 
 ### Setup & deploy
 
