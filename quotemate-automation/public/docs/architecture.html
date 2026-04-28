@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuoteMate · Architecture · Stages 01 → 05</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #e2e8f0;
+      line-height: 1.5;
+    }
+
+    .container { max-width: 1280px; margin: 0 auto; }
+
+    /* ═══════════════ HEADER ═══════════════ */
+    .header { margin-bottom: 2.5rem; }
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+    h1 {
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: #f8fafc;
+    }
+    h1 em {
+      font-style: normal;
+      color: #22d3ee;
+      font-weight: 700;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-left: 1.75rem;
+      font-weight: 500;
+    }
+    .tag-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.85rem;
+      margin-left: 1.75rem;
+    }
+    .tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.55rem;
+      border-radius: 3px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid #1e293b;
+      color: #94a3b8;
+    }
+    .tag.cyan { color: #22d3ee; border-color: rgba(34, 211, 238, 0.3); }
+    .tag.emerald { color: #34d399; border-color: rgba(52, 211, 153, 0.3); }
+    .tag.amber { color: #fbbf24; border-color: rgba(251, 191, 36, 0.3); }
+    .tag.violet { color: #a78bfa; border-color: rgba(167, 139, 250, 0.3); }
+
+    /* ═══════════════ STRATEGY BANNER ═══════════════ */
+    .strategy-banner {
+      margin: 2rem 0;
+      padding: 1.25rem 1.5rem;
+      background: linear-gradient(90deg, rgba(120, 53, 15, 0.25), rgba(120, 53, 15, 0.05));
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-left: 3px solid #fbbf24;
+      border-radius: 8px;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+    .strategy-icon {
+      font-family: 'JetBrains Mono', monospace;
+      color: #fbbf24;
+      font-weight: 700;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      padding: 0.3rem 0.55rem;
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: 3px;
+      white-space: nowrap;
+      margin-top: 0.1rem;
+    }
+    .strategy-banner-body { flex: 1; font-size: 0.88rem; color: #cbd5e1; }
+    .strategy-banner-body strong { color: #fde68a; font-weight: 600; }
+
+    /* ═══════════════ SECTION ═══════════════ */
+    .section { margin: 3rem 0; }
+    .section-header { margin-bottom: 1.25rem; }
+    .section-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .section-num strong { color: #94a3b8; }
+    .section h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #f8fafc;
+      margin-bottom: 0.4rem;
+    }
+    .section-lede {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      max-width: 920px;
+    }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.85rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    svg { width: 100%; min-width: 1000px; display: block; }
+
+    /* ═══════════════ STAGE CARDS ═══════════════ */
+    .stage-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+    .stage-card {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      padding: 1.25rem 1.4rem;
+      position: relative;
+    }
+    .stage-card.s01 { border-top: 2px solid #94a3b8; }
+    .stage-card.s02 { border-top: 2px solid #fbbf24; }
+    .stage-card.s03 { border-top: 2px solid #fb923c; }
+    .stage-card.s04 { border-top: 2px solid #22d3ee; }
+    .stage-card.s05 { border-top: 2px solid #a78bfa; }
+
+    .stage-card-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .stage-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 0.5rem;
+    }
+    .stage-card-meta {
+      font-size: 0.78rem;
+      color: #64748b;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 0.85rem;
+      padding-bottom: 0.7rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .stage-card p {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-bottom: 0.85rem;
+    }
+    .stage-card .label {
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 0.85rem;
+      margin-bottom: 0.4rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .stage-card .stack-list {
+      list-style: none;
+      font-size: 0.78rem;
+      color: #94a3b8;
+    }
+    .stage-card .stack-list li {
+      padding: 0.18rem 0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .stage-card .stack-list li::before {
+      content: "→ ";
+      color: #475569;
+    }
+
+    /* ═══════════════ NO-N8N SECTION ═══════════════ */
+    .n8n-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+    .n8n-card {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid #1e293b;
+      border-left: 3px solid #fb7185;
+      border-radius: 0.5rem;
+      padding: 1.25rem 1.4rem;
+    }
+    .n8n-card-num {
+      font-family: 'JetBrains Mono', monospace;
+      color: #fb7185;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      margin-bottom: 0.45rem;
+    }
+    .n8n-card h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 0.55rem;
+    }
+    .n8n-card p {
+      font-size: 0.83rem;
+      color: #cbd5e1;
+      margin-bottom: 0.55rem;
+    }
+    .n8n-card code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78em;
+      background: rgba(2, 6, 23, 0.6);
+      color: #e2e8f0;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+      border: 1px solid #1e293b;
+    }
+    .n8n-card-tag {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: #fda4af;
+      background: rgba(136, 19, 55, 0.3);
+      border: 1px solid rgba(251, 113, 133, 0.3);
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      margin-top: 0.55rem;
+    }
+
+    /* ═══════════════ FOOTER ═══════════════ */
+    .footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #1e293b;
+      text-align: center;
+      color: #475569;
+      font-size: 0.78rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .footer a { color: #64748b; text-decoration: none; }
+    .footer a:hover { color: #94a3b8; }
+
+    @media (max-width: 720px) {
+      body { padding: 1.5rem 1rem; }
+      h1 { font-size: 1.35rem; }
+      .subtitle, .tag-row { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- ═══════════════ HEADER ═══════════════ -->
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>QuoteMate <em>Automation Pipeline</em> · Stages 01 → 05</h1>
+      </div>
+      <p class="subtitle">From dialed number to drafted quote. The system, the wiring, and why no glue layer is needed.</p>
+      <div class="tag-row">
+        <span class="tag amber">Twilio AU</span>
+        <span class="tag emerald">Vapi</span>
+        <span class="tag emerald">Deepgram nova-2</span>
+        <span class="tag emerald">ElevenLabs</span>
+        <span class="tag emerald">Claude Haiku · Sonnet 4.6 · Opus 4.7</span>
+        <span class="tag emerald">Voyage voyage-3</span>
+        <span class="tag amber">Vercel · Next.js</span>
+        <span class="tag violet">Supabase + pgvector</span>
+        <span class="tag cyan">Vercel AI SDK</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════ STRATEGY BANNER ═══════════════ -->
+    <div class="strategy-banner">
+      <div class="strategy-icon">v3+ scope</div>
+      <div class="strategy-banner-body">
+        <strong>Heads-up on alignment.</strong> This diagram describes the <strong>voice-first</strong> pipeline from <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">docs/build-guide.html</code>. Per <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">docs/strategy.md</code>, v1 is <strong>portal-first</strong> (typed intake) — the AI receptionist is a v3+ premium tier. The good news: <strong>Stages 04 and 05 are stack-identical</strong> for portal and voice. Only Stage 03 changes (typed form replaces Vapi). Build the engines first; plug Vapi in front later.
+      </div>
+    </div>
+
+    <!-- ═══════════════ SECTION 1 — PIPELINE OVERVIEW ═══════════════ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num"><strong>01</strong> · The whole pipeline at a glance</div>
+        <h2>End-to-end data flow.</h2>
+        <p class="section-lede">Top to bottom: a homeowner dials in, the AI has a conversation, the transcript gets structured, and an LLM with deterministic tools writes a draft quote. Every box is a single piece of infrastructure or one Vercel AI SDK call. Every arrow is one HTTP request.</p>
+      </div>
+
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 1240" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+            </marker>
+            <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+            </marker>
+            <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/>
+            </marker>
+            <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+          </defs>
+
+          <rect width="100%" height="100%" fill="url(#grid)"/>
+
+          <!-- ═══ ARROWS DRAWN FIRST (BEHIND BOXES) ═══ -->
+
+          <!-- Customer → Twilio -->
+          <line x1="280" y1="155" x2="280" y2="190" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+          <!-- Twilio → Vapi cluster -->
+          <line x1="280" y1="270" x2="280" y2="310" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+          <text x="295" y="293" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">SIP / voice</text>
+
+          <!-- Inside Vapi: realtime loop arrows -->
+          <line x1="440" y1="430" x2="478" y2="430" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <text x="459" y="423" fill="#34d399" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">text</text>
+          <line x1="740" y1="430" x2="778" y2="430" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <text x="759" y="423" fill="#34d399" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">reply</text>
+          <!-- Loop back from ElevenLabs to Deepgram (curved, top of cluster) -->
+          <path d="M 910 380 Q 910 350 800 348 Q 600 348 400 348 Q 290 348 290 380" fill="none" stroke="#34d399" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="600" y="343" fill="#34d399" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">~10 Hz audio loop</text>
+
+          <!-- Vapi cluster → Vercel webhook -->
+          <line x1="600" y1="510" x2="600" y2="555" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+          <text x="700" y="538" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">POST /api/vapi/webhook</text>
+          <text x="700" y="550" fill="#94a3b8" font-size="8" font-family="'JetBrains Mono', monospace">end-of-call-report</text>
+
+          <!-- Vercel → calls table -->
+          <line x1="600" y1="635" x2="600" y2="660" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+          <text x="615" y="652" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace">insert</text>
+
+          <!-- calls → Intake Engine cluster -->
+          <line x1="600" y1="735" x2="600" y2="770" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+          <text x="615" y="757" fill="#22d3ee" font-size="9" font-family="'JetBrains Mono', monospace">fetch /api/intake/structure</text>
+
+          <!-- Intake cluster → intakes table -->
+          <line x1="600" y1="905" x2="600" y2="935" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+          <text x="615" y="925" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace">insert (with embedding)</text>
+
+          <!-- intakes → Estimation cluster -->
+          <line x1="600" y1="1010" x2="600" y2="1040" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+          <text x="615" y="1030" fill="#22d3ee" font-size="9" font-family="'JetBrains Mono', monospace">fetch /api/estimate/draft</text>
+
+          <!-- Inside Estimation cluster — flow arrows -->
+          <!-- Opus → tools -->
+          <line x1="380" y1="1100" x2="408" y2="1100" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <line x1="380" y1="1135" x2="408" y2="1135" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <line x1="380" y1="1170" x2="408" y2="1170" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <line x1="380" y1="1205" x2="408" y2="1205" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+          <!-- tools → DB lookup tables -->
+          <line x1="608" y1="1100" x2="638" y2="1100" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="3,3"/>
+          <line x1="608" y1="1135" x2="638" y2="1135" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="3,3"/>
+          <line x1="608" y1="1170" x2="638" y2="1170" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="3,3"/>
+          <!-- Estimation engine → quotes table (long arrow at bottom) -->
+          <path d="M 280 1230 L 280 1270" fill="none"/>
+          <!-- Quotes write arrow -->
+          <line x1="900" y1="1170" x2="940" y2="1170" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+          <text x="920" y="1162" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">insert</text>
+
+          <!-- ═══ STAGE 01 — Customer ═══ -->
+          <circle cx="60" cy="120" r="22" fill="rgba(30,41,59,0.8)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="60" y="125" fill="#e2e8f0" font-size="11" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">01</text>
+
+          <rect x="180" y="85" width="200" height="70" rx="6" fill="#0f172a"/>
+          <rect x="180" y="85" width="200" height="70" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="280" y="108" fill="white" font-size="12" font-weight="700" text-anchor="middle">Customer / Homeowner</text>
+          <text x="280" y="124" fill="#94a3b8" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">mobile · landline</text>
+          <text x="280" y="142" fill="#cbd5e1" font-size="9" text-anchor="middle" font-style="italic">"G'day, I need 6 downlights..."</text>
+
+          <text x="430" y="105" fill="#94a3b8" font-size="9.5" font-family="'JetBrains Mono', monospace">Stage 01 — call origination</text>
+          <text x="430" y="120" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace">Tradie's QuoteMate-provisioned number</text>
+          <text x="430" y="135" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace">Same number 24/7 — no off-hours fallback needed</text>
+
+          <!-- ═══ STAGE 02 — Twilio ═══ -->
+          <circle cx="60" cy="230" r="22" fill="rgba(120,53,15,0.4)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="60" y="235" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">02</text>
+
+          <rect x="160" y="190" width="240" height="80" rx="6" fill="#0f172a"/>
+          <rect x="160" y="190" width="240" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="280" y="214" fill="white" font-size="12" font-weight="700" text-anchor="middle">Twilio · AU long code</text>
+          <text x="280" y="232" fill="#fbbf24" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">+61 2 XXXX XXXX</text>
+          <text x="280" y="248" fill="#94a3b8" font-size="8.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">Local number · voice capability</text>
+          <text x="280" y="261" fill="#94a3b8" font-size="8.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$1.50/mo · regulatory bundle</text>
+
+          <text x="430" y="210" fill="#94a3b8" font-size="9.5" font-family="'JetBrains Mono', monospace">Stage 02 — Twilio routes voice → Vapi</text>
+          <text x="430" y="225" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace">Twilio's voice webhook is delegated to Vapi at</text>
+          <text x="430" y="238" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace">import time. Vapi terminates the call.</text>
+          <text x="430" y="256" fill="#fb7185" font-size="9" font-family="'JetBrains Mono', monospace">Identity verification required before purchase</text>
+
+          <!-- ═══ STAGE 03 — Vapi cluster ═══ -->
+          <circle cx="60" cy="410" r="22" fill="rgba(120,53,15,0.4)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="60" y="415" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">03</text>
+
+          <!-- Vapi cluster boundary -->
+          <rect x="140" y="310" width="1020" height="200" rx="12" fill="rgba(120, 53, 15, 0.05)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+          <text x="160" y="332" fill="#fbbf24" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">Vapi · realtime voice orchestrator</text>
+          <text x="160" y="346" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">streaming audio · sub-second turn-taking · your provider keys (Deepgram, ElevenLabs, Anthropic) plug in here</text>
+
+          <!-- Deepgram -->
+          <rect x="180" y="380" width="260" height="100" rx="6" fill="#0f172a"/>
+          <rect x="180" y="380" width="260" height="100" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="310" y="404" fill="white" font-size="12" font-weight="700" text-anchor="middle">Deepgram</text>
+          <text x="310" y="422" fill="#34d399" font-size="9.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">nova-2 · en-AU</text>
+          <text x="310" y="442" fill="#94a3b8" font-size="9" text-anchor="middle">speech → text</text>
+          <text x="310" y="458" fill="#94a3b8" font-size="9" text-anchor="middle">live transcription</text>
+          <text x="310" y="473" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$0.02 / call</text>
+
+          <!-- Claude Haiku -->
+          <rect x="480" y="380" width="260" height="100" rx="6" fill="#0f172a"/>
+          <rect x="480" y="380" width="260" height="100" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="610" y="404" fill="white" font-size="12" font-weight="700" text-anchor="middle">Claude Haiku</text>
+          <text x="610" y="422" fill="#34d399" font-size="9.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">in-call decisions</text>
+          <text x="610" y="442" fill="#94a3b8" font-size="9" text-anchor="middle">"what to ask next?"</text>
+          <text x="610" y="458" fill="#94a3b8" font-size="9" text-anchor="middle">job-flow routing · 9 trees</text>
+          <text x="610" y="473" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$0.01 / call</text>
+
+          <!-- ElevenLabs -->
+          <rect x="780" y="380" width="260" height="100" rx="6" fill="#0f172a"/>
+          <rect x="780" y="380" width="260" height="100" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="910" y="404" fill="white" font-size="12" font-weight="700" text-anchor="middle">ElevenLabs</text>
+          <text x="910" y="422" fill="#34d399" font-size="9.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">Australian voice</text>
+          <text x="910" y="442" fill="#94a3b8" font-size="9" text-anchor="middle">text → speech</text>
+          <text x="910" y="458" fill="#94a3b8" font-size="9" text-anchor="middle">streamed TTS to caller</text>
+          <text x="910" y="473" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$0.10–0.30 / call</text>
+
+          <!-- ═══ VERCEL WEBHOOK ═══ -->
+          <rect x="200" y="555" width="800" height="80" rx="6" fill="#0f172a"/>
+          <rect x="200" y="555" width="800" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="600" y="580" fill="white" font-size="12" font-weight="700" text-anchor="middle">Vercel · Next.js App Router (serverless functions)</text>
+          <text x="600" y="600" fill="#fbbf24" font-size="9.5" text-anchor="middle" font-family="'JetBrains Mono', monospace">app/api/vapi/webhook  ·  app/api/intake/structure  ·  app/api/estimate/draft</text>
+          <text x="600" y="618" fill="#94a3b8" font-size="9" text-anchor="middle">Each route is ~30 lines. Routes fire-and-forget the next route via fetch — non-blocking handoff.</text>
+
+          <!-- ═══ CALLS TABLE ═══ -->
+          <rect x="380" y="660" width="440" height="75" rx="6" fill="#0f172a"/>
+          <rect x="380" y="660" width="440" height="75" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="683" fill="white" font-size="12" font-weight="700" text-anchor="middle">Supabase · calls</text>
+          <text x="600" y="700" fill="#a78bfa" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">vapi_call_id · transcript · recording_url · photo_urls · ended_at</text>
+          <text x="600" y="722" fill="#94a3b8" font-size="9" text-anchor="middle">One row per inbound call · the raw record before any AI processing</text>
+
+          <!-- ═══ STAGE 04 — Intake Engine ═══ -->
+          <circle cx="60" cy="830" r="22" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="60" y="835" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">04</text>
+
+          <rect x="140" y="770" width="1020" height="135" rx="12" fill="rgba(8, 51, 68, 0.1)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+          <text x="160" y="792" fill="#22d3ee" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">Stage 04 · Intake Engine — Claude Sonnet 4.6</text>
+          <text x="160" y="806" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">free-form transcript → strict structured JSON · vision-capable for caller photos</text>
+
+          <!-- Sonnet generateObject -->
+          <rect x="180" y="820" width="290" height="75" rx="6" fill="#0f172a"/>
+          <rect x="180" y="820" width="290" height="75" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="325" y="842" fill="white" font-size="11" font-weight="700" text-anchor="middle">generateObject + Zod</text>
+          <text x="325" y="858" fill="#34d399" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">IntakeSchema · 11 job types</text>
+          <text x="325" y="873" fill="#94a3b8" font-size="9" text-anchor="middle">scope · risks · access · confidence</text>
+          <text x="325" y="887" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$0.02 / call</text>
+
+          <!-- Photo vision -->
+          <rect x="490" y="820" width="220" height="75" rx="6" fill="#0f172a"/>
+          <rect x="490" y="820" width="220" height="75" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="600" y="842" fill="white" font-size="11" font-weight="700" text-anchor="middle">Photo vision input</text>
+          <text x="600" y="858" fill="#34d399" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">image content blocks</text>
+          <text x="600" y="873" fill="#94a3b8" font-size="9" text-anchor="middle">photo_urls from SMS</text>
+          <text x="600" y="887" fill="#94a3b8" font-size="9" text-anchor="middle">switchboard, ceiling, GPO</text>
+
+          <!-- Voyage embed -->
+          <rect x="730" y="820" width="290" height="75" rx="6" fill="#0f172a"/>
+          <rect x="730" y="820" width="290" height="75" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="875" y="842" fill="white" font-size="11" font-weight="700" text-anchor="middle">Voyage embed</text>
+          <text x="875" y="858" fill="#34d399" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">voyage-3 · 1536 dims</text>
+          <text x="875" y="873" fill="#94a3b8" font-size="9" text-anchor="middle">summary string → vector</text>
+          <text x="875" y="887" fill="#94a3b8" font-size="9" text-anchor="middle">for similar-job retrieval</text>
+
+          <!-- ═══ INTAKES TABLE ═══ -->
+          <rect x="380" y="935" width="440" height="75" rx="6" fill="#0f172a"/>
+          <rect x="380" y="935" width="440" height="75" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="957" fill="white" font-size="12" font-weight="700" text-anchor="middle">Supabase · intakes (pgvector)</text>
+          <text x="600" y="974" fill="#a78bfa" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">job_type · scope · risks · embedding(1536) · inspection_required · confidence</text>
+          <text x="600" y="996" fill="#94a3b8" font-size="9" text-anchor="middle">match_intakes(query_embedding) returns the 5 most similar past intakes</text>
+
+          <!-- ═══ STAGE 05 — Estimation Engine ═══ -->
+          <circle cx="60" cy="1130" r="22" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="60" y="1135" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">05</text>
+
+          <rect x="140" y="1040" width="1020" height="190" rx="12" fill="rgba(76, 29, 149, 0.1)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
+          <text x="160" y="1062" fill="#a78bfa" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">Stage 05 · Estimation Engine — Claude Opus 4.7 · generateText + tools · maxSteps:10</text>
+          <text x="160" y="1076" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">LLM reasoning + deterministic tool execution. Opus never invents prices — every line item comes from a tool result.</text>
+
+          <!-- Opus -->
+          <rect x="180" y="1090" width="200" height="125" rx="6" fill="#0f172a"/>
+          <rect x="180" y="1090" width="200" height="125" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="280" y="1112" fill="white" font-size="12" font-weight="700" text-anchor="middle">Claude Opus 4.7</text>
+          <text x="280" y="1130" fill="#34d399" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">tool-use loop</text>
+          <text x="280" y="1148" fill="#94a3b8" font-size="9" text-anchor="middle">decides which tool</text>
+          <text x="280" y="1162" fill="#94a3b8" font-size="9" text-anchor="middle">to call next</text>
+          <text x="280" y="1180" fill="#94a3b8" font-size="9" text-anchor="middle">writes G/B/B JSON</text>
+          <text x="280" y="1202" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">~$0.05–0.10 / call</text>
+
+          <!-- 4 tools (vertical stack) -->
+          <rect x="408" y="1085" width="200" height="32" rx="4" fill="#0f172a"/>
+          <rect x="408" y="1085" width="200" height="32" rx="4" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1.2"/>
+          <text x="508" y="1100" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">lookup_assembly()</text>
+          <text x="508" y="1112" fill="#94a3b8" font-size="8" text-anchor="middle">→ 5 matching assemblies</text>
+
+          <rect x="408" y="1120" width="200" height="32" rx="4" fill="#0f172a"/>
+          <rect x="408" y="1120" width="200" height="32" rx="4" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1.2"/>
+          <text x="508" y="1135" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">lookup_material()</text>
+          <text x="508" y="1147" fill="#94a3b8" font-size="8" text-anchor="middle">→ 5 matching materials</text>
+
+          <rect x="408" y="1155" width="200" height="32" rx="4" fill="#0f172a"/>
+          <rect x="408" y="1155" width="200" height="32" rx="4" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1.2"/>
+          <text x="508" y="1170" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">apply_markup()</text>
+          <text x="508" y="1182" fill="#94a3b8" font-size="8" text-anchor="middle">basePrice × (1 + pct/100)</text>
+
+          <rect x="408" y="1190" width="200" height="32" rx="4" fill="#0f172a"/>
+          <rect x="408" y="1190" width="200" height="32" rx="4" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1.2"/>
+          <text x="508" y="1205" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">flag_inspection_needed()</text>
+          <text x="508" y="1217" fill="#94a3b8" font-size="8" text-anchor="middle">switchboard · EV · faults</text>
+
+          <!-- Lookup tables (vertical stack) -->
+          <rect x="638" y="1085" width="220" height="32" rx="4" fill="#0f172a"/>
+          <rect x="638" y="1085" width="220" height="32" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.2"/>
+          <text x="748" y="1100" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">shared_assemblies</text>
+          <text x="748" y="1112" fill="#94a3b8" font-size="8" text-anchor="middle">"easy 5" + 4 inspection types</text>
+
+          <rect x="638" y="1120" width="220" height="32" rx="4" fill="#0f172a"/>
+          <rect x="638" y="1120" width="220" height="32" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.2"/>
+          <text x="748" y="1135" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">shared_materials</text>
+          <text x="748" y="1147" fill="#94a3b8" font-size="8" text-anchor="middle">downlights · GPOs · fans · RCBOs</text>
+
+          <rect x="638" y="1155" width="220" height="32" rx="4" fill="#0f172a"/>
+          <rect x="638" y="1155" width="220" height="32" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.2"/>
+          <text x="748" y="1170" fill="white" font-size="10" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono', monospace">pricing_book</text>
+          <text x="748" y="1182" fill="#94a3b8" font-size="8" text-anchor="middle">hourly_rate · markup · licence_*</text>
+
+          <text x="748" y="1210" fill="#64748b" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">no DB lookup — pure flag</text>
+
+          <!-- quotes output -->
+          <rect x="940" y="1085" width="200" height="140" rx="6" fill="#0f172a"/>
+          <rect x="940" y="1085" width="200" height="140" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="1040" y="1108" fill="white" font-size="12" font-weight="700" text-anchor="middle">Supabase · quotes</text>
+          <text x="1040" y="1126" fill="#a78bfa" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">Good / Better / Best</text>
+          <text x="1040" y="1141" fill="#a78bfa" font-size="9" text-anchor="middle" font-family="'JetBrains Mono', monospace">JSONB tiered output</text>
+          <text x="1040" y="1162" fill="#94a3b8" font-size="9" text-anchor="middle">scope_of_works</text>
+          <text x="1040" y="1176" fill="#94a3b8" font-size="9" text-anchor="middle">assumptions[]</text>
+          <text x="1040" y="1190" fill="#94a3b8" font-size="9" text-anchor="middle">risk_flags[]</text>
+          <text x="1040" y="1204" fill="#94a3b8" font-size="9" text-anchor="middle">total_inc_gst</text>
+          <text x="1040" y="1220" fill="#fbbf24" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">status: 'draft'</text>
+
+          <!-- ═══ LEGEND (bottom-left, outside any cluster) ═══ -->
+          <text x="20" y="1255" fill="#94a3b8" font-size="10" font-weight="700" font-family="'JetBrains Mono', monospace">LEGEND</text>
+          <rect x="90" y="1248" width="14" height="9" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+          <text x="110" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">AI service</text>
+          <rect x="190" y="1248" width="14" height="9" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+          <text x="210" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">cloud / infra</text>
+          <rect x="298" y="1248" width="14" height="9" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+          <text x="318" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">Supabase table</text>
+          <rect x="420" y="1248" width="14" height="9" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="440" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">external</text>
+          <rect x="510" y="1248" width="14" height="9" rx="2" fill="transparent" stroke="#22d3ee" stroke-width="1" stroke-dasharray="3,3"/>
+          <text x="530" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">stage cluster</text>
+          <line x1="620" y1="1252" x2="640" y2="1252" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="3,3"/>
+          <text x="648" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">read</text>
+          <line x1="685" y1="1252" x2="705" y2="1252" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+          <text x="713" y="1256" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">insert</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SECTION 2 — STAGE-BY-STAGE CARDS ═══════════════ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num"><strong>02</strong> · Stage-by-stage breakdown</div>
+        <h2>What runs at each step.</h2>
+        <p class="section-lede">Each card is one stage from the wireframe. Read the diagram above for the wiring; read these cards for what each stage actually does and which tool does the work.</p>
+      </div>
+
+      <div class="stage-cards">
+        <div class="stage-card s01">
+          <div class="stage-card-num">Stage · 01</div>
+          <h3>Customer call origination</h3>
+          <div class="stage-card-meta">no infrastructure</div>
+          <p>A homeowner reaches for their phone and dials the tradie's QuoteMate-provisioned number. Same number every day, no after-hours fallback, no IVR menu.</p>
+          <div class="label">tools</div>
+          <ul class="stack-list">
+            <li>customer's mobile / landline</li>
+          </ul>
+        </div>
+
+        <div class="stage-card s02">
+          <div class="stage-card-num">Stage · 02</div>
+          <h3>Twilio AU number receives</h3>
+          <div class="stage-card-meta">~$1.50/mo + per-minute · ~$0.08/call</div>
+          <p>Twilio owns the AU local long code. On purchase, its voice webhook is delegated to Vapi via the Vapi dashboard's "Import from Twilio" action — Twilio terminates SIP, hands the audio stream to Vapi.</p>
+          <div class="label">tools</div>
+          <ul class="stack-list">
+            <li>Twilio Console (regulatory bundle)</li>
+            <li>Twilio AU local number (voice cap.)</li>
+          </ul>
+          <div class="label">why local, not 1300</div>
+          <ul class="stack-list">
+            <li>homeowners answer local calls; 1300s feel like marketing</li>
+          </ul>
+        </div>
+
+        <div class="stage-card s03">
+          <div class="stage-card-num">Stage · 03</div>
+          <h3>Vapi runs the conversation</h3>
+          <div class="stage-card-meta">~10Hz loop · ~$0.30–0.55/call</div>
+          <p>Vapi orchestrates the realtime audio loop: <strong>Deepgram</strong> transcribes incoming audio, <strong>Claude Haiku</strong> reads the transcript and the system prompt to decide what to say next, <strong>ElevenLabs</strong> synthesizes the reply. ~10 cycles per second keeps conversation natural.</p>
+          <p>On hangup, Vapi POSTs an <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">end-of-call-report</code> with the full transcript + recording URL to <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">/api/vapi/webhook</code>.</p>
+          <div class="label">tools</div>
+          <ul class="stack-list">
+            <li>Vapi (orchestrator)</li>
+            <li>Deepgram nova-2 (en-AU)</li>
+            <li>Claude Haiku (in-call)</li>
+            <li>ElevenLabs (Australian voice)</li>
+            <li>Vercel API route (webhook receiver)</li>
+          </ul>
+        </div>
+
+        <div class="stage-card s04">
+          <div class="stage-card-num">Stage · 04</div>
+          <h3>Intake Engine structures</h3>
+          <div class="stage-card-meta">Claude Sonnet 4.6 · ~$0.02/call</div>
+          <p>Free-form transcript → structured JSON. The Vercel AI SDK's <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">generateObject</code> enforces a Zod <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">IntakeSchema</code> — Sonnet must produce JSON matching it or the SDK retries. Photos sent via SMS pass through as image content blocks for vision input.</p>
+          <p>A summary string ("downlights count=6 indoor existing-wiring...") is embedded with Voyage <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">voyage-3</code> into a 1536-dim vector and stored in pgvector for similar-job retrieval.</p>
+          <div class="label">tools</div>
+          <ul class="stack-list">
+            <li>Vercel AI SDK <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">generateObject</code></li>
+            <li>Zod schema validation</li>
+            <li>Anthropic (Sonnet 4.6 + vision)</li>
+            <li>Voyage AI (voyage-3 embeddings)</li>
+            <li>Supabase pgvector extension</li>
+          </ul>
+        </div>
+
+        <div class="stage-card s05">
+          <div class="stage-card-num">Stage · 05</div>
+          <h3>Estimation Engine drafts</h3>
+          <div class="stage-card-meta">Claude Opus 4.7 · ~$0.05–0.10/call</div>
+          <p><code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">generateText({ tools, maxSteps: 10 })</code>. Opus reads the structured intake, then <em>chooses</em> which of four tools to call: <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">lookup_assembly</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">lookup_material</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">apply_markup</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">flag_inspection_needed</code>. Tools hit Supabase deterministically; Opus only handles reasoning.</p>
+          <p>Output is three pricing tiers (Good / Better / Best) as JSONB columns plus indicative ranges for inspection-only routes. Status starts as <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">'draft'</code> — never auto-sent.</p>
+          <div class="label">tools</div>
+          <ul class="stack-list">
+            <li>Vercel AI SDK <code style="font-family:'JetBrains Mono',monospace;font-size:0.85em;background:rgba(2,6,23,0.6);padding:0.05em 0.35em;border:1px solid #334155;border-radius:3px;color:#e2e8f0;">generateText + tools</code></li>
+            <li>4 Zod-typed tool definitions</li>
+            <li>Anthropic Opus 4.7</li>
+            <li>Supabase lookup tables (read)</li>
+            <li>Supabase quotes (write JSONB)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SECTION 3 — DATABASE SCHEMA ═══════════════ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num"><strong>03</strong> · Database schema</div>
+        <h2>How the tables relate.</h2>
+        <p class="section-lede">The pipeline tables on the right are written in order: <strong>calls → intakes → quotes → quote_line_items</strong>. The lookup tables on the left are read by the Estimator's tools — they aren't written by the pipeline at all (they're seeded by the tradie + a domain expert). Solid arrows are FK relationships; dashed arrows are reads from Stage 05 tools.</p>
+      </div>
+
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 640" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+            <marker id="arrow2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/>
+            </marker>
+            <marker id="arrow2-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid2)"/>
+
+          <!-- Column headers -->
+          <text x="200" y="40" fill="#fbbf24" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace" text-anchor="middle">LOOKUP TABLES</text>
+          <text x="200" y="55" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">read-only · seeded · per-tradie overrides</text>
+
+          <text x="600" y="40" fill="#22d3ee" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace" text-anchor="middle">PIPELINE TABLES</text>
+          <text x="600" y="55" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">written in order, one row per call</text>
+
+          <text x="990" y="40" fill="#a78bfa" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace" text-anchor="middle">MATERIALISED</text>
+          <text x="990" y="55" fill="#64748b" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">created on tier acceptance</text>
+
+          <!-- ═══ ARROWS DRAWN FIRST (BEHIND BOXES) ═══ -->
+          <!-- calls FK → intakes -->
+          <line x1="600" y1="220" x2="600" y2="245" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="615" y="237" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace">FK: call_id</text>
+          <!-- intakes FK → quotes -->
+          <line x1="600" y1="430" x2="600" y2="455" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="615" y="447" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace">FK: intake_id</text>
+          <!-- quotes FK → quote_line_items -->
+          <line x1="755" y1="525" x2="785" y2="525" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="770" y="517" fill="#a78bfa" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">FK</text>
+
+          <!-- Lookup → quotes (read by tools, dashed) -->
+          <path d="M 360 110 Q 480 110 480 480" fill="none" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="378" y="122" fill="#fbbf24" font-size="8" font-family="'JetBrains Mono', monospace">apply_markup</text>
+          <path d="M 360 280 Q 460 280 460 480" fill="none" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="378" y="292" fill="#fbbf24" font-size="8" font-family="'JetBrains Mono', monospace">lookup_assembly</text>
+          <path d="M 360 450 Q 440 450 440 480" fill="none" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="378" y="462" fill="#fbbf24" font-size="8" font-family="'JetBrains Mono', monospace">lookup_material</text>
+
+          <!-- ═══ LOOKUP TABLES (left column) ═══ -->
+          <!-- pricing_book -->
+          <rect x="60" y="80" width="300" height="125" rx="6" fill="#0f172a"/>
+          <rect x="60" y="80" width="300" height="125" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="210" y="103" fill="white" font-size="12" font-weight="700" text-anchor="middle">pricing_book</text>
+          <line x1="80" y1="113" x2="340" y2="113" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="80" y="127" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">hourly_rate</text>
+          <text x="80" y="141" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">call_out_minimum · apprentice_rate</text>
+          <text x="80" y="155" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">default_markup_pct · risk_buffer_pct</text>
+          <text x="80" y="169" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">gst_registered</text>
+          <text x="80" y="183" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">licence_type · _state · _number</text>
+          <text x="80" y="197" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace" font-style="italic">overlays JSONB (per-tradie)</text>
+
+          <!-- shared_assemblies -->
+          <rect x="60" y="245" width="300" height="160" rx="6" fill="#0f172a"/>
+          <rect x="60" y="245" width="300" height="160" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="210" y="268" fill="white" font-size="12" font-weight="700" text-anchor="middle">shared_assemblies</text>
+          <line x1="80" y1="278" x2="340" y2="278" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="80" y="292" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">trade ('electrical' default)</text>
+          <text x="80" y="306" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">name · description</text>
+          <text x="80" y="320" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">default_unit · default_unit_price_ex_gst</text>
+          <text x="80" y="334" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">default_labour_hours</text>
+          <text x="80" y="348" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">default_exclusions</text>
+          <text x="80" y="370" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">seed: install LED downlight,</text>
+          <text x="80" y="383" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">replace double GPO, hardwire</text>
+          <text x="80" y="396" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">smoke alarm... (the "easy 5")</text>
+
+          <!-- shared_materials -->
+          <rect x="60" y="425" width="300" height="135" rx="6" fill="#0f172a"/>
+          <rect x="60" y="425" width="300" height="135" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="210" y="448" fill="white" font-size="12" font-weight="700" text-anchor="middle">shared_materials</text>
+          <line x1="80" y1="458" x2="340" y2="458" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="80" y="472" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">trade · name · brand · unit</text>
+          <text x="80" y="486" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">default_unit_price_ex_gst</text>
+          <text x="80" y="510" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">seed: tri-colour downlight,</text>
+          <text x="80" y="523" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">USB GPO, RCBO, hardwired</text>
+          <text x="80" y="536" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace">smoke alarm, sundries...</text>
+
+          <!-- ═══ PIPELINE TABLES (middle column) ═══ -->
+          <!-- calls -->
+          <rect x="450" y="80" width="300" height="140" rx="6" fill="#0f172a"/>
+          <rect x="450" y="80" width="300" height="140" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="103" fill="white" font-size="12" font-weight="700" text-anchor="middle">calls</text>
+          <line x1="470" y1="113" x2="730" y2="113" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="470" y="127" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">id (PK)</text>
+          <text x="470" y="141" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">vapi_call_id (unique)</text>
+          <text x="470" y="155" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">caller_number</text>
+          <text x="470" y="169" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">duration_seconds · transcript</text>
+          <text x="470" y="183" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">recording_url</text>
+          <text x="470" y="197" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">photo_urls JSONB</text>
+          <text x="470" y="211" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">ended_at · created_at</text>
+
+          <!-- intakes -->
+          <rect x="450" y="245" width="300" height="185" rx="6" fill="#0f172a"/>
+          <rect x="450" y="245" width="300" height="185" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="268" fill="white" font-size="12" font-weight="700" text-anchor="middle">intakes</text>
+          <line x1="470" y1="278" x2="730" y2="278" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="470" y="292" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">id (PK)</text>
+          <text x="470" y="306" fill="#22d3ee" font-size="9" font-family="'JetBrains Mono', monospace">call_id → calls.id</text>
+          <text x="470" y="320" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">job_type (enum: 11 types)</text>
+          <text x="470" y="334" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">address · suburb</text>
+          <text x="470" y="348" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">scope · access · property JSONB</text>
+          <text x="470" y="362" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">risks JSONB · inspection_required</text>
+          <text x="470" y="376" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">caller · timing JSONB</text>
+          <text x="470" y="390" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">confidence · confidence_reason</text>
+          <text x="470" y="408" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace" font-weight="700">embedding vector(1536)  ←  pgvector</text>
+
+          <!-- quotes -->
+          <rect x="450" y="455" width="300" height="155" rx="6" fill="#0f172a"/>
+          <rect x="450" y="455" width="300" height="155" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="478" fill="white" font-size="12" font-weight="700" text-anchor="middle">quotes</text>
+          <line x1="470" y1="488" x2="730" y2="488" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="470" y="502" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">id (PK)</text>
+          <text x="470" y="516" fill="#22d3ee" font-size="9" font-family="'JetBrains Mono', monospace">intake_id → intakes.id</text>
+          <text x="470" y="530" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">status: draft | sent | accepted</text>
+          <text x="470" y="544" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">scope_of_works · assumptions[]</text>
+          <text x="470" y="558" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace" font-weight="700">good · better · best  (JSONB)</text>
+          <text x="470" y="572" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">risk_flags[] · optional_upsells[]</text>
+          <text x="470" y="586" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">selected_tier · subtotal_ex_gst</text>
+          <text x="470" y="600" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">gst · total_inc_gst</text>
+
+          <!-- ═══ MATERIALISED (right column) ═══ -->
+          <rect x="785" y="455" width="380" height="155" rx="6" fill="#0f172a"/>
+          <rect x="785" y="455" width="380" height="155" rx="6" fill="rgba(76, 29, 149, 0.25)" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="975" y="478" fill="white" font-size="12" font-weight="700" text-anchor="middle">quote_line_items</text>
+          <line x1="805" y1="488" x2="1145" y2="488" stroke="#a78bfa" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="805" y="502" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">id (PK)</text>
+          <text x="805" y="516" fill="#22d3ee" font-size="9" font-family="'JetBrains Mono', monospace">quote_id → quotes.id</text>
+          <text x="805" y="530" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">tier (which G/B/B was accepted)</text>
+          <text x="805" y="544" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">description · quantity · unit</text>
+          <text x="805" y="558" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">unit_price_ex_gst · total_ex_gst</text>
+          <text x="805" y="572" fill="#cbd5e1" font-size="9" font-family="'JetBrains Mono', monospace">source: 'assembly:UUID' | ...</text>
+          <text x="805" y="595" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace" font-style="italic">empty until customer accepts a tier;</text>
+          <text x="805" y="608" fill="#fbbf24" font-size="9" font-family="'JetBrains Mono', monospace" font-style="italic">flattens the chosen JSONB for invoicing</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SECTION 4 — WHY NO N8N ═══════════════ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num"><strong>04</strong> · Why no n8n (or any workflow tool)</div>
+        <h2>Three architectural reasons.</h2>
+        <p class="section-lede">n8n is an excellent SaaS-glue tool — it shines for "when row added in Sheet → post to Slack → create Trello card." It's the wrong shape for this pipeline. Here's why each of the three core stages defeats it.</p>
+      </div>
+
+      <div class="diagram-container" style="padding: 1.75rem;">
+        <svg viewBox="0 0 1200 280" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="grid3" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+            <marker id="arrow3" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+            </marker>
+            <marker id="arrow3-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+            </marker>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid3)"/>
+
+          <!-- TOP LANE: With n8n (broken) -->
+          <text x="20" y="35" fill="#fb7185" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">WITH n8n GLUE LAYER</text>
+          <text x="20" y="49" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">extra hop · breaks streaming · can't host LLM tool-loops</text>
+
+          <!-- Vapi → n8n → Vercel → ... -->
+          <rect x="20" y="65" width="140" height="50" rx="6" fill="#0f172a"/>
+          <rect x="20" y="65" width="140" height="50" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="90" y="86" fill="white" font-size="11" font-weight="700" text-anchor="middle">Vapi</text>
+          <text x="90" y="102" fill="#94a3b8" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">realtime audio</text>
+
+          <line x1="160" y1="90" x2="200" y2="90" stroke="#fb7185" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow3-rose)"/>
+
+          <rect x="200" y="65" width="160" height="50" rx="6" fill="#0f172a"/>
+          <rect x="200" y="65" width="160" height="50" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="280" y="86" fill="white" font-size="11" font-weight="700" text-anchor="middle">n8n workflow</text>
+          <text x="280" y="102" fill="#fda4af" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">+ latency · + vendor</text>
+
+          <line x1="360" y1="90" x2="400" y2="90" stroke="#fb7185" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow3-rose)"/>
+
+          <rect x="400" y="65" width="160" height="50" rx="6" fill="#0f172a"/>
+          <rect x="400" y="65" width="160" height="50" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="480" y="86" fill="white" font-size="11" font-weight="700" text-anchor="middle">code node (anyway)</text>
+          <text x="480" y="102" fill="#fda4af" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">Zod / generateObject</text>
+
+          <line x1="560" y1="90" x2="600" y2="90" stroke="#fb7185" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow3-rose)"/>
+
+          <rect x="600" y="65" width="160" height="50" rx="6" fill="#0f172a"/>
+          <rect x="600" y="65" width="160" height="50" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="680" y="86" fill="white" font-size="11" font-weight="700" text-anchor="middle">code node (anyway)</text>
+          <text x="680" y="102" fill="#fda4af" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">tools + maxSteps</text>
+
+          <line x1="760" y1="90" x2="800" y2="90" stroke="#fb7185" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow3-rose)"/>
+
+          <rect x="800" y="65" width="160" height="50" rx="6" fill="#0f172a"/>
+          <rect x="800" y="65" width="160" height="50" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="880" y="86" fill="white" font-size="11" font-weight="700" text-anchor="middle">Supabase</text>
+          <text x="880" y="102" fill="#94a3b8" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">finally writes</text>
+
+          <text x="990" y="90" fill="#fb7185" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">✗ slower</text>
+          <text x="990" y="103" fill="#fb7185" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">✗ extra cost</text>
+
+          <!-- Divider -->
+          <line x1="20" y1="145" x2="1180" y2="145" stroke="#1e293b" stroke-width="1" stroke-dasharray="2,4"/>
+
+          <!-- BOTTOM LANE: Without n8n (clean) -->
+          <text x="20" y="170" fill="#34d399" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">WITHOUT n8n — DIRECT CODE PATH (this build)</text>
+          <text x="20" y="184" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">Vapi handles realtime · Vercel routes are 30 lines each · LLM agency lives in code</text>
+
+          <rect x="20" y="200" width="140" height="50" rx="6" fill="#0f172a"/>
+          <rect x="20" y="200" width="140" height="50" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="90" y="221" fill="white" font-size="11" font-weight="700" text-anchor="middle">Vapi</text>
+          <text x="90" y="237" fill="#94a3b8" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">realtime audio</text>
+
+          <line x1="160" y1="225" x2="220" y2="225" stroke="#34d399" stroke-width="2" marker-end="url(#arrow3)"/>
+
+          <rect x="220" y="200" width="280" height="50" rx="6" fill="#0f172a"/>
+          <rect x="220" y="200" width="280" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="360" y="221" fill="white" font-size="11" font-weight="700" text-anchor="middle">Vercel route · Sonnet generateObject</text>
+          <text x="360" y="237" fill="#34d399" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">Zod schema enforced · vision · embed</text>
+
+          <line x1="500" y1="225" x2="560" y2="225" stroke="#34d399" stroke-width="2" marker-end="url(#arrow3)"/>
+
+          <rect x="560" y="200" width="280" height="50" rx="6" fill="#0f172a"/>
+          <rect x="560" y="200" width="280" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="700" y="221" fill="white" font-size="11" font-weight="700" text-anchor="middle">Vercel route · Opus generateText + tools</text>
+          <text x="700" y="237" fill="#34d399" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">maxSteps:10 · LLM picks tool order</text>
+
+          <line x1="840" y1="225" x2="900" y2="225" stroke="#34d399" stroke-width="2" marker-end="url(#arrow3)"/>
+
+          <rect x="900" y="200" width="160" height="50" rx="6" fill="#0f172a"/>
+          <rect x="900" y="200" width="160" height="50" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="980" y="221" fill="white" font-size="11" font-weight="700" text-anchor="middle">Supabase</text>
+          <text x="980" y="237" fill="#94a3b8" font-size="8" text-anchor="middle" font-family="'JetBrains Mono', monospace">direct insert</text>
+
+          <text x="1080" y="225" fill="#34d399" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">✓ clean</text>
+          <text x="1080" y="240" fill="#34d399" font-size="11" font-weight="700" font-family="'JetBrains Mono', monospace">✓ testable</text>
+        </svg>
+      </div>
+
+      <div class="n8n-grid">
+        <div class="n8n-card">
+          <div class="n8n-card-num">REASON · 01</div>
+          <h3>Stage 03 is sub-second realtime.</h3>
+          <p>Vapi's audio loop runs ~10 cycles per second: <code>audio chunk → Deepgram → Haiku → ElevenLabs → audio chunk</code>. n8n is event-batched HTTP — it can't be in a streaming voice loop. <strong>Vapi already <em>is</em> the orchestrator</strong> for this stage; bolting n8n on just intercepts the post-call webhook for no benefit.</p>
+          <span class="n8n-card-tag">streaming · sub-second turn-taking</span>
+        </div>
+
+        <div class="n8n-card">
+          <div class="n8n-card-num">REASON · 02</div>
+          <h3>Stage 04 needs schema-enforced output.</h3>
+          <p>The Intake Engine uses <code>generateObject({ schema: IntakeSchema })</code> — Sonnet must produce JSON matching a Zod schema, with automatic retries if it doesn't. n8n's HTTP-call-and-parse can't enforce that. The moment you reach for a "code node" inside n8n to do it, <strong>you're writing the same code</strong> — just inside a slower, vendored, harder-to-test environment.</p>
+          <span class="n8n-card-tag">Zod · generateObject · retry-on-mismatch</span>
+        </div>
+
+        <div class="n8n-card">
+          <div class="n8n-card-num">REASON · 03</div>
+          <h3>Stage 05 needs LLM tool agency.</h3>
+          <p><code>generateText({ tools, maxSteps: 10 })</code> lets Opus choose which of four tools to call, in which order, based on what the prior tool returned. n8n can chain HTTP calls in a fixed graph, but it <strong>cannot give the LLM agency to pick the next tool mid-loop</strong>. That agency is the whole architectural point — money-touching steps must be tool-calls, never free text.</p>
+          <span class="n8n-card-tag">tool-use loop · maxSteps · LLM-decided routing</span>
+        </div>
+      </div>
+
+      <div class="strategy-banner" style="margin-top: 1.5rem; background: linear-gradient(90deg, rgba(6, 78, 59, 0.25), rgba(6, 78, 59, 0.05)); border-color: rgba(52, 211, 153, 0.3); border-left-color: #34d399;">
+        <div class="strategy-icon" style="color: #34d399; background: rgba(52, 211, 153, 0.1); border-color: rgba(52, 211, 153, 0.3);">where n8n CAN fit</div>
+        <div class="strategy-banner-body">
+          n8n is a fine choice for the <strong>post-quote glue work</strong> — Stages 06+: notify the tradie on Slack when a quote is ready, sync accepted quotes to Xero/MYOB, send follow-up SMS sequences, calendar bookings. Those are CRUD between SaaS apps and exactly n8n's strength. Stages 02–05 are not.
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ FOOTER ═══════════════ -->
+    <div class="footer">
+      QuoteMate · automation pipeline architecture · references <a href="build-guide.html">build-guide.html</a> · <a href="strategy.md">strategy.md</a>
+    </div>
+
+  </div>
+</body>
+</html>

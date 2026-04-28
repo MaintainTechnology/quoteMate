@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuoteMate · Beginner Walkthrough · Stages 01 → 05</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f5f5f5;
+      --bg-code: #f8f8f8;
+      --ink: #1a1a1a;
+      --ink-2: #2a2a2a;
+      --body: #4a4a4a;
+      --muted: #6b6b6b;
+      --line: #e0e0e0;
+      --line-strong: #cfcfcf;
+      --accent: #0066cc;
+      --accent-deep: #004999;
+      --warn-bg: #fff8e6;
+      --warn-line: #f0c75e;
+      --note-bg: #eef4fb;
+      --note-line: #b6cfe8;
+      --tip-bg: #ecf7ef;
+      --tip-line: #95cba2;
+      --skip-bg: #f4ecec;
+      --skip-line: #d6a5a5;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--body);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 880px; margin: 0 auto; padding: 0 2rem; }
+
+    /* NAV */
+    .nav {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 1rem 0;
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+    .brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 800; color: var(--ink); text-decoration: none; }
+    .brand-mark { width: 26px; height: 26px; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 0.75rem; font-weight: 900; border-radius: 5px; }
+    .nav-meta { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+    .nav-meta strong { color: var(--ink); font-weight: 700; }
+
+    /* HERO */
+    .hero { padding: 6rem 0 4rem; border-bottom: 1px solid var(--line); }
+    .hero-eyebrow {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1.25rem;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero-lede { font-size: 1.15rem; color: var(--body); max-width: 680px; margin-bottom: 2rem; line-height: 1.55; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 2rem; padding-top: 2rem; border-top: 1px solid var(--line); font-size: 0.85rem; }
+    .hero-meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+    .hero-meta-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .hero-meta-value { color: var(--ink); font-weight: 600; }
+
+    /* INTRO */
+    .intro { padding: 4rem 0; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+    .intro h2 { font-size: 2rem; font-weight: 700; color: var(--ink); margin-bottom: 1rem; letter-spacing: -0.02em; }
+    .intro p { margin-bottom: 1rem; }
+    .intro p strong { color: var(--ink); font-weight: 600; }
+
+    /* TOC */
+    .toc { padding: 4rem 0; border-bottom: 1px solid var(--line); }
+    .toc h2 { font-size: 1.6rem; font-weight: 700; color: var(--ink); margin-bottom: 1.5rem; letter-spacing: -0.015em; }
+    .toc-list { list-style: none; }
+    .toc-list li { border-top: 1px solid var(--line); padding: 0.9rem 0; display: flex; align-items: baseline; gap: 1rem; }
+    .toc-list li:last-child { border-bottom: 1px solid var(--line); }
+    .toc-num { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--muted); min-width: 3rem; }
+    .toc-link { color: var(--ink); font-weight: 600; font-size: 1rem; text-decoration: none; flex: 1; }
+    .toc-link:hover { color: var(--accent); }
+    .toc-stage { font-size: 0.7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em; text-transform: uppercase; }
+
+    /* PHASE / SECTION */
+    .phase { padding: 5rem 0 4rem; border-bottom: 1px solid var(--line); }
+    .phase:nth-of-type(even) { background: var(--bg-soft); }
+    .phase-header { margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 2px solid var(--ink); }
+    .phase-num { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.75rem; }
+    .phase-num strong { color: var(--ink); }
+    .phase-title { font-size: clamp(1.8rem, 3.8vw, 2.6rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: var(--ink); margin-bottom: 1rem; }
+    .phase-summary { font-size: 1.08rem; color: var(--body); max-width: 720px; }
+
+    .phase h3 { font-size: 1.3rem; font-weight: 700; color: var(--ink); margin: 2.5rem 0 1rem; letter-spacing: -0.01em; padding-top: 1rem; border-top: 1px dashed var(--line); }
+    .phase h3:first-of-type { border-top: none; padding-top: 0; }
+    .phase h4 { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.6rem; }
+    .phase p { margin-bottom: 1rem; }
+    .phase p strong { color: var(--ink); font-weight: 600; }
+    .phase ul, .phase ol { margin: 0.5rem 0 1.25rem 1.5rem; }
+    .phase li { margin-bottom: 0.5rem; }
+    .phase a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+    /* CLICK STEPS */
+    .clicks {
+      counter-reset: click;
+      list-style: none !important;
+      margin: 1.25rem 0 1.5rem 0 !important;
+      padding: 0;
+    }
+    .clicks > li {
+      counter-increment: click;
+      position: relative;
+      padding: 0 0 1.25rem 3rem;
+      margin: 0 0 0.4rem 1rem !important;
+      border-left: 1px solid var(--line);
+    }
+    .clicks > li:last-child { padding-bottom: 0.5rem; }
+    .clicks > li::before {
+      content: counter(click);
+      position: absolute;
+      left: -1rem;
+      top: -0.1rem;
+      width: 2rem;
+      height: 2rem;
+      background: var(--ink);
+      color: var(--bg);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .click-title { font-weight: 700; color: var(--ink); display: block; margin-bottom: 0.4rem; }
+
+    /* UI button reference — a chip showing what to click */
+    .ui {
+      display: inline-block;
+      padding: 0.1em 0.55em;
+      background: var(--ink);
+      color: var(--bg);
+      border-radius: 4px;
+      font-size: 0.78em;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      letter-spacing: 0.01em;
+      vertical-align: baseline;
+      line-height: 1.45;
+    }
+    .ui-path {
+      display: inline-block;
+      padding: 0.1em 0.5em;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      color: var(--ink-2);
+      border-radius: 4px;
+      font-size: 0.85em;
+      font-family: 'JetBrains Mono', monospace;
+      vertical-align: baseline;
+    }
+    .field {
+      display: inline-block;
+      padding: 0.05em 0.4em;
+      border: 1px dashed var(--line-strong);
+      background: var(--bg);
+      color: var(--ink);
+      border-radius: 3px;
+      font-size: 0.85em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* CALLOUTS */
+    .callout { padding: 1.1rem 1.4rem; margin: 1.4rem 0; border-radius: 6px; border: 1px solid var(--line); }
+    .callout-label { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem; }
+    .callout p { margin-bottom: 0.6rem; }
+    .callout p:last-child { margin-bottom: 0; }
+    .callout.note { background: var(--note-bg); border-color: var(--note-line); }
+    .callout.note .callout-label { color: #1d4f8f; }
+    .callout.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+    .callout.warn .callout-label { color: #8a6310; }
+    .callout.tip { background: var(--tip-bg); border-color: var(--tip-line); }
+    .callout.tip .callout-label { color: #226d3a; }
+    .callout.skip { background: var(--skip-bg); border-color: var(--skip-line); }
+    .callout.skip .callout-label { color: #8a3a3a; }
+
+    /* CODE */
+    pre {
+      background: var(--ink);
+      color: #e8e8e8;
+      padding: 1.2rem 1.4rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1.2rem 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.83rem;
+      line-height: 1.6;
+    }
+    pre .c { color: #8a8a8a; font-style: italic; }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88em;
+      background: var(--bg-code);
+      color: var(--ink);
+      padding: 0.1em 0.4em;
+      border-radius: 3px;
+      border: 1px solid var(--line);
+    }
+    pre code { background: transparent; border: none; padding: 0; color: inherit; font-size: inherit; }
+
+    /* DONE CHECK */
+    .done {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-left: 3px solid #16a34a;
+      padding: 1rem 1.3rem;
+      margin: 1.4rem 0;
+      border-radius: 4px;
+    }
+    .done-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #16a34a;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+    .done p { margin: 0; font-size: 0.92rem; color: #14532d; }
+
+    /* TROUBLESHOOT */
+    .trouble {
+      background: #fff8e6;
+      border: 1px solid #fde68a;
+      padding: 0.9rem 1.2rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+      font-size: 0.92rem;
+    }
+    .trouble strong { color: #8a6310; }
+
+    /* FOOTER */
+    .foot { padding: 3rem 0; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); text-align: center; }
+
+    @media (max-width: 720px) {
+      .container { padding: 0 1.25rem; }
+      .hero { padding: 3rem 0 2.5rem; }
+      .phase { padding: 3rem 0 2.5rem; }
+      .hero-meta { flex-direction: column; gap: 1.2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#" class="brand"><span class="brand-mark">Q</span>QuoteMate</a>
+      <div class="nav-meta">Beginner Walkthrough · <strong>Stages 01 → 05</strong></div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <span class="hero-eyebrow">Click-by-click walkthrough · No prior experience required</span>
+      <h1>Build the QuoteMate automation, <em>one click at a time</em>.</h1>
+      <p class="hero-lede">
+        This is the slowest, most pedantic version of the build guide. Every button, every field, every menu — exactly what to click and what to type. If you have a laptop and a credit card, you can finish this. <strong>Read line by line; don't skip.</strong>
+      </p>
+      <div class="hero-meta">
+        <div class="hero-meta-item"><span class="hero-meta-label">Audience</span><span class="hero-meta-value">First-time builder</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Total time</span><span class="hero-meta-value">~2 working days + 1–3 day Twilio wait</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Cost to test</span><span class="hero-meta-value">~$20–50 AUD</span></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="intro">
+    <div class="container">
+      <h2>Before you start, read this once.</h2>
+      <p>
+        You're going to build a phone-answering AI. By the end, a homeowner can dial a number, have a conversation with an AI receptionist, and a draft quote will appear in your database 45 seconds after they hang up. The build is split into <strong>5 stages</strong> from the architecture diagram, plus two <strong>foundation blocks</strong> in between that wire the plumbing.
+      </p>
+      <p>
+        This guide pairs with two reference docs: <a href="architecture.html">architecture.html</a> shows you the system shape; <a href="build-guide.html">build-guide.html</a> has the full code blocks. <strong>This file is the click-by-click order.</strong> Open it in one browser tab and keep building in the other.
+      </p>
+      <p>
+        <strong>Important rules of thumb:</strong>
+      </p>
+      <ul style="margin: 0.5rem 0 1rem 1.5rem;">
+        <li>If a command says "in your terminal" — that means a command-line window. On Windows, search "PowerShell" or "Command Prompt" in the Start menu. On Mac, search "Terminal" in Spotlight.</li>
+        <li>If something says <span class="ui">Click this</span> — that's a real button label or menu item you'll see on screen.</li>
+        <li>If something says <span class="ui-path">Settings → API</span> — that means open the Settings menu, then click the API submenu.</li>
+        <li>If something says <span class="field">your_value_here</span> — that's a field you fill in.</li>
+        <li>If a step fails, re-read the step. Don't improvise. Most beginner failures are skipped sub-steps.</li>
+        <li><strong>Save every API key the moment you create it.</strong> Use a password manager or a single text file you don't share. Losing keys means starting over for that service.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="toc">
+    <div class="container">
+      <h2>The full path.</h2>
+      <ol class="toc-list">
+        <li><span class="toc-num">P0a</span><a href="#p0a" class="toc-link">Pre-flight A — Install tools on your laptop</a><span class="toc-stage">~30 min</span></li>
+        <li><span class="toc-num">P0b</span><a href="#p0b" class="toc-link">Pre-flight B — Create accounts</a><span class="toc-stage">~45 min</span></li>
+        <li><span class="toc-num">S01</span><a href="#s01" class="toc-link">Stage 01 — Customer call origination</a><span class="toc-stage">read only</span></li>
+        <li><span class="toc-num">S02</span><a href="#s02" class="toc-link">Stage 02 — Provision Twilio AU number</a><span class="toc-stage">+ 1–3 day wait</span></li>
+        <li><span class="toc-num">F1</span><a href="#f1" class="toc-link">Foundation 1 — Backend skeleton</a><span class="toc-stage">~2 hr</span></li>
+        <li><span class="toc-num">F2</span><a href="#f2" class="toc-link">Foundation 2 — Database setup</a><span class="toc-stage">~1 hr</span></li>
+        <li><span class="toc-num">S03</span><a href="#s03" class="toc-link">Stage 03 — Vapi AI Receptionist</a><span class="toc-stage">~3 hr</span></li>
+        <li><span class="toc-num">S04</span><a href="#s04" class="toc-link">Stage 04 — Intake Engine</a><span class="toc-stage">~2 hr</span></li>
+        <li><span class="toc-num">S05</span><a href="#s05" class="toc-link">Stage 05 — Estimation Engine</a><span class="toc-stage">~4 hr</span></li>
+        <li><span class="toc-num">V</span><a href="#verify" class="toc-link">Verify — End-to-end test</a><span class="toc-stage">~30 min</span></li>
+        <li><span class="toc-num">T</span><a href="#trouble" class="toc-link">Troubleshooting — common failures</a><span class="toc-stage">reference</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══════════════ PRE-FLIGHT A ═══════════════ -->
+  <section class="phase" id="p0a">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Pre-flight A · <strong>Tools on your laptop</strong></div>
+        <h2 class="phase-title">Install five programs.</h2>
+        <p class="phase-summary">These are the tools that let you write code, run code, and connect your laptop to the internet so external services can talk to it. Install all five before going further.</p>
+      </header>
+
+      <h3>A.1 — Install Node.js</h3>
+      <p>Node.js is the program that runs JavaScript on your computer. Without it, nothing else works.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Open your web browser</span>Go to <a href="https://nodejs.org/">https://nodejs.org/</a>.</li>
+        <li><span class="click-title">Pick the LTS version</span>You'll see two big green download buttons. Click the one labeled <span class="ui">LTS</span> (it'll say something like "20.x.x LTS" — "LTS" means "Long Term Support" — the stable one). Don't click the "Current" one.</li>
+        <li><span class="click-title">Run the installer</span>Open the file you just downloaded (it'll be in your Downloads folder). Click <span class="ui">Next</span> through every screen — accept defaults. On the "Tools for Native Modules" screen, leave the checkbox <strong>unchecked</strong> and click Next. Click <span class="ui">Install</span> on the final screen.</li>
+        <li><span class="click-title">Verify it worked</span>Open a terminal:
+          <ul>
+            <li><strong>Windows:</strong> press the Windows key, type <span class="field">PowerShell</span>, press Enter.</li>
+            <li><strong>Mac:</strong> press Cmd+Space, type <span class="field">Terminal</span>, press Enter.</li>
+          </ul>
+          In the terminal that opens, type:
+          <pre><code>node --version</code></pre>
+          Press Enter. You should see something like <code>v20.18.0</code>. If you see "command not found" or "not recognised", close the terminal completely and open a brand new one — Node only appears in terminals opened <em>after</em> install.
+        </li>
+      </ol>
+
+      <h3>A.2 — Install pnpm</h3>
+      <p>pnpm is a faster, tidier version of npm (which came with Node). Every "install this library" command will use pnpm.</p>
+      <ol class="clicks">
+        <li><span class="click-title">In the same terminal, type</span>
+          <pre><code>npm install -g pnpm</code></pre>
+          Press Enter. Wait ~30 seconds for it to finish.
+        </li>
+        <li><span class="click-title">Verify it worked</span>
+          <pre><code>pnpm --version</code></pre>
+          You should see something like <code>9.x.x</code>.
+        </li>
+      </ol>
+
+      <h3>A.3 — Install Git</h3>
+      <p>Git tracks every change you make to your code. You'll need it to push code to GitHub later.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Download the installer</span>Go to <a href="https://git-scm.com/">https://git-scm.com/</a>. The download starts automatically for your OS — click <span class="ui">Click here to download</span> if it doesn't.</li>
+        <li><span class="click-title">Run the installer</span>Click <span class="ui">Next</span> through every screen. Defaults are fine for everything. On Windows, when asked about default editor, you can leave it as Vim (you won't use it).</li>
+        <li><span class="click-title">Configure your name and email</span>In your terminal:
+          <pre><code>git config --global user.name "Your Real Name"
+git config --global user.email "you@example.com"</code></pre>
+          Replace the values with your own. These get stamped on every code commit you make.
+        </li>
+        <li><span class="click-title">Verify it worked</span>
+          <pre><code>git --version</code></pre>
+          You should see <code>git version 2.x.x</code>.
+        </li>
+      </ol>
+
+      <h3>A.4 — Install VS Code</h3>
+      <p>VS Code is the program where you'll actually write code. It's free and made by Microsoft.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Download</span>Go to <a href="https://code.visualstudio.com/">https://code.visualstudio.com/</a> and click the big blue download button for your OS.</li>
+        <li><span class="click-title">Install</span>Run the installer. <strong>On Windows</strong>, on the "Select Additional Tasks" screen, tick all four checkboxes — especially "Add to PATH" and "Open with Code" — they make life easier later.</li>
+        <li><span class="click-title">Open VS Code once</span>Just open it after install. You don't need to do anything in it yet — we just want it ready.</li>
+      </ol>
+
+      <h3>A.5 — Install ngrok</h3>
+      <p>ngrok creates a temporary public web address that points to your laptop. Twilio and Vapi need a public URL to send webhooks to — your laptop doesn't have one normally, so ngrok bridges the gap.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://ngrok.com/">https://ngrok.com/</a>. Click <span class="ui">Sign up for free</span> (top right). Use Google or GitHub login if you have one — fastest path.</li>
+        <li><span class="click-title">Get your auth token</span>After signing up, you'll land on the dashboard. In the left sidebar, click <span class="ui-path">Your Authtoken</span>. Click the <span class="ui">Copy</span> button next to the long string.</li>
+        <li><span class="click-title">Download the binary</span>Still on the ngrok dashboard, click <span class="ui-path">Setup &amp; Installation</span> in the left sidebar. Pick your OS and follow the download instructions there. On Windows, the simplest path is to download the ZIP, extract it, and put <code>ngrok.exe</code> somewhere easy like <code>C:\ngrok\</code>.</li>
+        <li><span class="click-title">Add the auth token</span>Back in your terminal:
+          <pre><code>ngrok config add-authtoken PASTE_YOUR_TOKEN_HERE</code></pre>
+          Replace <code>PASTE_YOUR_TOKEN_HERE</code> with the token you copied. You should see <code>Authtoken saved</code>.
+        </li>
+        <li><span class="click-title">Don't run ngrok yet</span>You'll start it later in Foundation 1. For now, just having it installed is enough.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Pre-flight A</div>
+        <p>In a fresh terminal, all four of these print versions: <code>node --version</code>, <code>pnpm --version</code>, <code>git --version</code>, <code>ngrok --version</code>. VS Code opens when you launch it. If any one of these fails, fix it before continuing.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ PRE-FLIGHT B ═══════════════ -->
+  <section class="phase" id="p0b">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Pre-flight B · <strong>Service accounts</strong></div>
+        <h2 class="phase-title">Sign up for seven services.</h2>
+        <p class="phase-summary">Each service does one thing. You'll grab an API key from each one. <strong>Open a fresh text file or password manager and paste each key as you create it</strong> — you'll need them all in Foundation 1.</p>
+      </header>
+
+      <div class="callout warn">
+        <div class="callout-label">Card warning</div>
+        <p>Twilio and Anthropic require a credit card upfront. Set spend limits where possible. Total cost while learning: ~$20–50. <strong>Never paste API keys into ChatGPT, Slack, or anywhere public.</strong> If you accidentally leak one, immediately revoke it in that service's dashboard.</p>
+      </div>
+
+      <h3>B.1 — Twilio (phone numbers + SMS)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://www.twilio.com/try-twilio">https://www.twilio.com/try-twilio</a>. Fill in name, email, password. Verify your email + phone via the codes they send.</li>
+        <li><span class="click-title">Answer the onboarding questions</span>Pick: "What do you want to do first?" → <span class="ui">Get a phone number</span>. "Which language?" → <span class="ui">Node.js</span>. Skip anything optional.</li>
+        <li><span class="click-title">Save your credentials</span>You'll land on the Twilio Console homepage. On the right side under <strong>Account Info</strong>, you'll see:
+          <ul>
+            <li><strong>Account SID</strong> — starts with <code>AC...</code> — copy it, paste into your text file labeled <span class="field">TWILIO_ACCOUNT_SID</span></li>
+            <li><strong>Auth Token</strong> — click the <span class="ui">show</span> link to reveal it — copy it, paste as <span class="field">TWILIO_AUTH_TOKEN</span></li>
+          </ul>
+        </li>
+        <li><span class="click-title">Add a credit card</span>Click your account name (top right) → <span class="ui-path">Billing → Manage billing</span> → add card. Twilio gives you ~$15 free trial credit; you'll spend ~$1.50/mo on the AU number plus ~2c per minute of inbound calls.</li>
+      </ol>
+
+      <h3>B.2 — Vapi (voice AI orchestrator)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://vapi.ai/">https://vapi.ai/</a>. Click <span class="ui">Sign Up</span> (top right). Use Google login — it's the fastest.</li>
+        <li><span class="click-title">Skip the onboarding wizard</span>Vapi will try to walk you through creating an assistant. Click <span class="ui">Skip</span> or close it — we'll do that properly in Stage 03.</li>
+        <li><span class="click-title">Get your API key</span>Left sidebar → <span class="ui-path">API Keys</span> (sometimes under "Settings" depending on the dashboard version). Click <span class="ui">Create API Key</span>. Name it <span class="field">quotemate-dev</span>. Copy the key the moment it shows — you can't see it again. Paste as <span class="field">VAPI_API_KEY</span>.</li>
+        <li><span class="click-title">Note your free credit</span>You should see ~$10 of free credit on the dashboard — enough for ~50 test calls.</li>
+      </ol>
+
+      <h3>B.3 — Deepgram (speech-to-text)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://console.deepgram.com/signup">https://console.deepgram.com/signup</a>. Use email or Google login.</li>
+        <li><span class="click-title">Skip the project naming</span>If asked, name your project <span class="field">quotemate</span>.</li>
+        <li><span class="click-title">Create an API key</span>Left sidebar → <span class="ui-path">API Keys</span> → <span class="ui">Create a New API Key</span>. Name it <span class="field">quotemate-dev</span>. <strong>Permissions:</strong> tick <span class="ui">Member</span>. <strong>Expiration:</strong> No expiration. Click <span class="ui">Create Key</span>. Copy and paste as <span class="field">DEEPGRAM_API_KEY</span>.</li>
+        <li><span class="click-title">Note your free credit</span>$200 of free credit comes with signup — plenty for testing.</li>
+      </ol>
+
+      <h3>B.4 — ElevenLabs (text-to-speech)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://elevenlabs.io/">https://elevenlabs.io/</a>. Click <span class="ui">Sign Up</span> (top right).</li>
+        <li><span class="click-title">Get your API key</span>Click your profile circle (top right) → <span class="ui-path">Profile + API Key</span>. Click the eye icon next to "API Key" to reveal it. Copy and paste as <span class="field">ELEVENLABS_API_KEY</span>.</li>
+        <li><span class="click-title">Free tier</span>10K characters/month free — enough for testing dozens of calls.</li>
+      </ol>
+
+      <h3>B.5 — Anthropic (Claude AI)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://console.anthropic.com/">https://console.anthropic.com/</a>. Sign up with Google or email.</li>
+        <li><span class="click-title">Verify phone number</span>Required for fraud prevention. Use a real mobile.</li>
+        <li><span class="click-title">Add a payment method</span>Left sidebar → <span class="ui-path">Plans & Billing</span> → <span class="ui">Add payment method</span>. Add a card.</li>
+        <li><span class="click-title">Set a spend limit</span>Same page → set <strong>Monthly spend limit</strong> to <span class="field">$20</span> while you're learning. This is your safety net — you can raise it later.</li>
+        <li><span class="click-title">Create an API key</span>Left sidebar → <span class="ui-path">API Keys</span> → <span class="ui">Create Key</span>. Name it <span class="field">quotemate-dev</span>. Workspace: Default. Click Create. Copy the key (starts with <code>sk-ant-...</code>) and paste as <span class="field">ANTHROPIC_API_KEY</span>.</li>
+      </ol>
+
+      <h3>B.6 — Supabase (database)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://supabase.com/dashboard/sign-up">https://supabase.com/dashboard/sign-up</a>. Click <span class="ui">Continue with GitHub</span> (if you don't have GitHub yet, create it at <a href="https://github.com/signup">github.com/signup</a> first — you'll need it for Vercel anyway).</li>
+        <li><span class="click-title">Don't create a project yet</span>You'll do that in Foundation 2 — for now we just need the account to exist.</li>
+      </ol>
+
+      <h3>B.7 — Vercel (hosting)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Sign up</span>Go to <a href="https://vercel.com/signup">https://vercel.com/signup</a>. Click <span class="ui">Continue with GitHub</span>.</li>
+        <li><span class="click-title">Pick the Hobby (free) tier</span>When asked about plans, pick <span class="ui">Hobby</span>. Free tier covers everything in this build.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Pre-flight B</div>
+        <p>Your text file should now have these 7 keys saved (Supabase keys come later in Foundation 2):</p>
+        <pre><code>TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+VAPI_API_KEY=...
+DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=...
+ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+        <p>Plus a working Supabase + Vercel + GitHub login. If any account didn't accept your card or signup, get that working before continuing.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STAGE 01 ═══════════════ -->
+  <section class="phase" id="s01">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Stage 01 · <strong>Customer call origination</strong></div>
+        <h2 class="phase-title">Nothing to install — read this and move on.</h2>
+        <p class="phase-summary">Stage 01 in the architecture is just "a homeowner picks up their phone and dials a number." There's no setup. The whole point of Stages 02 → 05 is to make sure that <em>something good happens</em> when they do. Move on.</p>
+      </header>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STAGE 02 ═══════════════ -->
+  <section class="phase" id="s02">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Stage 02 · <strong>Provision your AU phone number</strong></div>
+        <h2 class="phase-title">Buy a real Australian phone number.</h2>
+        <p class="phase-summary">This is the number a homeowner will dial. Australia requires identity verification before you can buy one — that part takes 1–3 business days. <strong>Start this step early</strong> while the rest of the build progresses, because you're blocked on Twilio's regulator review.</p>
+      </header>
+
+      <h3>S2.1 — Submit the regulatory bundle</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Go to the Twilio Console</span>Open <a href="https://console.twilio.com/">https://console.twilio.com/</a>. Make sure you're in the project you signed up with.</li>
+        <li><span class="click-title">Find Regulatory Compliance</span>In the left sidebar, click <span class="ui-path">Phone Numbers</span> to expand it, then <span class="ui-path">Regulatory Compliance → Bundles</span>. (If "Phone Numbers" isn't in the sidebar, click the <span class="ui">Explore Products</span> button at the bottom of the sidebar and find it there.)</li>
+        <li><span class="click-title">Create a new bundle</span>Click the <span class="ui">Create new bundle</span> button (top right).</li>
+        <li><span class="click-title">Pick country and number type</span>
+          <ul>
+            <li>Country: <span class="field">Australia</span></li>
+            <li>Number type: <span class="field">Local</span> (not Mobile, not Toll-free)</li>
+            <li>End user type: <span class="field">Individual</span> (or <span class="field">Business</span> if you have an ABN — Business gets faster approval)</li>
+          </ul>
+          Click <span class="ui">Next</span>.
+        </li>
+        <li><span class="click-title">Fill in your details</span>Name, address, phone number, date of birth. <strong>Use a real Australian address</strong> — they verify it.</li>
+        <li><span class="click-title">Upload your ID</span>Photo of your driver's licence or passport. Make sure all corners are visible and text is readable.</li>
+        <li><span class="click-title">Submit</span>Click <span class="ui">Submit for review</span> at the bottom. The status will show <strong>"In review"</strong>.</li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Wait time — start the rest of the build now</div>
+        <p>Approval takes <strong>1–3 business days</strong>. While you wait, you can do <a href="#f1">Foundation 1</a>, <a href="#f2">Foundation 2</a>, and even start configuring Stage 03 in Vapi. Don't sit and refresh the Twilio page — go build.</p>
+      </div>
+
+      <h3>S2.2 — Once approved: buy your number</h3>
+      <p>You'll get an email when the bundle is approved. Then:</p>
+      <ol class="clicks">
+        <li><span class="click-title">Go to the buy-a-number page</span>Twilio Console → <span class="ui-path">Phone Numbers → Manage → Buy a number</span>.</li>
+        <li><span class="click-title">Filter for Australia</span>
+          <ul>
+            <li>Country: <span class="field">Australia</span></li>
+            <li>Capabilities: tick <span class="field">Voice</span> only (you don't need SMS or MMS for v1)</li>
+            <li>Number Type: <span class="field">Local</span></li>
+          </ul>
+          Click <span class="ui">Search</span>.
+        </li>
+        <li><span class="click-title">Pick a Sydney or Melbourne number</span>You'll see a list. Pick one with a +61 2 (Sydney) or +61 3 (Melbourne) prefix — local numbers feel more trustworthy than 1300s. Click the <span class="ui">Buy</span> button next to it.</li>
+        <li><span class="click-title">Confirm</span>Confirmation popup → tick the box that says you'll comply with the bundle → <span class="ui">Buy</span>. Cost is around AU$1.50/month.</li>
+        <li><span class="click-title">Save the number</span>The number now appears in <span class="ui-path">Phone Numbers → Manage → Active numbers</span>. Copy it (in <code>+61...</code> format with no spaces). Paste in your text file as <span class="field">TWILIO_PHONE_NUMBER</span>.</li>
+      </ol>
+
+      <h3>S2.3 — Test it rings</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Dial your new number</span>From your mobile, dial it. After a couple of rings, you'll hear Twilio's default voice say something like <em>"Hello, this is your Twilio number."</em></li>
+        <li><span class="click-title">Hang up</span>That's all we need for now. In Stage 03 we'll point this number at the AI receptionist.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Stage 02</div>
+        <p>You have a real <code>+61</code> phone number that rings when you dial it. The Account SID, Auth Token, and Phone Number are all saved in your text file.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ FOUNDATION 1 ═══════════════ -->
+  <section class="phase" id="f1">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Foundation 1 · <strong>Backend skeleton</strong></div>
+        <h2 class="phase-title">Create your Next.js project.</h2>
+        <p class="phase-summary">This is where all your code will live. The voice agent and the two AI engines need somewhere to receive HTTP requests — a Next.js app deployed on Vercel is the cheapest, simplest way to host them.</p>
+      </header>
+
+      <h3>F1.1 — Generate the project</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Open a terminal</span>(See Pre-flight A.1 if you forgot how.)</li>
+        <li><span class="click-title">Navigate to where you want the project</span>For example, on Windows:
+          <pre><code>cd C:\Users\YourName\Desktop</code></pre>
+          On Mac:
+          <pre><code>cd ~/Desktop</code></pre>
+        </li>
+        <li><span class="click-title">Run the create-next-app command</span>
+          <pre><code>pnpm create next-app@latest quotemate-automation</code></pre>
+          You'll be asked a series of questions. Answer them <strong>exactly like this</strong>:
+          <ul>
+            <li>"Would you like to use TypeScript?" → <span class="field">Yes</span></li>
+            <li>"Would you like to use ESLint?" → <span class="field">Yes</span></li>
+            <li>"Would you like to use Tailwind CSS?" → <span class="field">No</span></li>
+            <li>"Would you like your code inside a `src/` directory?" → <span class="field">No</span></li>
+            <li>"Would you like to use App Router?" → <span class="field">Yes</span></li>
+            <li>"Would you like to use Turbopack for `next dev`?" → <span class="field">Yes</span></li>
+            <li>"Would you like to customize the import alias?" → <span class="field">No</span></li>
+          </ul>
+          Wait ~2 minutes for it to install everything.
+        </li>
+      </ol>
+
+      <h3>F1.2 — Open it in VS Code and verify it runs</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Move into the project folder</span>
+          <pre><code>cd quotemate-automation</code></pre>
+        </li>
+        <li><span class="click-title">Open it in VS Code</span>
+          <pre><code>code .</code></pre>
+          (That's "code" + space + period.) VS Code will open with the project. If <code>code</code> isn't recognised, open VS Code manually and use <span class="ui-path">File → Open Folder</span> to pick the <code>quotemate-automation</code> folder.
+        </li>
+        <li><span class="click-title">Start the dev server</span>Back in your terminal:
+          <pre><code>pnpm dev</code></pre>
+          You should see "Ready in X.Xs" and "Local: http://localhost:3000".
+        </li>
+        <li><span class="click-title">Open it in your browser</span>Go to <a href="http://localhost:3000">http://localhost:3000</a>. You should see the default Next.js welcome page. If it loads, your backend is alive.</li>
+        <li><span class="click-title">Stop the server</span>In the terminal, press <kbd>Ctrl+C</kbd> (or <kbd>Cmd+C</kbd> on Mac) to stop it. We'll restart it later.</li>
+      </ol>
+
+      <h3>F1.3 — Install the libraries you'll need</h3>
+      <ol class="clicks">
+        <li><span class="click-title">In your terminal, type</span>
+          <pre><code>pnpm add ai @ai-sdk/anthropic zod twilio @supabase/supabase-js</code></pre>
+          This adds the Vercel AI SDK, the Anthropic provider, Zod (schema validation), Twilio's SDK, and the Supabase client. Wait ~30 seconds.
+        </li>
+      </ol>
+
+      <h3>F1.4 — Create your env file</h3>
+      <ol class="clicks">
+        <li><span class="click-title">In VS Code, create a new file at the project root</span>Right-click in the file explorer (left sidebar) → <span class="ui">New File</span> → name it exactly <span class="field">.env.local</span> (the leading dot matters).</li>
+        <li><span class="click-title">Paste this template</span>
+          <pre><code><span class="c"># Twilio</span>
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=+61...
+
+<span class="c"># Vapi</span>
+VAPI_API_KEY=...
+VAPI_WEBHOOK_SECRET=
+
+<span class="c"># Voice services</span>
+DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=...
+
+<span class="c"># Claude</span>
+ANTHROPIC_API_KEY=sk-ant-...
+
+<span class="c"># Supabase (filled in F2)</span>
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+<span class="c"># App URL — for fire-and-forget handoffs between API routes</span>
+APP_URL=http://localhost:3000</code></pre>
+        </li>
+        <li><span class="click-title">Replace each value</span>Replace each <code>...</code> with the actual key from your text file. Leave the Supabase values blank — you'll fill those in Foundation 2. Leave <code>VAPI_WEBHOOK_SECRET</code> blank for now.</li>
+        <li><span class="click-title">Save the file</span><kbd>Ctrl+S</kbd> (or <kbd>Cmd+S</kbd>).</li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Don't share .env.local</div>
+        <p>Git ignores <code>.env.local</code> by default. Never paste its contents anywhere. If you accidentally publish a key, immediately revoke it in that service's dashboard and create a new one.</p>
+      </div>
+
+      <h3>F1.5 — Push to GitHub</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Initialise the git repo</span>In the terminal (still in the project folder):
+          <pre><code>git init
+git add .
+git commit -m "Initial automation backend skeleton"</code></pre>
+        </li>
+        <li><span class="click-title">Create the GitHub repo</span>Go to <a href="https://github.com/new">https://github.com/new</a>.
+          <ul>
+            <li>Repository name: <span class="field">quotemate-automation</span></li>
+            <li>Description: optional</li>
+            <li>Visibility: <span class="field">Private</span> (don't make it public — even though no secrets are committed, you don't need it indexed by Google)</li>
+            <li><strong>Don't tick</strong> "Add a README", ".gitignore", or "license" — your local repo already has the structure</li>
+          </ul>
+          Click <span class="ui">Create repository</span>.
+        </li>
+        <li><span class="click-title">Push your code</span>GitHub will show you setup instructions. Copy the three lines under "push an existing repository" — they'll look like:
+          <pre><code>git remote add origin https://github.com/YOUR_USERNAME/quotemate-automation.git
+git branch -M main
+git push -u origin main</code></pre>
+          Paste them into your terminal. If asked for a username/password, use your GitHub username and a <strong>Personal Access Token</strong> (not your password) — create one at <a href="https://github.com/settings/tokens">github.com/settings/tokens</a> if needed.
+        </li>
+      </ol>
+
+      <h3>F1.6 — Deploy to Vercel</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Import the repo</span>Go to <a href="https://vercel.com/new">https://vercel.com/new</a>. You'll see a list of your GitHub repos. Click <span class="ui">Import</span> next to <code>quotemate-automation</code>.</li>
+        <li><span class="click-title">Configure the project</span>Vercel auto-detects it's a Next.js app. Don't change anything. Click <span class="ui">Deploy</span>.</li>
+        <li><span class="click-title">Wait ~1 minute</span>Vercel builds and deploys. When it's done, you'll see a confetti animation and your live URL (something like <code>quotemate-automation-abc123.vercel.app</code>).</li>
+        <li><span class="click-title">Add env vars to Vercel</span>This is critical — without them, the deployed version can't talk to anything. Click your project name → <span class="ui-path">Settings → Environment Variables</span>. For each line in your <code>.env.local</code>:
+          <ul>
+            <li>Name: paste the variable name (e.g. <span class="field">TWILIO_ACCOUNT_SID</span>)</li>
+            <li>Value: paste the value</li>
+            <li>Environments: tick all three (Production, Preview, Development)</li>
+            <li>Click <span class="ui">Save</span></li>
+          </ul>
+          Repeat for every variable. <strong>Don't skip any.</strong> You'll need to come back and add the Supabase ones in F2.
+        </li>
+        <li><span class="click-title">Update APP_URL in Vercel</span>Set <span class="field">APP_URL</span> in Vercel to your live Vercel URL (e.g. <code>https://quotemate-automation-abc123.vercel.app</code>). In your local <code>.env.local</code>, leave it as <code>http://localhost:3000</code> for now.</li>
+      </ol>
+
+      <h3>F1.7 — Start ngrok</h3>
+      <p>For local development, Twilio and Vapi need a public URL pointing to your laptop. ngrok provides that.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Open a SECOND terminal</span>Don't close the first one (where you ran <code>pnpm dev</code>). Open a second one. On Windows, you can right-click the taskbar icon and click "PowerShell".</li>
+        <li><span class="click-title">Start ngrok</span>
+          <pre><code>ngrok http 3000</code></pre>
+          You'll see a screen with a "Forwarding" line like:
+          <pre><code>Forwarding   https://abc123.ngrok.app -> http://localhost:3000</code></pre>
+        </li>
+        <li><span class="click-title">Copy the https URL</span>The <code>https://abc123.ngrok.app</code> part. Paste it somewhere — you'll use it in Stage 03.</li>
+        <li><span class="click-title">Leave ngrok running</span>Don't close this terminal. If you close it, the URL changes and you'll have to re-paste it into Vapi.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Foundation 1</div>
+        <p>(1) <code>pnpm dev</code> runs in terminal 1, localhost:3000 shows the welcome page. (2) <code>ngrok http 3000</code> runs in terminal 2 with a public URL. (3) Your project is on GitHub. (4) Vercel shows a successful deployment. (5) All env vars are pasted into both <code>.env.local</code> and Vercel.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ FOUNDATION 2 ═══════════════ -->
+  <section class="phase" id="f2">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Foundation 2 · <strong>Database</strong></div>
+        <h2 class="phase-title">Create the Supabase database.</h2>
+        <p class="phase-summary">All seven pipeline tables, the pgvector extension, the similarity-search function, and the seeded "easy 5" assemblies. After this, the rest of the build just inserts and reads from this database.</p>
+      </header>
+
+      <h3>F2.1 — Create the project</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Go to Supabase dashboard</span><a href="https://supabase.com/dashboard">https://supabase.com/dashboard</a> and log in.</li>
+        <li><span class="click-title">Click New Project</span>Top right of the dashboard. (If it's your first project, you'll need to create an Organization first — name it whatever you want, e.g. your name.)</li>
+        <li><span class="click-title">Fill in the project form</span>
+          <ul>
+            <li>Name: <span class="field">quotemate-automation-dev</span></li>
+            <li>Database Password: <strong>generate a strong one</strong> using the <span class="ui">Generate a password</span> button. Copy it and save in your text file as <span class="field">SUPABASE_DB_PASSWORD</span>. You probably won't use it directly, but losing it means you can't reset things.</li>
+            <li>Region: pick <span class="field">Sydney (ap-southeast-2)</span> for AU latency, or whichever is closest if you're elsewhere.</li>
+            <li>Pricing Plan: <span class="field">Free</span> is fine for development.</li>
+          </ul>
+          Click <span class="ui">Create new project</span>.
+        </li>
+        <li><span class="click-title">Wait ~2 minutes</span>Supabase provisions the database. The dashboard will show "Setting up project..." with a progress indicator.</li>
+      </ol>
+
+      <h3>F2.2 — Copy your URL and keys</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Find the API page</span>Once the project is ready, click <span class="ui-path">Project Settings</span> (gear icon at the bottom of the left sidebar) → <span class="ui-path">API</span>.</li>
+        <li><span class="click-title">Copy three values</span>
+          <ul>
+            <li><strong>Project URL</strong> (under "Project URL") — paste in <code>.env.local</code> as <span class="field">NEXT_PUBLIC_SUPABASE_URL</span></li>
+            <li><strong>anon public</strong> (under "Project API keys") — click <span class="ui">Reveal</span>, copy, paste as <span class="field">NEXT_PUBLIC_SUPABASE_ANON_KEY</span></li>
+            <li><strong>service_role</strong> (under "Project API keys", below anon) — click <span class="ui">Reveal</span>, copy, paste as <span class="field">SUPABASE_SERVICE_ROLE_KEY</span></li>
+          </ul>
+          Save your <code>.env.local</code>.
+        </li>
+        <li><span class="click-title">Add the same three to Vercel</span>Vercel project → <span class="ui-path">Settings → Environment Variables</span>. Same three names and values. Tick all three environments. Save each.</li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Service-role key is sensitive</div>
+        <p>The <code>service_role</code> key bypasses Row-Level Security. Use it only in server-side code, <strong>never in browser code</strong>. The "NEXT_PUBLIC_" prefix in <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> means that key gets exposed to the browser — that's fine for the anon key but never do that for service_role.</p>
+      </div>
+
+      <h3>F2.3 — Enable the pgvector extension</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Open the Database menu</span>In the left sidebar of your Supabase project, click <span class="ui-path">Database</span> (the icon looks like a cylinder).</li>
+        <li><span class="click-title">Click Extensions</span>In the submenu that appears, click <span class="ui-path">Extensions</span>.</li>
+        <li><span class="click-title">Find "vector"</span>Use the search box at the top — type <span class="field">vector</span>. You'll see <code>pgvector</code> in the list (it might be labeled <code>vector</code>).</li>
+        <li><span class="click-title">Toggle it on</span>Click the toggle switch on the right side of the row. A confirmation dialog might appear — click <span class="ui">Enable extension</span>.</li>
+        <li><span class="click-title">Verify</span>The toggle should now be green/on, and the row should show "Enabled".</li>
+      </ol>
+
+      <h3>F2.4 — Create the library tables</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Open the SQL Editor</span>Left sidebar → <span class="ui-path">SQL Editor</span>. Click <span class="ui">New query</span> if a blank editor isn't already open.</li>
+        <li><span class="click-title">Paste this SQL</span>Clear the editor (Ctrl+A, Delete) and paste:
+          <pre><code>create table shared_assemblies (
+  id uuid primary key default gen_random_uuid(),
+  trade text not null default 'electrical',
+  name text not null,
+  description text,
+  default_unit text,
+  default_unit_price_ex_gst numeric(10,2),
+  default_labour_hours numeric(6,2),
+  default_exclusions text
+);
+
+create table shared_materials (
+  id uuid primary key default gen_random_uuid(),
+  trade text not null default 'electrical',
+  name text not null,
+  brand text,
+  unit text,
+  default_unit_price_ex_gst numeric(10,2)
+);
+
+create table pricing_book (
+  id uuid primary key default gen_random_uuid(),
+  hourly_rate numeric(8,2) default 110,
+  call_out_minimum numeric(8,2) default 150,
+  apprentice_rate numeric(8,2) default 60,
+  default_markup_pct numeric(5,2) default 28,
+  risk_buffer_pct numeric(5,2) default 15,
+  gst_registered boolean default true,
+  licence_type text,
+  licence_number text,
+  licence_state text,
+  licence_expiry date,
+  overlays jsonb default '{}'::jsonb
+);</code></pre>
+        </li>
+        <li><span class="click-title">Run it</span>Click the green <span class="ui">Run</span> button (bottom right) or press <kbd>Ctrl+Enter</kbd>. You should see "Success. No rows returned." at the bottom.</li>
+      </ol>
+
+      <h3>F2.5 — Create the pipeline tables</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Click "+" to make a new query</span>(or clear the editor again).</li>
+        <li><span class="click-title">Paste the full pipeline schema</span>This is the long block from <a href="build-guide.html#step-5">build-guide.html step 5</a> — copy it from there starting at <code>create table calls</code> and ending at the closing semicolon of <code>quote_line_items</code>. It defines: <code>calls</code>, <code>intakes</code> (with the embedding column), <code>quotes</code> (with good/better/best JSONB), and <code>quote_line_items</code>.</li>
+        <li><span class="click-title">Run it</span>Click <span class="ui">Run</span>. "Success. No rows returned."</li>
+      </ol>
+
+      <h3>F2.6 — Create the similarity-search function</h3>
+      <ol class="clicks">
+        <li><span class="click-title">New query, paste this</span>
+          <pre><code>create or replace function match_intakes(
+  query_embedding vector(1536),
+  match_count int default 5
+)
+returns table (id uuid, scope jsonb, similarity float)
+language sql stable as $$
+  select id, scope, 1 - (embedding &lt;=&gt; query_embedding) as similarity
+  from intakes
+  where embedding is not null
+  order by embedding &lt;=&gt; query_embedding
+  limit match_count;
+$$;</code></pre>
+          (Note: the <code>&lt;=&gt;</code> in the SQL renders as <code>&lt;=&gt;</code> — three characters — when you paste it. That's pgvector's cosine-distance operator.)
+        </li>
+        <li><span class="click-title">Run it</span>"Success. No rows returned." This function lets Stage 04 find the 5 most similar past intakes given a new one's vector.</li>
+      </ol>
+
+      <h3>F2.7 — Seed the "easy 5" + a pricing book row</h3>
+      <ol class="clicks">
+        <li><span class="click-title">New query, paste the seed inserts</span>Copy the full seed block from <a href="build-guide.html#step-5">build-guide.html step 5</a> (starts with <code>insert into shared_assemblies</code>, includes 5 assemblies + 8 materials + 1 pricing_book row).</li>
+        <li><span class="click-title">Run it</span>You should see "Success. Rows: 5" or similar — different counts for each insert statement. Some Supabase versions show only the last result; that's fine.</li>
+        <li><span class="click-title">Verify the seeds landed</span>Left sidebar → <span class="ui-path">Table Editor</span> → click <code>shared_assemblies</code>. You should see 5 rows: "Install LED downlight", "Replace double GPO", "Install customer-supplied ceiling fan", "Hardwire 240V smoke alarm", "Install outdoor IP-rated LED light". Click <code>shared_materials</code> — 8 rows. Click <code>pricing_book</code> — 1 row with hourly_rate = 110.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Foundation 2</div>
+        <p>Table Editor shows all 7 tables: <code>shared_assemblies</code> (5 rows), <code>shared_materials</code> (8 rows), <code>pricing_book</code> (1 row), <code>calls</code> (0 rows), <code>intakes</code> (0 rows), <code>quotes</code> (0 rows), <code>quote_line_items</code> (0 rows). Database → Extensions shows pgvector enabled.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STAGE 03 ═══════════════ -->
+  <section class="phase" id="s03">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Stage 03 · <strong>Vapi AI Receptionist</strong></div>
+        <h2 class="phase-title">Build the AI that answers the phone.</h2>
+        <p class="phase-summary">Connect Twilio to Vapi, configure the voice assistant, paste in the system prompt that drives the conversation, then build the webhook receiver in your Next.js app. By the end of this stage you'll be able to dial your number and have a real conversation with the AI.</p>
+      </header>
+
+      <h3>S3.1 — Connect Twilio to Vapi</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Open the Vapi dashboard</span><a href="https://dashboard.vapi.ai/">https://dashboard.vapi.ai/</a>.</li>
+        <li><span class="click-title">Go to Phone Numbers</span>Left sidebar → <span class="ui-path">Phone Numbers</span>.</li>
+        <li><span class="click-title">Import from Twilio</span>Click the <span class="ui">Import Number</span> or <span class="ui">+</span> button → choose <span class="ui">Twilio</span> from the provider list.</li>
+        <li><span class="click-title">Paste credentials</span>Fill in:
+          <ul>
+            <li>Twilio Account SID: <span class="field">your AC...</span></li>
+            <li>Twilio Auth Token: <span class="field">your auth token</span></li>
+            <li>Twilio Phone Number: <span class="field">+61... (no spaces)</span></li>
+          </ul>
+          Click <span class="ui">Import from Twilio</span>. Vapi automatically updates Twilio's voice webhook to point to Vapi — you don't need to touch Twilio for this.
+        </li>
+        <li><span class="click-title">Verify</span>The number should now appear in your Vapi <span class="ui-path">Phone Numbers</span> list.</li>
+      </ol>
+
+      <h3>S3.2 — Plug in your provider keys (optional but recommended)</h3>
+      <p>By default Vapi uses its own Deepgram, ElevenLabs, and Anthropic keys and bills you with a markup. Using your own keys means retail rates.</p>
+      <ol class="clicks">
+        <li><span class="click-title">Go to Provider Keys</span>Left sidebar → <span class="ui-path">Settings → Provider Keys</span> (or <span class="ui-path">Org → Provider Keys</span>).</li>
+        <li><span class="click-title">Paste each key</span>Add Deepgram, ElevenLabs, and Anthropic keys from your text file. Save each.</li>
+      </ol>
+
+      <h3>S3.3 — Create the assistant</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Go to Assistants</span>Left sidebar → <span class="ui-path">Assistants</span> → <span class="ui">Create Assistant</span> (top right).</li>
+        <li><span class="click-title">Name it</span><span class="field">QuoteMate Receptionist</span>. Click <span class="ui">Create</span>.</li>
+        <li><span class="click-title">Configure the Transcriber tab</span>
+          <ul>
+            <li>Provider: <span class="field">Deepgram</span></li>
+            <li>Model: <span class="field">nova-2</span></li>
+            <li>Language: <span class="field">en-AU</span> (or "English (Australia)")</li>
+          </ul>
+        </li>
+        <li><span class="click-title">Configure the Voice tab</span>
+          <ul>
+            <li>Provider: <span class="field">ElevenLabs</span></li>
+            <li>Voice: pick an Australian-sounding voice. Vapi has previews — click the play button to hear samples. Pick one that sounds friendly and natural. Save the voice ID it shows.</li>
+          </ul>
+        </li>
+        <li><span class="click-title">Configure the Model tab</span>
+          <ul>
+            <li>Provider: <span class="field">Anthropic</span></li>
+            <li>Model: <span class="field">claude-haiku-4-5</span> (or the newest Haiku available — Haiku is fast and cheap, perfect for the live conversation)</li>
+            <li>Max tokens: leave default (~250)</li>
+            <li>Temperature: <span class="field">0.4</span> (low temp = consistent question routing)</li>
+          </ul>
+        </li>
+        <li><span class="click-title">Set the First Message</span>This is what the AI says when the call connects. Paste:
+          <pre><code>G'day, you've reached the AI quoting line for [your business name]. I can take down all the details for your electrical job and have a quote sent through. This call may be recorded for quality and quote-drafting purposes. Sound good?</code></pre>
+          The "may be recorded" line is required for AU consent compliance.
+        </li>
+      </ol>
+
+      <h3>S3.4 — Paste the system prompt</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Find the System Prompt field</span>Usually under the Model tab, scroll to "System Prompt" or "System Message".</li>
+        <li><span class="click-title">Open the build guide in another tab</span>Open <a href="build-guide.html#step-6">build-guide.html step 6</a>. Find the long code block that starts with <code>ROLE</code> and ends with <code>- Skip photo asks for switchboard / EV / outdoor / oven jobs</code>.</li>
+        <li><span class="click-title">Copy the entire prompt</span>Don't trim it — every section drives a piece of the conversation logic.</li>
+        <li><span class="click-title">Paste it into the System Prompt field in Vapi</span>Click <span class="ui">Save</span> (or it auto-saves).</li>
+      </ol>
+
+      <div class="callout note">
+        <div class="callout-label">Why the prompt is so long</div>
+        <p>It encodes 9 different job-flow question trees, the emergency override logic, the photo capture protocol, and the confidence scoring rules. Each section drives an actual decision the AI will make on the call. Trimming it = breaking the pipeline.</p>
+      </div>
+
+      <h3>S3.5 — Set the Server URL (the webhook target)</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Find Server URL in the assistant config</span>Usually in an "Advanced" or "Server" section of the assistant settings.</li>
+        <li><span class="click-title">Paste your ngrok URL + the path</span>If your ngrok URL is <code>https://abc123.ngrok.app</code>, paste:
+          <pre><code>https://abc123.ngrok.app/api/vapi/webhook</code></pre>
+          <strong>Important:</strong> use the ngrok URL, not localhost. Vapi's servers can't reach your laptop directly.
+        </li>
+        <li><span class="click-title">Save</span>If there's a separate Save button for this section, click it.</li>
+      </ol>
+
+      <h3>S3.6 — Connect the assistant to your phone number</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Go back to Phone Numbers</span>Left sidebar → <span class="ui-path">Phone Numbers</span>.</li>
+        <li><span class="click-title">Click your AU number</span>The row with your <code>+61...</code> number.</li>
+        <li><span class="click-title">Set the Inbound Assistant</span>In the "Inbound Settings" section, set "Assistant" to <span class="field">QuoteMate Receptionist</span>. Save.</li>
+      </ol>
+
+      <h3>S3.7 — Build the webhook receiver in your Next.js project</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create the folder structure in VS Code</span>In the file explorer, right-click on the <code>app</code> folder → <span class="ui">New Folder</span> → name it <span class="field">api</span>. Inside <code>api</code>, create another folder called <span class="field">vapi</span>. Inside <code>vapi</code>, create another called <span class="field">webhook</span>. Inside <code>webhook</code>, create a file called <span class="field">route.ts</span>.</li>
+        <li><span class="click-title">Paste the webhook code</span>Open <a href="build-guide.html#step-6">build-guide.html step 6</a> and find the code block that starts with <code>import { createClient } from '@supabase/supabase-js'</code>. Copy the whole block and paste it into <code>app/api/vapi/webhook/route.ts</code>. Save.</li>
+        <li><span class="click-title">Restart pnpm dev</span>If <code>pnpm dev</code> isn't already running in terminal 1, start it: <code>pnpm dev</code>. If it was running, leave it — Next.js auto-reloads on file changes.</li>
+      </ol>
+
+      <h3>S3.8 — Test the call</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Verify both terminals are running</span>Terminal 1: <code>pnpm dev</code> shows "Ready". Terminal 2: <code>ngrok http 3000</code> shows the public URL.</li>
+        <li><span class="click-title">Dial your AU number from your mobile</span>Speak naturally: "Hi, I need six LED downlights installed in my kitchen, replacing the old halogens. Wiring's already there. Single-storey house, plaster ceiling."</li>
+        <li><span class="click-title">Let the conversation flow</span>The AI should ask follow-up questions matching the system prompt's downlights flow. End the call when it summarises back.</li>
+        <li><span class="click-title">Check Supabase</span>Supabase → Table Editor → <code>calls</code>. There should be a new row with the transcript and recording_url populated. Open it; read the transcript to make sure the AI captured the right thing.</li>
+      </ol>
+
+      <div class="trouble">
+        <strong>Troubleshooting:</strong> If no row appears in <code>calls</code>, check (a) ngrok is still running with the same URL you pasted into Vapi, (b) the Server URL in Vapi includes <code>/api/vapi/webhook</code> at the end, (c) the route file is at <code>app/api/vapi/webhook/route.ts</code> exactly. Check Vapi's <span class="ui-path">Logs</span> to see if it tried to call your webhook and got an error.
+      </div>
+
+      <div class="done">
+        <div class="done-label">Done check — Stage 03</div>
+        <p>You can dial your AU number, have a conversation with the AI, hang up, and ~10 seconds later see a row in <code>calls</code> with the full transcript.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STAGE 04 ═══════════════ -->
+  <section class="phase" id="s04">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Stage 04 · <strong>Intake Engine</strong></div>
+        <h2 class="phase-title">Turn the transcript into structured data.</h2>
+        <p class="phase-summary">Free-form speech is useless to the Estimator. The Intake Engine reads the transcript and produces strict JSON: job_type, scope, risks, confidence. Three small files plus one API route.</p>
+      </header>
+
+      <h3>S4.1 — Create the intake schema</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create the folder</span>In VS Code, at the project root, create folder <span class="field">lib</span> → inside it, create folder <span class="field">intake</span>.</li>
+        <li><span class="click-title">Create schema.ts</span>Inside <code>lib/intake</code>, create file <span class="field">schema.ts</span>.</li>
+        <li><span class="click-title">Paste the IntakeSchema</span>From <a href="build-guide.html#step-7">build-guide.html step 7</a>, copy the full <code>IntakeSchema</code> block (starts with <code>import { z } from 'zod'</code>, ends with <code>export type Intake = z.infer&lt;typeof IntakeSchema&gt;</code>).</li>
+        <li><span class="click-title">Save</span><kbd>Ctrl+S</kbd>.</li>
+      </ol>
+
+      <h3>S4.2 — Create the structuring function</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create structure.ts</span>Inside <code>lib/intake</code>, create file <span class="field">structure.ts</span>.</li>
+        <li><span class="click-title">Paste the structureIntake function</span>From <a href="build-guide.html#step-7">build-guide.html step 7</a>, copy the full block that starts <code>import { anthropic } from '@ai-sdk/anthropic'</code>.</li>
+        <li><span class="click-title">Save</span></li>
+      </ol>
+
+      <h3>S4.3 — Create the embedding helper</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create embed.ts</span>Inside <code>lib/intake</code>, create file <span class="field">embed.ts</span>.</li>
+        <li><span class="click-title">Paste the embedIntake function</span>From <a href="build-guide.html#step-7">build-guide.html step 7</a>, copy the embed block.</li>
+        <li><span class="click-title">Voyage vs OpenAI</span>If you'd prefer to use OpenAI for embeddings instead of Voyage, swap the model line per the note at the bottom of step 7. Otherwise leave it as voyage-3.</li>
+      </ol>
+
+      <h3>S4.4 — Build the API route</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create the folder structure</span>Inside <code>app/api</code>, create folder <span class="field">intake</span>, then inside <code>intake</code> create folder <span class="field">structure</span>, then inside <code>structure</code> create file <span class="field">route.ts</span>.</li>
+        <li><span class="click-title">Paste the route code</span>From <a href="build-guide.html#step-7">build-guide.html step 7</a>, copy the route handler that loads the call, structures it, embeds it, saves it, and fires <code>/api/estimate/draft</code>.</li>
+        <li><span class="click-title">Save and let Next.js reload</span>The terminal running <code>pnpm dev</code> will recompile.</li>
+      </ol>
+
+      <h3>S4.5 — Test it</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Make another test call</span>Same way as Stage 03 — dial your number, describe a job, hang up.</li>
+        <li><span class="click-title">Check the intakes table</span>Supabase → Table Editor → <code>intakes</code>. Within ~20 seconds of hanging up, a row should appear with:
+          <ul>
+            <li><code>call_id</code> linked to the call you just made</li>
+            <li><code>job_type</code> populated (e.g. "downlights")</li>
+            <li><code>scope</code> JSONB with item_count, indoor_outdoor, etc.</li>
+            <li><code>risks</code> array (might be empty for clean jobs)</li>
+            <li><code>embedding</code> shows as a long array of numbers — that's the 1536-dim vector</li>
+            <li><code>confidence</code> = HIGH / MEDIUM / LOW</li>
+          </ul>
+        </li>
+        <li><span class="click-title">Sanity check</span>Did the AI extract the job correctly? If you said "six downlights", does <code>scope.item_count</code> = 6? If not, the system prompt might need tightening.</li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Stage 04</div>
+        <p>One test call produces one row in <code>calls</code> AND one row in <code>intakes</code> with structured fields and a non-null embedding.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STAGE 05 ═══════════════ -->
+  <section class="phase" id="s05">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Stage 05 · <strong>Estimation Engine</strong></div>
+        <h2 class="phase-title">Draft the actual quote.</h2>
+        <p class="phase-summary">Claude Opus reads the structured intake, calls four tools to look up assemblies, materials, and apply markup, then writes Good / Better / Best pricing tiers. This is the most code, but every piece maps to a box in the Stage 05 cluster of the architecture diagram.</p>
+      </header>
+
+      <h3>S5.1 — Create the tools file</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create the folder</span>Inside <code>lib</code>, create folder <span class="field">estimate</span>.</li>
+        <li><span class="click-title">Create tools.ts</span>Inside <code>lib/estimate</code>, create file <span class="field">tools.ts</span>.</li>
+        <li><span class="click-title">Paste the four tools</span>From <a href="build-guide.html#step-8">build-guide.html step 8</a>, copy the block that defines <code>lookupAssembly</code>, <code>lookupMaterial</code>, <code>applyMarkup</code>, <code>flagInspectionNeeded</code>.</li>
+        <li><span class="click-title">Save</span></li>
+      </ol>
+
+      <h3>S5.2 — Create the system prompt</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create prompt.ts</span>Inside <code>lib/estimate</code>, create file <span class="field">prompt.ts</span>.</li>
+        <li><span class="click-title">Paste the systemPrompt function</span>From <a href="build-guide.html#step-8">build-guide.html step 8</a>, this is a long block (~200 lines) that defines the entire Estimator's behaviour — Good/Better/Best framing, calculation order, risk-buffer triggers, inspection fallback, fault-finding override. <strong>Copy all of it.</strong></li>
+        <li><span class="click-title">Save</span></li>
+      </ol>
+
+      <h3>S5.3 — Create the runner</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create run.ts</span>Inside <code>lib/estimate</code>, create file <span class="field">run.ts</span>.</li>
+        <li><span class="click-title">Paste the runEstimation function</span>From <a href="build-guide.html#step-8">build-guide.html step 8</a>, copy the runner block. The key part is <code>generateText({ ..., tools, maxSteps: 10 })</code> — that's what gives Claude the agency to call tools in a loop.</li>
+        <li><span class="click-title">Save</span></li>
+      </ol>
+
+      <h3>S5.4 — Build the API route</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Create folder structure</span>Inside <code>app/api</code>, create folder <span class="field">estimate</span>, inside that create <span class="field">draft</span>, inside that create file <span class="field">route.ts</span>.</li>
+        <li><span class="click-title">Paste the route code</span>From <a href="build-guide.html#step-8">build-guide.html step 8</a>, copy the full route handler that loads the intake, loads the pricing book, runs the estimation, computes GST, and inserts into <code>quotes</code>.</li>
+        <li><span class="click-title">Save and let Next.js reload</span></li>
+      </ol>
+
+      <h3>S5.5 — Test it</h3>
+      <ol class="clicks">
+        <li><span class="click-title">Make another test call</span>Describe a clean "easy 5" job: "I need six downlights in my kitchen, replacing existing halogens, wiring's already there, plaster ceiling, indoor."</li>
+        <li><span class="click-title">Wait ~45 seconds total</span>Vapi webhook → calls (10s) → intakes (20s) → quotes (45s).</li>
+        <li><span class="click-title">Check the quotes table</span>Supabase → Table Editor → <code>quotes</code>. New row should have:
+          <ul>
+            <li><code>intake_id</code> linked correctly</li>
+            <li><code>scope_of_works</code> — plain English description</li>
+            <li><code>good</code>, <code>better</code>, <code>best</code> — JSONB columns each containing a label, line_items array, subtotal_ex_gst, timeframe</li>
+            <li><code>total_inc_gst</code> — sensible number (for 6 downlights, somewhere around $400–600 typically)</li>
+            <li><code>status</code> = <code>'draft'</code></li>
+          </ul>
+        </li>
+        <li><span class="click-title">Open the JSONB</span>Click on the <code>better</code> column to see the JSON. You should see real line items like:
+          <pre><code>{
+  "label": "Tri-colour LED downlights",
+  "line_items": [
+    { "description": "Install LED downlight (tri-colour)", "quantity": 6, ... },
+    { "description": "Labour", "quantity": 2.4, "unit": "hr", ... }
+  ],
+  "subtotal_ex_gst": 480.50,
+  "timeframe": "Same day"
+}</code></pre>
+          If you see this, your full pipeline works.
+        </li>
+      </ol>
+
+      <div class="done">
+        <div class="done-label">Done check — Stage 05</div>
+        <p>One test call → 45 seconds later → one row in <code>quotes</code> with three real pricing tiers, sensible totals, and <code>status: 'draft'</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ VERIFY ═══════════════ -->
+  <section class="phase" id="verify">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Verify · <strong>End-to-end test</strong></div>
+        <h2 class="phase-title">Prove the whole thing works.</h2>
+        <p class="phase-summary">Two test calls — one easy, one deliberately complex — should exercise both the auto-quote path and the inspection-required path.</p>
+      </header>
+
+      <h3>V.1 — Pre-flight checklist</h3>
+      <ul>
+        <li>☐ Terminal 1: <code>pnpm dev</code> running with no errors</li>
+        <li>☐ Terminal 2: <code>ngrok http 3000</code> running, URL pasted in Vapi Server URL</li>
+        <li>☐ Vapi: assistant connected to your AU number</li>
+        <li>☐ Supabase: <code>shared_assemblies</code> has 5 rows, <code>pricing_book</code> has 1 row</li>
+        <li>☐ <code>.env.local</code> has all keys (no blanks except VAPI_WEBHOOK_SECRET)</li>
+      </ul>
+
+      <h3>V.2 — Easy test (auto-quote path)</h3>
+      <p>Dial your AU number. Say:</p>
+      <blockquote style="border-left: 3px solid var(--line); padding-left: 1rem; color: var(--ink); font-style: italic; margin: 1rem 0;">
+        "Hi, my name's Anant, I need six LED downlights installed in the kitchen, replacing some old halogens. The wiring's already there. It's a single-storey place in Bondi, plaster ceiling, roof access is fine. Tri-colour would be good."
+      </blockquote>
+      <p>Expected:</p>
+      <ul>
+        <li>Within 10s: row in <code>calls</code> with the transcript</li>
+        <li>Within 20s: row in <code>intakes</code> with <code>job_type: 'downlights'</code>, <code>scope.item_count: 6</code>, <code>confidence: 'HIGH'</code>, <code>inspection_required: false</code></li>
+        <li>Within 45s: row in <code>quotes</code> with three real tiers and a total around $400–700</li>
+      </ul>
+
+      <h3>V.3 — Complex test (inspection path)</h3>
+      <p>Dial again. Say:</p>
+      <blockquote style="border-left: 3px solid var(--line); padding-left: 1rem; color: var(--ink); font-style: italic; margin: 1rem 0;">
+        "Hey, there's a burning smell coming from my switchboard, and the breakers keep tripping. I also want to add an EV charger. It's an old place — the switchboard still has ceramic fuses."
+      </blockquote>
+      <p>Expected:</p>
+      <ul>
+        <li><code>intakes.risks</code> array contains "burning smell", "tripping breakers", "ceramic-fuse switchboard", "EV charger on old board"</li>
+        <li><code>confidence: 'LOW'</code></li>
+        <li><code>inspection_required: true</code></li>
+        <li><code>timing.urgency: 'emergency'</code></li>
+        <li><code>quotes.needs_inspection: true</code></li>
+        <li><code>quotes</code> uses indicative ranges, not fixed line items</li>
+      </ul>
+
+      <div class="done">
+        <div class="done-label">Done check — Pipeline verified</div>
+        <p>If both tests produce the expected outcomes, your full Stages 01 → 05 pipeline is working. You've built the QuoteMate automation.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ TROUBLESHOOTING ═══════════════ -->
+  <section class="phase" id="trouble">
+    <div class="container">
+      <header class="phase-header">
+        <div class="phase-num">Troubleshoot · <strong>Common failures</strong></div>
+        <h2 class="phase-title">When something breaks.</h2>
+        <p class="phase-summary">90% of beginner failures fall into one of these buckets. Check here before assuming the build is broken.</p>
+      </header>
+
+      <h3>"Command not recognised" after install</h3>
+      <p>Close <strong>every</strong> terminal window and open a brand new one. Programs only appear in terminals opened <em>after</em> install.</p>
+
+      <h3>The AI answers but no row appears in <code>calls</code></h3>
+      <p>Vapi can't reach your webhook. Check:</p>
+      <ul>
+        <li>ngrok still running with the same URL you pasted into Vapi (it changes if ngrok restarts)</li>
+        <li>Vapi Server URL ends in <code>/api/vapi/webhook</code></li>
+        <li>The file is at <code>app/api/vapi/webhook/route.ts</code> exactly (case-sensitive)</li>
+        <li>Vapi <span class="ui-path">Logs</span> shows what it tried — copy any error and search it</li>
+      </ul>
+
+      <h3>Row appears in <code>calls</code> but nothing in <code>intakes</code></h3>
+      <p>The intake API route is failing. Check the <code>pnpm dev</code> terminal — Next.js prints errors there. Common causes:</p>
+      <ul>
+        <li>ANTHROPIC_API_KEY missing or wrong in <code>.env.local</code></li>
+        <li>Spend limit hit on Anthropic console</li>
+        <li>Schema mismatch — Sonnet returned an unexpected field. Loosen the Zod schema or add the field</li>
+      </ul>
+
+      <h3>Row in <code>intakes</code> but nothing in <code>quotes</code></h3>
+      <p>The Estimation Engine is failing. Likely:</p>
+      <ul>
+        <li>Tools returned empty (your seeded library is too sparse — Opus called <code>flag_inspection_needed</code> instead). For testing, use the seeded "easy 5" job types.</li>
+        <li>Opus output was malformed JSON. Check the dev-server logs for parse errors. Switch from <code>generateText</code> to <code>generateObject</code> with a Zod schema if it's persistent.</li>
+        <li><code>maxSteps: 10</code> exhausted — Opus tried more than 10 tool calls. Either increase the limit or simplify the prompt.</li>
+      </ul>
+
+      <h3>GST math looks wrong (everything off by 10%)</h3>
+      <p>Line items are stored ex-GST; totals are inc-GST. If the customer-visible total is missing the 10%, check the API route's GST calculation — it should be <code>+(selectedSubtotal * 0.10).toFixed(2)</code>.</p>
+
+      <h3>ngrok URL keeps changing</h3>
+      <p>Free ngrok gives you a new random URL each restart. Either:</p>
+      <ul>
+        <li>Don't restart ngrok during development — leave it running all day</li>
+        <li>Upgrade ngrok to a paid plan ($10/mo) for a static URL</li>
+        <li>Or skip ngrok and deploy to Vercel preview branches for each test (slower iteration)</li>
+      </ul>
+    </div>
+  </section>
+
+  <p class="foot">
+    QuoteMate · beginner walkthrough · pairs with <a href="architecture.html">architecture.html</a> + <a href="build-guide.html">build-guide.html</a>
+  </p>
+
+</body>
+</html>
