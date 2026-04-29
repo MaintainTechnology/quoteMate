@@ -1480,14 +1480,35 @@ final pricing."
   }
 
   <span class="k">const</span> call = payload.message.call
-  <span class="k">const</span> { data: callRow } = <span class="k">await</span> supabase.from(<span class="s">'calls'</span>).insert({
-    vapi_call_id: call.id,
-    caller_number: call.customer?.number,
-    duration_seconds: payload.message.durationSeconds,
-    transcript: payload.message.transcript,
-    recording_url: payload.message.recordingUrl,
-    ended_at: <span class="k">new</span> Date().toISOString(),
-  }).select().single()
+
+  <span class="c">// Vapi sends durationSeconds as a float (e.g. 32.053). Our duration_seconds</span>
+  <span class="c">// column is `int`, so round before inserting. Also use upsert (not insert)</span>
+  <span class="c">// so Vapi retrying the same end-of-call event is idempotent.</span>
+  <span class="k">const</span> durationSeconds =
+    <span class="k">typeof</span> payload.message.durationSeconds === <span class="s">'number'</span>
+      ? Math.round(payload.message.durationSeconds)
+      : <span class="k">null</span>
+
+  <span class="k">const</span> { data: callRow, error } = <span class="k">await</span> supabase
+    .from(<span class="s">'calls'</span>)
+    .upsert(
+      {
+        vapi_call_id: call.id,
+        caller_number: call.customer?.number ?? <span class="k">null</span>,
+        duration_seconds: durationSeconds,
+        transcript: payload.message.transcript ?? <span class="k">null</span>,
+        recording_url: payload.message.recordingUrl ?? <span class="k">null</span>,
+        ended_at: <span class="k">new</span> Date().toISOString(),
+      },
+      { onConflict: <span class="s">'vapi_call_id'</span> }
+    )
+    .select()
+    .single()
+
+  <span class="k">if</span> (error || !callRow) {
+    console.error(<span class="s">'[vapi/webhook] failed to upsert call row:'</span>, error)
+    <span class="k">return</span> Response.json({ ok: <span class="k">false</span>, error: error?.message }, { status: 500 })
+  }
 
   <span class="c">// Kick off Stage 04 — the Intake Engine — without blocking Vapi's webhook</span>
   fetch(<span class="s">`${process.env.APP_URL}/api/intake/structure`</span>, {
@@ -1904,11 +1925,11 @@ INSPECTION FALLBACK (when intake.inspection_required, OR you call
 flag_inspection_needed — for switchboard, ev_charger, renovation)
 Don't produce real line items. Instead emit indicative ranges:
   good   = { label: "Indicative · minor scope",   line_items: [],
-             subtotal_ex_gst: <range_low>,  timeframe: "Subject to inspection" }
+             subtotal_ex_gst: &lt;range_low&gt;,  timeframe: "Subject to inspection" }
   better = { label: "Indicative · partial scope", line_items: [],
-             subtotal_ex_gst: <range_mid>,  timeframe: "Subject to inspection" }
+             subtotal_ex_gst: &lt;range_mid&gt;,  timeframe: "Subject to inspection" }
   best   = { label: "Indicative · full scope",    line_items: [],
-             subtotal_ex_gst: <range_high>, timeframe: "Subject to inspection" }
+             subtotal_ex_gst: &lt;range_high&gt;, timeframe: "Subject to inspection" }
   needs_inspection: true
   inspection_reason: customer-friendly explanation referencing the $199 site fee
   assumptions: list what we'd verify on-site
