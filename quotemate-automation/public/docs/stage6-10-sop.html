@@ -159,7 +159,7 @@
         You already have the pipeline that drafts quotes (<a href="stage1-05-sop.html">Stages 01–05</a>). What you don't have yet: a way to <em>show</em> a quote to a customer, take their money, and put the job in the diary. This SOP fills that gap.
       </p>
       <p>
-        <strong>What you'll have at the end:</strong> a customer can open a tradie's QuoteMate-provisioned quote URL on their phone, see Good / Better / Best tiers with line items, pick one, pay a deposit through Stripe (which routes to the tradie's bank via Stripe Connect Express), and pick a slot from the tradie's available times. The tradie gets pushed a notification; the calendar block lands automatically.
+        <strong>What you'll have at the end:</strong> a customer can open a tradie's QuoteMate-provisioned quote URL on their phone, see Good / Better / Best tiers with line items, pick one, pay a deposit through Stripe (which routes to the tradie's bank via Stripe Connect Express), and pick a slot from the tradie's available times. The booked slot is recorded on the quote and removed from the tradie's <code>available_slots</code> JSONB (real Google/iCloud calendar API integration is v2 — see <a href="#s10">Stage 10's deferred-items callout</a> and the wireframe's Layer-5 Calendar entry).
       </p>
       <p>
         <strong>Three reference docs pair with this one:</strong> <a href="architecture.html">architecture.html</a> (system shape), <a href="build-guide.html">build-guide.html</a> (full code blocks), <a href="wireframe.html">wireframe.html</a> (10-stage product flow + 4-agent decomposition). Open them in adjacent tabs and switch as needed.
@@ -377,7 +377,7 @@ pnpm add stripe resend</code></pre>
       <header class="phase-header">
         <div class="phase-num">Stage 06 · <strong>v1 — build now</strong> · <em>Quote Reviewer's confidence gate</em></div>
         <h2 class="phase-title">Confidence routing.</h2>
-        <p class="phase-summary">Take the freshly-drafted quote and decide which path it goes down: tradie review (v1 default), paid site inspection (always for inspection-required jobs), or auto-send (v3 only — <strong>do not enable in v1</strong>). The Estimation Engine already produces the inputs (<code>intake.confidence</code>, <code>quote.needs_inspection</code>); this stage just records the decision in the new <code>routing_decision</code> column.</p>
+        <p class="phase-summary">Take the freshly-drafted quote and decide which path it goes down: tradie review (v1 default), paid site inspection (always for inspection-required jobs), or auto-send (v3 only — <strong>do not enable in v1</strong>). The Estimation Engine already produces the inputs (<code>intake.confidence</code>, <code>quote.needs_inspection</code>); this stage just records the decision in the new <code>routing_decision</code> column. <em>Note:</em> the wireframe's Stage 06 description mentions a "Haiku sanity check" alongside the rule-based logic — that LLM second-look is v3 polish; v1 ships pure rule-based routing because the rule set is simple enough that an LLM check adds latency without catching anything the rules miss.</p>
       </header>
 
       <h3>S6.1 — Create the routing helper</h3>

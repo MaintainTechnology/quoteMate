@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
+import { after } from 'next/server'
 import { structureIntake } from '@/lib/intake/structure'
 import { embedIntake } from '@/lib/intake/embed'
+
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,10 +41,21 @@ export async function POST(req: Request) {
     embedding,
   }).select().single()
 
-  // 5. Hand off to Stage 05 — the Estimation Engine
-  fetch(`${process.env.APP_URL}/api/estimate/draft`, {
-    method: 'POST',
-    body: JSON.stringify({ intakeId: intakeRow!.id }),
+  // 5. Hand off to Stage 05 — the Estimation Engine via `after()` so the
+  // dispatch survives the response on Vercel serverless.
+  after(async () => {
+    try {
+      const res = await fetch(`${process.env.APP_URL}/api/estimate/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intakeId: intakeRow!.id }),
+      })
+      if (!res.ok) {
+        console.error('[intake/structure] estimate/draft responded', res.status, await res.text())
+      }
+    } catch (e) {
+      console.error('[intake/structure] failed to dispatch estimate/draft:', e)
+    }
   })
 
   return Response.json({ ok: true, intakeId: intakeRow!.id })

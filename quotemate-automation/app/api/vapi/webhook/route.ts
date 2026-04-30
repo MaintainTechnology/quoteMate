@@ -1,4 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
+import { after } from 'next/server'
+
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,15 +62,23 @@ export async function POST(req: Request) {
     )
   }
 
-  // Fire-and-forget hand-off to the Intake Engine. Don't await — Vapi expects
-  // a fast response from the webhook, and a slow downstream call shouldn't
-  // make Vapi mark the webhook as failed.
-  fetch(`${process.env.APP_URL}/api/intake/structure`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callId: callRow.id }),
-  }).catch((e) => {
-    console.error('[vapi/webhook] failed to dispatch intake/structure:', e)
+  // Hand off to the Intake Engine after the response is sent. `after()` keeps
+  // the serverless function alive (via waitUntil) until the dispatch completes,
+  // which fire-and-forget `fetch().catch()` does not on Vercel — pending I/O
+  // gets cancelled the moment the response returns.
+  after(async () => {
+    try {
+      const res = await fetch(`${process.env.APP_URL}/api/intake/structure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId: callRow.id }),
+      })
+      if (!res.ok) {
+        console.error('[vapi/webhook] intake/structure responded', res.status, await res.text())
+      }
+    } catch (e) {
+      console.error('[vapi/webhook] failed to dispatch intake/structure:', e)
+    }
   })
 
   return Response.json({ ok: true, callId: callRow.id })
