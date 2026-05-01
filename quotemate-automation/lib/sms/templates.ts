@@ -44,10 +44,17 @@ type Quote = {
   scope_short?: string | null
   assumptions: string[] | null
   estimated_timeframe: string | null
-  /** optional per-tier short redirect URLs (e.g. https://app.example.com/r/{token}/{tier}) */
-  pay_links?: Partial<Record<'good' | 'better' | 'best', string>>
+  /** optional per-tier short redirect URLs. May include 'inspection' for
+   *  inspection-required quotes — when present, template renders the
+   *  inspection-only layout (single $199 link, indicative ranges as context). */
+  pay_links?: Partial<Record<'good' | 'better' | 'best' | 'inspection', string>>
   /** % deposit used in the SMS line (e.g. 30 → "(deposit $209)") */
   deposit_pct?: number | string | null
+  /** True when intake/estimation flagged this quote as needing an on-site visit
+   *  before final pricing. Drives the inspection-only SMS template path. */
+  needs_inspection?: boolean | null
+  /** Required when needs_inspection is true. Customer-facing reason. */
+  inspection_reason?: string | null
 }
 
 const JOB_TYPE_LABEL: Record<string, string> = {
@@ -115,6 +122,12 @@ function pickScopeForSms(quote: Quote): string | null {
 }
 
 export function buildQuoteSms(intake: Intake, quote: Quote): string {
+  // Inspection-required quotes get a distinct SMS layout — indicative ranges
+  // for context, ONE prominent $199 site-visit link, no per-tier pay buttons.
+  if (quote.needs_inspection) {
+    return buildInspectionQuoteSms(intake, quote)
+  }
+
   const firstName = (intake.caller?.name ?? '').split(' ')[0] || 'there'
   const job = jobSummary(intake)
   const timeframe = (quote.estimated_timeframe ?? '').toLowerCase().trim()
@@ -162,6 +175,63 @@ export function buildQuoteSms(intake: Intake, quote: Quote): string {
 
   lines.push('Reply or call back to confirm a tier and we will book you in.')
   lines.push('')
+  lines.push('- QuoteMate')
+
+  return gsm7Safe(lines.join('\n'))
+}
+
+// Inspection-required SMS — shown when intake/estimation flags the job as
+// needing an on-site visit before a real quote can be drafted. Renders the
+// indicative ranges as context, then ONE clear $199 site-visit pay link.
+// No per-tier deposit buttons — those would charge against indicative
+// (not real) prices, which is misleading.
+function buildInspectionQuoteSms(intake: Intake, quote: Quote): string {
+  const firstName = (intake.caller?.name ?? '').split(' ')[0] || 'there'
+  const job = jobSummary(intake)
+  const inspectionUrl = quote.pay_links?.inspection
+
+  // Build the indicative range string from whichever tiers are present.
+  // Opus produces these as INSPECTION FALLBACK shape — just numbers, no real
+  // line items. We show them as a range to set expectations without committing.
+  const tierPrices: number[] = []
+  for (const key of ['good', 'better', 'best'] as const) {
+    const tier = quote[key]
+    if (tier) tierPrices.push(incGst(tier.subtotal_ex_gst))
+  }
+  const rangeText =
+    tierPrices.length >= 2
+      ? `Indicative range $${Math.min(...tierPrices)}-$${Math.max(...tierPrices)} inc GST (3 tiers, confirmed after the visit)`
+      : tierPrices.length === 1
+        ? `Indicative around $${tierPrices[0]} inc GST (confirmed after the visit)`
+        : 'Indicative pricing confirmed after the visit'
+
+  const lines: string[] = []
+  lines.push(`Hi ${firstName},`)
+  lines.push('')
+  lines.push(`Your QuoteMate quote for ${job} needs a quick site visit to confirm scope safely.`)
+  lines.push('')
+  lines.push(rangeText + '.')
+  lines.push('')
+  if (inspectionUrl) {
+    lines.push('Tap to lock in your site visit ($199 refundable, credited toward your final quote):')
+    lines.push(inspectionUrl)
+  } else {
+    // Fallback when Stripe Session creation failed — tell the customer to call.
+    lines.push('Call us back to lock in a site visit ($199 refundable, credited toward your final quote).')
+  }
+  lines.push('')
+
+  const scopeLine = pickScopeForSms(quote)
+  if (scopeLine) {
+    lines.push(`SCOPE: ${scopeLine}`)
+    lines.push('')
+  }
+
+  if (quote.inspection_reason) {
+    lines.push(`Why a visit: ${quote.inspection_reason}`)
+    lines.push('')
+  }
+
   lines.push('- QuoteMate')
 
   return gsm7Safe(lines.join('\n'))

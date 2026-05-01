@@ -29,7 +29,14 @@ export type StripeLinks = {
   good?: string
   better?: string
   best?: string
+  /** Set on inspection-required quotes — single $199 site-visit deposit Session URL. */
+  inspection?: string
 }
+
+/** Industry-standard $199 refundable site-visit deposit. Hardcoded for v1
+ *  per the SOP; move to pricing_book.inspection_fee_amount when multi-tradie
+ *  configurability is needed. */
+const INSPECTION_FEE_AUD_CENTS = 19900
 
 /**
  * Generate a URL-safe share token (used in success URLs and future portal route).
@@ -122,4 +129,52 @@ function buildProductName(intake: IntakeForCheckout, tierKey: string, tier: NonN
   const lead = count ? `${count} ${job}` : job
   const tierLabel = tier.label || tierKey
   return `QuoteMate — ${lead} · ${tierLabel}`
+}
+
+/**
+ * Inspection-required path: create a single Stripe Checkout Session for
+ * the $199 refundable site-visit deposit. Sets metadata.tier='inspection'
+ * so the webhook can record it on the quote correctly.
+ */
+export async function createInspectionCheckoutSession(opts: {
+  quoteId: string
+  intake: IntakeForCheckout
+  shareToken: string
+  appUrl: string
+}): Promise<string | null> {
+  const stripe = getStripe()
+  const job = opts.intake.job_type.replace(/_/g, ' ')
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    line_items: [
+      {
+        price_data: {
+          currency: 'aud',
+          product_data: {
+            name: `QuoteMate — site visit (${job})`,
+            description: 'Refundable site-visit deposit. Credited toward your final quote when accepted.',
+          },
+          unit_amount: INSPECTION_FEE_AUD_CENTS,
+        },
+        quantity: 1,
+      },
+    ],
+    customer_email: opts.intake.caller?.email || undefined,
+    success_url: `${opts.appUrl}/q/${opts.shareToken}/paid?tier=inspection&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${opts.appUrl}/q/${opts.shareToken}/cancelled`,
+    metadata: {
+      quote_id: opts.quoteId,
+      tier: 'inspection',
+      fee_aud_cents: String(INSPECTION_FEE_AUD_CENTS),
+    },
+    payment_intent_data: {
+      metadata: {
+        quote_id: opts.quoteId,
+        tier: 'inspection',
+      },
+    },
+  })
+
+  return session.url ?? null
 }

@@ -11,7 +11,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const VALID_TIERS = new Set(['good', 'better', 'best'])
+const VALID_TIERS = new Set(['good', 'better', 'best', 'inspection'])
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: string; tier: string }> }) {
   const { token, tier } = await ctx.params

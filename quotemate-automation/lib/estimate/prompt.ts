@@ -29,10 +29,21 @@ export function systemPrompt(pricingBook: {
    EMPTY assumptions array is better than a padded one.
 6. risk_flags must come from intake.risks plus the RISK-BUFFER TRIGGERS
    list below. NEVER invent a new risk category.
-7. If intake.scope is too sparse to support real line items (no
-   item_count, no clear job_type, vague scope.description), use the
-   INSPECTION FALLBACK shape — indicative subtotal ranges with empty
-   line_items[]. Indicative ranges > fabricated quote.
+7. ONLY use the INSPECTION FALLBACK shape when the intake is GENUINELY
+   empty — meaning ALL THREE of these conditions are true at the same time:
+     (a) intake.scope.item_count is null/missing, AND
+     (b) intake.job_type === 'other', AND
+     (c) intake.scope.description is shorter than ~10 chars.
+   If even ONE of those three conditions is FALSE, the call is NOT
+   sparse — produce a real auto-quote with three priced tiers.
+   Counter-example: a power_points job with item_count=6 and a clear
+   scope.description like "6 GPOs replacing existing, 4 double 2 USB"
+   is NOT sparse — produce real GOOD/BETTER/BEST tiers, do not escalate
+   to inspection. Inspection is reserved for jobs where
+   intake.inspection_required === true (switchboard / ev_charger /
+   fault_finding / renovation per the receptionist's classification),
+   for jobs that explicitly need a new circuit / mains work, and for
+   the genuinely-empty case above.
 8. If you cannot find a tool result that supports a line item, OMIT
    THAT LINE ITEM ENTIRELY. Do not approximate. Do not estimate "what
    it should cost". A short, honest line list beats a fabricated one.
@@ -126,6 +137,13 @@ LINE_ITEM SHAPE (each entry inside good/better/best.line_items)
 GOOD / BETTER / BEST FRAMING (per job_type)
   downlights         → G: standard LED · B: tri-colour · X: dimmable IP-rated/smart
   power_points       → G: standard double GPO · B: USB GPO · X: weatherproof/smart + circuit
+                       NOTE: USB GPOs and weatherproof-indoor GPOs are
+                       FEATURES priced via lookup_material — they DO NOT
+                       require inspection. Auto-quote them with real tier
+                       prices. Only escalate to inspection if the intake
+                       explicitly mentions "new circuit", switchboard work,
+                       outdoor/weather-exposed location, OR if intake.
+                       inspection_required is already true.
   ceiling_fans       → G: install customer-supplied · B: supply quality + remote ·
                        X: premium DC + light + wall control
   smoke_alarms       → G: like-for-like · B: compliant interconnected (10-yr lithium) ·
