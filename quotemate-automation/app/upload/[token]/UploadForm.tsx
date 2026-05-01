@@ -72,29 +72,58 @@ export function UploadForm({ token }: { token: string }) {
 
   const buttonDisabled = files.length === 0 || status === 'uploading'
 
+  const pickerCommon: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '1.25rem 1rem', textAlign: 'center',
+    border: '2px dashed #94a3b8', borderRadius: 12, cursor: 'pointer',
+    background: '#f8fafc', color: '#0f172a', fontWeight: 500,
+    minHeight: '5rem', lineHeight: 1.4,
+  }
+
   return (
     <form onSubmit={onSubmit}>
-      <label
-        htmlFor="photos-input"
-        style={{
-          display: 'block', textAlign: 'center', padding: '1.5rem 1rem',
-          border: '2px dashed #94a3b8', borderRadius: 12, cursor: 'pointer',
-          background: '#f8fafc', color: '#0f172a', fontWeight: 500,
-        }}
-      >
-        {files.length === 0
-          ? '📷  Take photo or pick from gallery'
-          : `${files.length} photo${files.length > 1 ? 's' : ''} ready · tap to change`}
-        <input
-          id="photos-input"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          multiple
-          onChange={onPick}
-          style={{ display: 'none' }}
-        />
-      </label>
+      {files.length === 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+          {/* Take a photo — opens device camera (mobile only) */}
+          <label htmlFor="photos-camera" style={pickerCommon}>
+            📷&nbsp;Take a photo
+            <input
+              id="photos-camera"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              multiple
+              onChange={onPick}
+              style={{ display: 'none' }}
+            />
+          </label>
+
+          {/* Choose from gallery / files — no capture attribute, OS picker decides */}
+          <label htmlFor="photos-gallery" style={pickerCommon}>
+            🖼&nbsp;Choose from gallery
+            <input
+              id="photos-gallery"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={onPick}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+      ) : (
+        <label htmlFor="photos-gallery-replace" style={{ ...pickerCommon, display: 'block' }}>
+          {files.length} photo{files.length > 1 ? 's' : ''} ready · tap to change
+          <input
+            id="photos-gallery-replace"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            onChange={onPick}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
 
       {previews.length > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8, marginTop: '1rem' }}>
