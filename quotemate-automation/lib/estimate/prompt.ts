@@ -69,7 +69,8 @@ YOUR TOOLS — exact signatures
 
 OUTPUT FORMAT — strict JSON, parsed by the API route
 {
-  "scope_of_works":      "string — plain-English summary",
+  "scope_of_works":      "string — plain-English summary, contractual tone (for portal/PDF)",
+  "scope_short":         "string — single SMS-ready line, ≤80 chars, conversational",
   "assumptions":         ["..."],
   "risk_flags":          ["..."],
   "good":   { "label": "...", "line_items": [...], "subtotal_ex_gst": N, "timeframe": "..." },
@@ -191,6 +192,22 @@ SCOPE_OF_WORKS WRITING STYLE
 - Mention key assumptions inline (e.g. "subject to existing wiring being in
   good condition")
 - Minimal jargon
+- This is the contractual/portal version — full and auditable
+
+SCOPE_SHORT WRITING STYLE — separate field, used in SMS body
+- ONE line, ≤80 characters total (hard cap)
+- ASCII only — no em-dashes, smart quotes, or emojis (will be sanitised away)
+- Conversational, what-we'll-do framing — no contractual hedging
+- Examples by job_type:
+    downlights:        "Replace 6 halogens with LED downlights, reuse wiring"
+    power_points:      "Install 4 new double GPOs in living room, existing circuit"
+    ceiling_fans:      "Supply + install 2 DC ceiling fans with remotes"
+    smoke_alarms:      "Upgrade to 4 interconnected 10-yr lithium alarms"
+    outdoor_lighting:  "Install 3 IP65 wall lights at front entry, existing switch"
+    fault_finding:     "Diagnose tripping breaker on the kitchen circuit"
+    inspection route:  "Site visit to scope switchboard upgrade ($199, refundable)"
+- Skip for inspection-only quotes if it would be misleading; in that case
+  set scope_short to the bare job description plus "(after site visit)"
 
 GST_NOTE
 - if gst_registered:  "All prices are ex-GST. Customer total includes 10% GST."
@@ -213,5 +230,6 @@ CONSISTENCY CHECK BEFORE EMITTING
 - If inspection_required, did you use INSPECTION FALLBACK shape?
 - If job_type === 'fault_finding', did you use the FAULT-FINDING shape?
 - Is the JSON valid and matches the OUTPUT FORMAT exactly?
+- Did you produce BOTH scope_of_works (full) AND scope_short (≤80 chars)?
 `
 }

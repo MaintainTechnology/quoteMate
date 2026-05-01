@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
+import { pipelineLog } from '@/lib/log/pipeline'
 
 export const maxDuration = 60
 
@@ -9,17 +10,21 @@ const supabase = createClient(
 )
 
 export async function POST(req: Request) {
+  const log = pipelineLog('webhook')
+  log.step('received')
+
   const payload = await req.json()
 
   // Vapi sends many event types — status-update, transcript, function-call,
   // hang, end-of-call-report. We only act on end-of-call-report.
   if (payload.message?.type !== 'end-of-call-report') {
+    log.ok('event ignored — not end-of-call-report', { event_type: payload.message?.type })
     return Response.json({ ok: true, ignored: payload.message?.type })
   }
 
   const call = payload.message.call
   if (!call?.id) {
-    console.error('[vapi/webhook] end-of-call-report had no call.id', payload.message)
+    log.err('end-of-call-report missing call.id')
     return Response.json({ ok: false, error: 'missing call.id' }, { status: 400 })
   }
 
@@ -29,6 +34,13 @@ export async function POST(req: Request) {
     typeof payload.message.durationSeconds === 'number'
       ? Math.round(payload.message.durationSeconds)
       : null
+
+  log.step('upserting calls row', {
+    vapi_call_id: call.id,
+    caller_number: call.customer?.number ?? 'null',
+    transcript_chars: payload.message.transcript?.length ?? 0,
+    duration_s: durationSeconds ?? 'null',
+  })
 
   // Upsert (not insert) so Vapi retrying the same end-of-call event is idempotent.
   // The unique constraint on vapi_call_id otherwise fires on retry → null callRow.
@@ -49,37 +61,37 @@ export async function POST(req: Request) {
     .single()
 
   if (error || !callRow) {
-    console.error('[vapi/webhook] failed to upsert call row:', {
-      message: error?.message,
-      code: error?.code,
-      details: error?.details,
-      hint: error?.hint,
-      vapi_call_id: call.id,
-    })
+    log.err('upsert failed', error?.message, { code: error?.code, hint: error?.hint })
     return Response.json(
       { ok: false, error: error?.message ?? 'upsert returned no row' },
       { status: 500 }
     )
   }
 
+  log.ok('calls row upserted', { call_id: callRow.id })
+
   // Hand off to the Intake Engine after the response is sent. `after()` keeps
-  // the serverless function alive (via waitUntil) until the dispatch completes,
-  // which fire-and-forget `fetch().catch()` does not on Vercel — pending I/O
-  // gets cancelled the moment the response returns.
+  // the serverless function alive until the dispatch completes — fire-and-forget
+  // would be cancelled the moment the response returns.
   after(async () => {
+    const dispatch = pipelineLog('webhook', callRow.id)
+    dispatch.step('dispatching to /api/intake/structure')
     try {
       const res = await fetch(`${process.env.APP_URL}/api/intake/structure`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callId: callRow.id }),
       })
-      if (!res.ok) {
-        console.error('[vapi/webhook] intake/structure responded', res.status, await res.text())
+      if (res.ok) {
+        dispatch.ok('intake/structure dispatched', { http: res.status })
+      } else {
+        dispatch.err('intake/structure rejected', `HTTP ${res.status}`, { body: (await res.text()).slice(0, 200) })
       }
     } catch (e) {
-      console.error('[vapi/webhook] failed to dispatch intake/structure:', e)
+      dispatch.err('intake dispatch threw', e)
     }
   })
 
+  log.done('webhook handler done', { call_id: callRow.id })
   return Response.json({ ok: true, callId: callRow.id })
 }

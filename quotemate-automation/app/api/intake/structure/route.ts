@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
 import { structureIntake } from '@/lib/intake/structure'
 import { embedIntake } from '@/lib/intake/embed'
+import { pipelineLog } from '@/lib/log/pipeline'
 
 export const maxDuration = 60
 
@@ -12,18 +13,34 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   const { callId } = await req.json()
+  const log = pipelineLog('intake', callId)
+  log.step('received', { callId })
 
-  // 1. Load the call transcript
+  log.step('loading transcript from calls')
   const { data: call } = await supabase.from('calls').select('*').eq('id', callId).single()
-  if (!call) return Response.json({ error: 'call not found' }, { status: 404 })
+  if (!call) {
+    log.err('call not found in DB', null, { callId })
+    return Response.json({ error: 'call not found' }, { status: 404 })
+  }
+  log.ok('transcript loaded', {
+    chars: call.transcript?.length ?? 0,
+    photo_count: (call.photo_urls ?? []).length,
+  })
 
-  // 2. Structure it
+  log.step('running Sonnet vision (Claude 4.6) — typically ~25s')
   const intake = await structureIntake(call.transcript, call.photo_urls)
+  log.ok('Sonnet structured intake', {
+    job_type: intake.job_type,
+    confidence: intake.confidence,
+    inspection_required: intake.inspection_required,
+    risks: intake.risks?.length ?? 0,
+  })
 
-  // 3. Embed it for similarity search
+  log.step('embedding intake (1536-dim) for similarity search')
   const embedding = await embedIntake(intake)
+  log.ok('embedding complete', { dims: embedding.length })
 
-  // 4. Save it
+  log.step('inserting intakes row')
   const { data: intakeRow } = await supabase.from('intakes').insert({
     call_id: callId,
     job_type: intake.job_type,
@@ -40,23 +57,29 @@ export async function POST(req: Request) {
     confidence_reason: intake.confidence_reason,
     embedding,
   }).select().single()
+  log.ok('intakes row inserted', { intake_id: intakeRow!.id })
 
-  // 5. Hand off to Stage 05 — the Estimation Engine via `after()` so the
-  // dispatch survives the response on Vercel serverless.
+  // Hand off to the Estimation Engine via after() so the dispatch survives
+  // the response on Vercel serverless.
   after(async () => {
+    const dispatch = pipelineLog('intake', callId)
+    dispatch.step('dispatching to /api/estimate/draft', { intake_id: intakeRow!.id })
     try {
       const res = await fetch(`${process.env.APP_URL}/api/estimate/draft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intakeId: intakeRow!.id }),
       })
-      if (!res.ok) {
-        console.error('[intake/structure] estimate/draft responded', res.status, await res.text())
+      if (res.ok) {
+        dispatch.ok('estimate/draft dispatched', { http: res.status })
+      } else {
+        dispatch.err('estimate/draft rejected', `HTTP ${res.status}`, { body: (await res.text()).slice(0, 200) })
       }
     } catch (e) {
-      console.error('[intake/structure] failed to dispatch estimate/draft:', e)
+      dispatch.err('estimate dispatch threw', e)
     }
   })
 
+  log.done('intake handler done', { intake_id: intakeRow!.id })
   return Response.json({ ok: true, intakeId: intakeRow!.id })
 }
