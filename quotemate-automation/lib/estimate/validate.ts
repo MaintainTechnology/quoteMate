@@ -119,25 +119,36 @@ export function validateQuoteGrounding(
 
 /**
  * Build the candidate-price arrays used by validateQuoteGrounding.
- * Pre-computes raw + marked-up prices for both shared_materials and
- * shared_assemblies, so the validator can do O(n) lookups.
+ * For each raw DB price, expands into multiple realistic markup variants
+ * (10% to 40% in 5% steps, plus the tradie's configured default_markup_pct).
+ * This range covers AU electrical industry-standard markups while still
+ * rejecting genuinely hallucinated prices that fall outside it.
  */
 export function buildCandidatePrices(
   rawMaterialPrices: Array<number | string | null | undefined>,
   rawAssemblyPrices: Array<number | string | null | undefined>,
   pricingBook: PricingBookForValidation,
 ): CandidatePrices {
-  const markup = 1 + n(pricingBook.default_markup_pct) / 100
+  // AU electrical markup range — covers what a tradie might realistically
+  // pass to apply_markup. Default markup_pct is included even if outside
+  // the 10–40 band.
+  const standardMarkups = new Set<number>([0, 10, 15, 20, 25, 28, 30, 35, 40])
+  standardMarkups.add(n(pricingBook.default_markup_pct))
+
+  const multipliers = Array.from(standardMarkups).map((pct) => 1 + pct / 100)
+
   const expand = (rows: Array<number | string | null | undefined>): number[] => {
     const out: number[] = []
     for (const v of rows) {
       const raw = Number(v)
       if (!Number.isFinite(raw)) continue
-      out.push(raw)
-      out.push(+(raw * markup).toFixed(2))
+      for (const m of multipliers) {
+        out.push(+(raw * m).toFixed(2))
+      }
     }
     return out
   }
+
   return {
     material: expand(rawMaterialPrices),
     assembly: expand(rawAssemblyPrices),

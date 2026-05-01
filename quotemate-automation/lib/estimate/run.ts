@@ -32,6 +32,7 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
     tools,
     stopWhen: stepCountIs(10),  // build-guide says `maxSteps: 10`; AI SDK v5+ renamed it to stopWhen+stepCountIs
     maxRetries: 0,              // wrapper handles retries with logging — no double-retry
+    temperature: 0,             // determinism: same intake → same draft quote
   })
 
   const draft = parseJsonFromText(result.text)
