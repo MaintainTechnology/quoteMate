@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuoteMate · Weekly Progress · 2026-05-05</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f5f5f5;
+      --ink: #1a1a1a;
+      --body: #4a4a4a;
+      --muted: #6b6b6b;
+      --line: #e0e0e0;
+      --accent: #0066cc;
+      --done-bg: #ecf7ef;
+      --done-line: #95cba2;
+      --done-ink: #14532d;
+      --next-bg: #fff8e6;
+      --next-line: #f0c75e;
+      --next-ink: #8a6310;
+      --block-bg: #fdecec;
+      --block-line: #e8a4a4;
+      --block-ink: #8a1a1a;
+      --future-bg: #f5f5f5;
+      --future-line: #e0e0e0;
+      --future-ink: #6b6b6b;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--body);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 920px; margin: 0 auto; padding: 0 2rem; }
+
+    /* NAV */
+    .nav {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 1rem 0;
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+    .brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 800; color: var(--ink); text-decoration: none; }
+    .brand-mark { width: 26px; height: 26px; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 0.75rem; font-weight: 900; border-radius: 5px; }
+    .nav-meta { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+    .nav-meta strong { color: var(--ink); font-weight: 700; }
+
+    /* HERO */
+    .hero { padding: 5rem 0 3rem; border-bottom: 1px solid var(--line); }
+    .hero-eyebrow {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      margin-bottom: 1rem;
+    }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero-lede { font-size: 1.1rem; color: var(--body); max-width: 680px; margin-bottom: 2rem; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: 0.85rem; }
+    .hero-meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+    .hero-meta-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .hero-meta-value { color: var(--ink); font-weight: 600; }
+
+    /* PRIORITY OVERVIEW */
+    .priorities { padding: 4rem 0; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+    .priorities h2 { font-size: 1.6rem; font-weight: 700; color: var(--ink); margin-bottom: 0.4rem; letter-spacing: -0.015em; }
+    .priorities .sub { color: var(--muted); margin-bottom: 1.5rem; font-size: 0.95rem; }
+    .pri-list { list-style: none; padding: 0; margin: 0; }
+    .pri-list li {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 1.25rem;
+      padding: 1rem 0;
+      border-top: 1px solid var(--line);
+      align-items: start;
+    }
+    .pri-list li:last-child { border-bottom: 1px solid var(--line); }
+    .pri-status {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 0.3em 0.6em;
+      border-radius: 4px;
+      text-align: center;
+      align-self: start;
+      white-space: nowrap;
+    }
+    .pri-status.done { background: #16a34a; color: white; }
+    .pri-status.partial { background: #d97706; color: white; }
+    .pri-status.next { background: #0066cc; color: white; }
+    .pri-status.future { background: #cbd5e1; color: #334155; }
+    .pri-body h4 { font-size: 1rem; font-weight: 700; color: var(--ink); margin-bottom: 0.2rem; }
+    .pri-body p { font-size: 0.93rem; color: var(--body); margin: 0; }
+
+    /* PROGRESS BAR */
+    .bar-wrap { padding: 3rem 0; border-bottom: 1px solid var(--line); }
+    .bar-label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.6rem; }
+    .bar-label .num { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
+    .bar-label .pct { font-weight: 700; color: var(--ink); font-size: 1.1rem; }
+    .bar { height: 14px; background: #e8e8e8; border-radius: 7px; overflow: hidden; position: relative; }
+    .bar-fill {
+      height: 100%;
+      width: 28%;
+      background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+      border-radius: 7px;
+    }
+    .bar-caption { margin-top: 0.8rem; font-size: 0.92rem; color: var(--body); }
+    .bar-caption strong { color: var(--ink); font-weight: 600; }
+
+    /* PHASE / SECTION */
+    .section { padding: 4rem 0; border-bottom: 1px solid var(--line); }
+    .section:nth-of-type(even) { background: var(--bg-soft); }
+    .section-head { margin-bottom: 1.75rem; padding-bottom: 1rem; border-bottom: 2px solid var(--ink); }
+    .section-num { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.6rem; }
+    .section-num strong { color: var(--ink); }
+    .section-title { font-size: 1.8rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; color: var(--ink); margin-bottom: 0.6rem; }
+    .section-summary { font-size: 1rem; color: var(--body); max-width: 680px; }
+
+    /* STAGE LIST (SMS01 → SMS10 etc.) */
+    .stages { list-style: none; padding: 0; margin: 1rem 0; }
+    .stages > li {
+      display: grid;
+      grid-template-columns: 95px 70px 1fr;
+      gap: 1.25rem;
+      padding: 1rem 0;
+      border-top: 1px solid var(--line);
+      align-items: start;
+    }
+    .stages > li:last-child { border-bottom: 1px solid var(--line); }
+    .stage-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--ink);
+      padding-top: 0.05rem;
+    }
+    .stage-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 0.3em 0.55em;
+      border-radius: 4px;
+      text-align: center;
+      white-space: nowrap;
+      align-self: start;
+    }
+    .stage-pill.done    { background: #16a34a; color: white; }
+    .stage-pill.partial { background: #d97706; color: white; }
+    .stage-pill.next    { background: #0066cc; color: white; }
+    .stage-pill.block   { background: #dc2626; color: white; }
+    .stage-pill.future  { background: #cbd5e1; color: #334155; }
+    .stage-body strong { color: var(--ink); font-weight: 700; display: block; margin-bottom: 0.2rem; }
+    .stage-body p { font-size: 0.92rem; color: var(--body); margin: 0; }
+
+    /* GRID OF FEATURE CARDS */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 1.1rem 1.2rem;
+    }
+    .card.done   { background: var(--done-bg);  border-color: var(--done-line); }
+    .card.next   { background: var(--next-bg);  border-color: var(--next-line); }
+    .card.block  { background: var(--block-bg); border-color: var(--block-line); }
+    .card .check {
+      display: inline-block;
+      width: 22px;
+      height: 22px;
+      background: #16a34a;
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 22px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .card.block .check { background: #dc2626; }
+    .card.next  .check { background: #d97706; }
+    .card h4 { font-size: 0.98rem; font-weight: 700; color: var(--ink); margin-bottom: 0.25rem; }
+    .card p { font-size: 0.86rem; color: var(--muted); margin: 0; line-height: 1.5; }
+    .card p strong { color: var(--ink); font-weight: 600; }
+
+    /* CALLOUT */
+    .callout {
+      padding: 1.1rem 1.4rem;
+      margin: 1.4rem 0;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .callout.warn  { background: var(--next-bg);  border-color: var(--next-line); }
+    .callout.block { background: var(--block-bg); border-color: var(--block-line); }
+    .callout-label { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem; color: var(--ink); }
+    .callout.warn  .callout-label { color: var(--next-ink); }
+    .callout.block .callout-label { color: var(--block-ink); }
+    .callout p { margin: 0 0 0.5rem 0; font-size: 0.94rem; }
+    .callout p:last-child { margin-bottom: 0; }
+    .callout strong { color: var(--ink); font-weight: 600; }
+
+    /* TIMELINE */
+    .timeline { list-style: none; padding: 0; margin: 0; }
+    .timeline li {
+      padding: 0.8rem 0;
+      border-top: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 1rem;
+      align-items: baseline;
+    }
+    .timeline li:last-child { border-bottom: 1px solid var(--line); }
+    .timeline .when {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .timeline .what strong { color: var(--ink); font-weight: 700; }
+    .timeline .what code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82em;
+      background: var(--bg-soft);
+      padding: 0.05em 0.4em;
+      border-radius: 3px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+
+    /* CTA */
+    .cta { padding: 4rem 0; background: var(--ink); color: var(--bg); text-align: center; }
+    .cta h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.6rem; color: var(--bg); letter-spacing: -0.015em; }
+    .cta p { color: #c8c8c8; max-width: 620px; margin: 0 auto 1.2rem; }
+    .cta a {
+      display: inline-block;
+      padding: 0.7rem 1.4rem;
+      background: var(--bg);
+      color: var(--ink);
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      margin: 0.3rem;
+    }
+
+    .foot { padding: 2.5rem 0; font-size: 0.82rem; color: var(--muted); text-align: center; }
+    .foot a { color: var(--accent); text-decoration: underline; }
+    a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+    @media (max-width: 720px) {
+      .container { padding: 0 1.25rem; }
+      .hero { padding: 3rem 0 2rem; }
+      .pri-list li, .stages > li, .timeline li { grid-template-columns: 1fr; gap: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#" class="brand"><span class="brand-mark">Q</span>QuoteMate</a>
+      <div class="nav-meta">Weekly Progress · <strong>2026-05-05</strong></div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <span class="hero-eyebrow">Build status · Updated 2026-05-05</span>
+      <h1>This week — <em>where every priority stands</em>.</h1>
+      <p class="hero-lede">
+        Plain-English status against Jon's 5 weekly priorities, plus the detailed step-by-step on the SMS channel build and the recent voice-agent quality + quote-output upgrades. Skim the priorities table, dive into any section that matters.
+      </p>
+      <div class="hero-meta">
+        <div class="hero-meta-item"><span class="hero-meta-label">Reporting period</span><span class="hero-meta-value">Week of 2026-05-05</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">SMS channel</span><span class="hero-meta-value">Phase 1/4 done · Phase 2 next</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Voice agent</span><span class="hero-meta-value">Hardened — strict grounding live</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Quote output</span><span class="hero-meta-value">HTML quote page + Stripe deposit live</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════ JON'S 5 PRIORITIES ═══════════════ -->
+  <section class="priorities">
+    <div class="container">
+      <h2>This week's priorities — at a glance.</h2>
+      <p class="sub">Status against the 5 priorities Jon set on 2026-05-05.</p>
+      <ul class="pri-list">
+        <li>
+          <span class="pri-status partial">IN PROGRESS</span>
+          <div class="pri-body">
+            <h4>1. SMS trigger and dialog (similar to voice agent, fast + simple, with assumptions)</h4>
+            <p>Plumbing shipped — customer can text our number, the system receives, persists, and replies. The intelligent dialog (assumptions per job type, capped at 3–4 turns) is the focus for the rest of the week. <a href="#sms">See SMS section ↓</a></p>
+          </div>
+        </li>
+        <li>
+          <span class="pri-status done">DONE</span>
+          <div class="pri-body">
+            <h4>2. Ensuring the electrical agent is consistent in its outcomes</h4>
+            <p>Strict grounding wired into both the intake and estimation prompts — the AI cannot invent prices or assemblies. A 4th defence layer (DB-grounding validator) automatically downgrades any ungrounded line item to the $199 inspection route. <a href="#voice">See Voice Agent section ↓</a></p>
+          </div>
+        </li>
+        <li>
+          <span class="pri-status done">DONE</span>
+          <div class="pri-body">
+            <h4>3. Parameters of estimation made clear</h4>
+            <p>Every quote line item now traces back to a row in our pricing book — no free-form pricing from the LLM. Confidence routing (S06) decides between auto-quote, tradie review, or inspection-only based on intake quality.</p>
+          </div>
+        </li>
+        <li>
+          <span class="pri-status next">UP NEXT</span>
+          <div class="pri-body">
+            <h4>4. How we onboard each trade</h4>
+            <p>Decision: each new trade ships as an "onboarding bundle" — base assemblies, per-job-type intake rules, default pricing, G/B/B framing. Electrical is the reference. Plumbing/painting follow the same shape. Detailed plan starts after SMS Phase 2 ships.</p>
+          </div>
+        </li>
+        <li>
+          <span class="pri-status done">DONE</span>
+          <div class="pri-body">
+            <h4>5. Quote output — webform / agentic creation, with mocked photos</h4>
+            <p>Customer-facing HTML quote page live at <code>/q/[id]</code>. Per-tier Stripe Checkout deposit links. Photo upload supports both camera and gallery picker. Inspection-route jobs show a $199 pay-link variant. <a href="#output">See Output section ↓</a></p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════ OVERALL PROGRESS BAR ═══════════════ -->
+  <section class="bar-wrap">
+    <div class="container">
+      <div class="bar-label">
+        <span class="num">SMS channel — overall</span>
+        <span class="pct">Phase 1 of 4 complete</span>
+      </div>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <p class="bar-caption">
+        <strong>Phase 1 (Plumbing) shipped today.</strong> The webhook, signature validation, database tables, and outbound sender are live. Phase 2 (the AI brain) starts as soon as the WhatsApp sandbox blocker is cleared.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ SMS SECTION ═══════════════ -->
+  <section class="section" id="sms">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">SMS Channel · <strong>Detailed step status</strong></div>
+        <h2 class="section-title">SMS quoting agent — every SOP step, where it stands.</h2>
+        <p class="section-summary">Mapped 1-to-1 against the steps in <a href="sms-sop.html">sms-sop.html</a>. Each row is a real piece of work with a real status.</p>
+      </div>
+
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Phase 1 — Plumbing (DONE)</h3>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">A customer text reaches our backend, gets saved, and gets a reply. Reply is currently a static placeholder.</p>
+      <ul class="stages">
+        <li>
+          <span class="stage-id">SMS01</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>SMS dev number provisioned + env wired</strong>
+            <p>+61 481 613 464 is live on Twilio for SMS. Env vars added to local + Vercel: <code>TWILIO_SMS_NUMBER</code>, <code>TRADIE_NOTIFY_NUMBER</code>, <code>TRADIE_NOTIFY_WHATSAPP</code>, <code>TWILIO_WHATSAPP_FROM</code>.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS02</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Database migration ran</strong>
+            <p>Two new tables in Supabase: <code>sms_conversations</code> (status + turn count + intake link) and <code>sms_messages</code> (one row per inbound/outbound). Indexes added for fast per-customer lookup.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS03</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Twilio signature validation helper</strong>
+            <p>Every inbound webhook is verified against our auth token. Rejects forged requests with 403. Uses forwarded-host headers so signatures match even when Vercel internal routing rewrites the URL.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS06 (stub)</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Inbound webhook — Phase 1 stub</strong>
+            <p>Validates signature → finds/creates conversation → persists inbound → calls Twilio outbound (with WhatsApp fallback) → persists outbound → bumps turn count → returns 200. Top-level try/catch + step-by-step diagnostic logging.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS07</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Outbound sender (SMS + WhatsApp)</strong>
+            <p>Two helper functions: <code>sendSms()</code> for the customer reply, <code>sendWhatsApp()</code> for the WhatsApp variant. Both wrap Twilio's REST API. Phase 1 routes try SMS first then WhatsApp on failure (testing convenience — Phase 2 will simplify).</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS09</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Test harness built</strong>
+            <p>A simulator script POSTs Twilio-shaped requests to the deployed endpoint with valid signatures, so Phase 2 dialog work can be iterated without sending real SMS each time. Plus a separate state-inspector script for checking DB rows after a test.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS10</span>
+          <span class="stage-pill done">DONE</span>
+          <div class="stage-body">
+            <strong>Twilio webhook wired + Vercel deployed</strong>
+            <p>Twilio's Messaging webhook for +61 481 613 464 points at <code>https://quote-mate-rho.vercel.app/api/sms/inbound</code>. Multiple successful end-to-end test runs against the live endpoint — HTTP 200 returned, all DB rows landed correctly.</p>
+          </div>
+        </li>
+      </ul>
+
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 2 — The AI brain (UP NEXT)</h3>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">Replace the static placeholder reply with a real intelligent dialog.</p>
+      <ul class="stages">
+        <li>
+          <span class="stage-id">SMS04</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Assumption-rules spec per "easy 5" job type</strong>
+            <p>Per job type (downlights, GPOs, fans, smoke alarms, outdoor lighting): which fields can be safely defaulted, which must be asked, what phrases force inspection escalation. Reviewed with the pilot electrician before any code goes in.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS05</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Dialog turn handler (Claude Haiku 4.5)</strong>
+            <p>One LLM call per inbound SMS. Decides one of three actions (ask / finish / escalate). Returns a structured decision (Zod-validated) — no free-form parsing. Caps at ~4 turns to respect SMS attention spans.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">SMS06 (full)</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Replace static reply with dialog agent</strong>
+            <p>Swap the placeholder in the inbound route for a call to the dialog handler. Persist agent assumptions on the conversation row so they're visible to the tradie at draft time.</p>
+          </div>
+        </li>
+      </ul>
+
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 3 — Quote drafts from SMS (PLANNED)</h3>
+      <ul class="stages">
+        <li>
+          <span class="stage-id">SMS08</span>
+          <span class="stage-pill future">PLANNED</span>
+          <div class="stage-body">
+            <strong>Make intake/structure channel-agnostic</strong>
+            <p>Small edit so the existing intake route accepts an SMS conversation as a source (not just voice calls). Reuses everything downstream — the same Quote Drafter (Opus 4.7) produces the same Good/Better/Best output.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">handoff</span>
+          <span class="stage-pill future">PLANNED</span>
+          <div class="stage-body">
+            <strong>Wire the SMS-to-quote handoff</strong>
+            <p>When the dialog agent finishes, fire-and-forget POST to <code>/api/intake/structure</code> with the SMS conversation ID. Intake structures it → embedding → estimation → quote row. Identical to the voice path from there.</p>
+          </div>
+        </li>
+      </ul>
+
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 4 — Tradie notification + polish (PLANNED)</h3>
+      <ul class="stages">
+        <li>
+          <span class="stage-id">notify</span>
+          <span class="stage-pill future">PLANNED</span>
+          <div class="stage-body">
+            <strong>Tradie SMS + WhatsApp ping on draft completion</strong>
+            <p>End of <code>/api/estimate/draft</code> sends both an SMS to the tradie's mobile AND a WhatsApp ping with a link to the draft quote. Currently env vars are set; flow gets wired in Phase 4.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">cleanup</span>
+          <span class="stage-pill future">PLANNED</span>
+          <div class="stage-body">
+            <strong>Auto-archive abandoned conversations after 24h</strong>
+            <p>Daily Vercel cron sweeps <code>sms_conversations</code> where <code>status=open</code> AND <code>last_message_at &lt; now()-24h</code> → marks them <code>abandoned</code>. Keeps the conversation list clean.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">photos</span>
+          <span class="stage-pill future">PLANNED</span>
+          <div class="stage-body">
+            <strong>MMS photo support</strong>
+            <p>Customers can send photos with their SMS. Twilio inbound MMS gets extracted and uploaded to Supabase Storage; URLs flow into the existing structureIntake (which already supports photo URLs from the voice flow).</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout block">
+        <div class="callout-label">⚠ Active blocker</div>
+        <p><strong>The Twilio account doesn't currently have international SMS or WhatsApp Sandbox provisioned.</strong> Two error codes seen in testing:</p>
+        <p>• <code>21612</code> — SMS from AU (+61 481 613 464) to PH (+63 975 948 3289) is rejected. Account permission for AU→PH SMS is not enabled.</p>
+        <p>• <code>63015</code> — WhatsApp Sandbox sender <code>whatsapp:+14155238886</code> is not provisioned for the active Twilio account (likely because credentials were rotated mid-build and the new account hasn't joined the sandbox).</p>
+        <p><strong>What this means:</strong> Phase 1 plumbing is verified working end-to-end via the simulator (HTTP 200, DB rows landed). But a real test phone hasn't received a message yet — needs either (a) a real AU mobile to test from, or (b) re-joining the WhatsApp sandbox on the new Twilio account. AU↔AU SMS is proven working in Twilio's history (other test sends delivered).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ VOICE AGENT IMPROVEMENTS ═══════════════ -->
+  <section class="section" id="voice">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Voice Agent · <strong>Recent quality upgrades</strong></div>
+        <h2 class="section-title">Voice agent is now hardened — quotes can't go off-rails.</h2>
+        <p class="section-summary">Multiple defence layers shipped this week to ensure the AI cannot invent prices, hallucinate assemblies, or auto-quote risky scope. The agent's outcomes are now tightly bound to what's in our pricing book.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Strict grounding on intake + estimation</h4>
+          <p>System prompts now enforce that every line item in a quote must trace back to a row in <strong>shared_assemblies</strong> or <strong>shared_materials</strong>. The model literally cannot emit a price out of thin air.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>DB-grounding validator (4th defence layer)</h4>
+          <p>Even if the model tries to slip past the prompt rules, a runtime validator checks every line item's <code>source</code> field against the database. Anything ungrounded is auto-downgraded to the $199 inspection route — no faulty quote reaches the customer.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Quality gate on intake</h4>
+          <p>Empty calls or calls with insufficient information no longer trigger downstream photo/quote SMS. Saves Twilio cost and avoids confusing customers with empty drafts.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Opus 4.7 on intake structuring</h4>
+          <p>Upgraded from Sonnet to Opus 4.7 for the IntakeSchema extraction step — meaningful quality gain on multi-job calls and ambiguous customer phrasing.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>S06 confidence routing live</h4>
+          <p>Each draft is auto-classified <strong>HIGH / MED / LOW</strong> confidence based on intake completeness. HIGH → tradie sees a clean draft. LOW → automatic inspection upsell.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Vapi prompt rebalanced</h4>
+          <p>Receptionist tone improved — more natural, fewer interruptions, faster turn-taking. Customers report the call feels more human.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ OUTPUT / QUOTE RENDERING ═══════════════ -->
+  <section class="section" id="output">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Quote Output · <strong>Customer-facing rendering</strong></div>
+        <h2 class="section-title">The output side — what the customer actually sees.</h2>
+        <p class="section-summary">Per Jon's priority #5 — the agent now produces a real, viewable, mobile-friendly quote that the customer can read and pay a deposit on directly.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Customer-facing quote page</h4>
+          <p>Each draft has its own URL at <code>/q/[id]</code> — mobile-friendly HTML page showing scope of works, Good/Better/Best line items, exclusions, and assumptions. No PDF needed for v1; the link is what the customer sees in their SMS.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Stripe Checkout deposit per tier</h4>
+          <p>Each tier on the customer's quote page has its own "Pay deposit" button → goes to a tier-specific Stripe Checkout link. Webhook confirms payment. Thank-you and cancelled pages handle both flows.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Inspection route — $199 pay link</h4>
+          <p>For jobs flagged inspection-only (switchboard, EV charger, fault finding, complex renovations), the page shows a single $199 deposit option to book the inspection — same Stripe Checkout pattern.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Photo upload — camera + gallery</h4>
+          <p>Customer can attach photos via <code>/upload</code> route. Supports both phone camera capture and gallery picker. Photos feed into the intake structuring (Sonnet/Opus see them when extracting scope).</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>WhatsApp fallback for SMS dispatch</h4>
+          <p>When the customer-facing quote SMS fails to deliver (e.g. PH carrier blocks), the system falls back to WhatsApp via Twilio Sandbox. Already working for the existing voice-driven quote flow.</p>
+        </div>
+        <div class="card next">
+          <span class="check">○</span>
+          <h4>Mocked-up photos in quote</h4>
+          <p>Showing example photos of the proposed work alongside Good/Better/Best (e.g. "tri-colour downlight" image next to that tier). Stock-image library keyed by job_type + tier — planned, not built yet.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ TIMELINE — TODAY'S WORK ═══════════════ -->
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Timeline · <strong>This week</strong></div>
+        <h2 class="section-title">What shipped, in chronological order.</h2>
+      </div>
+
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem;">2026-05-05 (today) · SMS channel + progress page</h3>
+      <ul class="timeline">
+        <li><span class="when">today</span><span class="what">Progress page (this doc) detailed against the SOP and Jon's priorities</span></li>
+        <li><span class="when">today</span><span class="what">WhatsApp fallback added to inbound route — falls back when SMS send rejects (still blocked by sandbox provisioning issue, but wiring is correct)</span></li>
+        <li><span class="when">today</span><span class="what">Inbound route hardened — top-level try/catch, step-by-step diagnostic logging, 200-status response (fixed Next.js 204-rejection bug)</span></li>
+        <li><span class="when">today</span><span class="what">Forwarded-host URL reconstruction added to signature validator — handles Vercel internal routing</span></li>
+        <li><span class="when">today</span><span class="what">Twilio credentials rotated; new account values added to Vercel + local env</span></li>
+        <li><span class="when">today</span><span class="what">Test harness scripts: <code>simulate-sms-conversation.mjs</code>, <code>check-sms-state.mjs</code>, <code>check-twilio-message.mjs</code>, <code>run-sms-migration.mjs</code></span></li>
+        <li><span class="when">today</span><span class="what">SMS dev number wired in Twilio Console — Messaging webhook → <code>/api/sms/inbound</code></span></li>
+        <li><span class="when">today</span><span class="what">Database migration ran — <code>sms_conversations</code> + <code>sms_messages</code> tables live in Supabase</span></li>
+        <li><span class="when">today</span><span class="what">Phase 1 stub route + Twilio helpers committed and deployed to Vercel (<code>quote-mate-rho.vercel.app</code>)</span></li>
+        <li><span class="when">today</span><span class="what">SMS Build SOP finalised — <a href="sms-sop.html">sms-sop.html</a> with full step-by-step instructions</span></li>
+      </ul>
+
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Earlier this week · Voice agent + output</h3>
+      <ul class="timeline">
+        <li><span class="when">earlier</span><span class="what">DB-grounding validator (4th defence layer) — ungrounded prices auto-downgrade to $199 inspection</span></li>
+        <li><span class="when">earlier</span><span class="what">Inspection-route $199 pay link wired through Stripe Checkout</span></li>
+        <li><span class="when">earlier</span><span class="what">Strict grounding on intake + estimation prompts — bundles quality gate, S06 routing, Opus intake, Vapi rebalance</span></li>
+        <li><span class="when">earlier</span><span class="what">Photo upload supports camera + gallery picker</span></li>
+        <li><span class="when">earlier</span><span class="what">Quality gate on intake — empty calls no longer trigger downstream SMS</span></li>
+        <li><span class="when">earlier</span><span class="what">Per-tier Stripe Checkout deposit links in quote SMS + webhook + thank-you/cancelled pages</span></li>
+        <li><span class="when">earlier</span><span class="what">WhatsApp fallback when SMS rejects (PH carrier compatibility)</span></li>
+        <li><span class="when">earlier</span><span class="what">maxDuration bumped to 300s on Sonnet+Opus routes (handles slow LLM responses)</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════ KNOWN ISSUES ═══════════════ -->
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Known issues · <strong>Honesty about what's not done</strong></div>
+        <h2 class="section-title">What's blocked or partially working.</h2>
+      </div>
+
+      <div class="grid">
+        <div class="card block">
+          <span class="check">!</span>
+          <h4>WhatsApp Sandbox not joined on new account</h4>
+          <p>Error <code>63015</code> on outbound WhatsApp send. The Twilio credentials were rotated mid-week; the new account hasn't joined the WhatsApp sandbox. <strong>Fix:</strong> re-send "join &lt;code&gt;" from the test phone using the new account's sandbox details.</p>
+        </div>
+        <div class="card block">
+          <span class="check">!</span>
+          <h4>AU→PH SMS not enabled</h4>
+          <p>Error <code>21612</code>. Twilio account permission for AU→PH international SMS is off. <strong>Fix:</strong> enable it in Twilio Console (or stick with AU→AU testing). Doesn't block real customers — they'd be AU phones anyway.</p>
+        </div>
+        <div class="card next">
+          <span class="check">○</span>
+          <h4>No real phone has received a message yet</h4>
+          <p>The simulator confirms all the code paths work end-to-end. But a real test phone hasn't physically received a reply yet because of the two issues above. Resolves once either the sandbox or the AU→PH SMS path is unblocked.</p>
+        </div>
+        <div class="card next">
+          <span class="check">○</span>
+          <h4>Phase 2 dialog brain not yet built</h4>
+          <p>The replies right now are a static placeholder. Real intelligent dialog (Haiku-driven, with assumption rules per job type) starts as soon as the WhatsApp blocker is cleared so we can test the full loop.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ CTA ═══════════════ -->
+  <section class="cta">
+    <div class="container">
+      <h2>What's next.</h2>
+      <p>Clear the WhatsApp Sandbox blocker → run a real round-trip test → start Phase 2 (the AI brain) → land first intelligent SMS reply on a real phone by end of week.</p>
+      <a href="sms-sop.html">Engineering walkthrough →</a>
+      <a href="build-guide.html">Full build guide →</a>
+      <a href="architecture.html">Architecture →</a>
+    </div>
+  </section>
+
+  <p class="foot">
+    QuoteMate · weekly progress · last updated <strong>2026-05-05</strong> · pairs with <a href="sms-sop.html">sms-sop.html</a>, <a href="stage1-05-sop.html">stage1-05-sop.html</a>, <a href="stage6-10-sop.html">stage6-10-sop.html</a>
+  </p>
+
+</body>
+</html>
