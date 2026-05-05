@@ -27,10 +27,31 @@ export async function POST(req: Request) {
   const params = parseTwilioForm(rawBody)
 
   // 2. Verify the request really came from Twilio.
+  // Reconstruct the URL from forwarded headers so the signature math matches
+  // what the original requester (Twilio or our simulator) signed against.
+  // On Vercel, req.url can reflect an internal deployment URL while the
+  // original request hit the production alias — the forwarded headers
+  // preserve the original.
   const signature = req.headers.get('x-twilio-signature')
-  const url = new URL(req.url).toString()
+  const reqUrl = new URL(req.url)
+  const forwardedHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+  const forwardedProto = req.headers.get('x-forwarded-proto') ?? 'https'
+  const url = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}${reqUrl.pathname}${reqUrl.search}`
+    : reqUrl.toString()
+
   if (!validateTwilioSignature(signature, url, params)) {
-    console.warn('[sms/inbound] rejected — bad Twilio signature', { url })
+    console.warn('[sms/inbound] rejected — bad Twilio signature', {
+      url,
+      reqUrl: req.url,
+      forwardedHost: req.headers.get('x-forwarded-host'),
+      forwardedProto: req.headers.get('x-forwarded-proto'),
+      host: req.headers.get('host'),
+      hasSignature: !!signature,
+      hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN,
+      authTokenLen: process.env.TWILIO_AUTH_TOKEN?.length ?? 0,
+      paramsKeys: Object.keys(params).sort(),
+    })
     return new Response('Invalid signature', { status: 403 })
   }
 
