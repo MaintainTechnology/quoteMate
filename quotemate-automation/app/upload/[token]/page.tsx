@@ -11,13 +11,31 @@ const supabase = createClient(
 export default async function UploadPage(props: { params: Promise<{ token: string }> }) {
   const { token } = await props.params
 
+  // Resolve the token in EITHER source table:
+  //   • calls.photo_request_token         — voice-agent flow
+  //   • sms_conversations.photo_request_token — SMS-agent flow (Phase 5)
+  // The /api/upload/[token] route does the same; both are kept in sync.
   const { data: call } = await supabase
     .from('calls')
     .select('id, photo_request_token, photos_completed_at')
     .eq('photo_request_token', token)
-    .single()
+    .maybeSingle()
 
-  if (!call) {
+  let resolved: { source: 'call' | 'sms'; completedAt: string | null } | null = null
+  if (call) {
+    resolved = { source: 'call', completedAt: call.photos_completed_at as string | null }
+  } else {
+    const { data: convo } = await supabase
+      .from('sms_conversations')
+      .select('id, photo_request_token, photos_completed_at')
+      .eq('photo_request_token', token)
+      .maybeSingle()
+    if (convo) {
+      resolved = { source: 'sms', completedAt: convo.photos_completed_at as string | null }
+    }
+  }
+
+  if (!resolved) {
     return (
       <Wrap>
         <h1 style={{ fontSize: '1.4rem', marginBottom: '0.5rem' }}>Link not found</h1>
@@ -26,7 +44,7 @@ export default async function UploadPage(props: { params: Promise<{ token: strin
     )
   }
 
-  if (call.photos_completed_at) {
+  if (resolved.completedAt) {
     return (
       <Wrap>
         <h1 style={{ fontSize: '1.4rem', marginBottom: '0.5rem' }}>Photos already received</h1>

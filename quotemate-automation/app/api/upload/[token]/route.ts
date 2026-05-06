@@ -19,18 +19,50 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   const log = pipelineLog('intake', token.slice(0, 8))
   log.step('photo upload received', { token: token.slice(0, 8) + '…' })
 
+  // Token resolves to EITHER a calls row (voice flow) OR an
+  // sms_conversations row (SMS flow). Storage path keys off the resolved
+  // owner-id, then we update the right table with the new URLs.
+  type Resolved =
+    | { source: 'call'; ownerId: string; existingUrls: string[]; completedAt: string | null }
+    | { source: 'sms';  ownerId: string; existingUrls: string[]; completedAt: string | null }
+
+  let resolved: Resolved | null = null
+
   const { data: call } = await supabase
     .from('calls')
-    .select('id, photo_request_token, photos_completed_at, photo_urls')
+    .select('id, photos_completed_at, photo_urls')
     .eq('photo_request_token', token)
-    .single()
+    .maybeSingle()
 
-  if (!call) {
-    log.err('token not found')
+  if (call) {
+    resolved = {
+      source: 'call',
+      ownerId: call.id as string,
+      existingUrls: Array.isArray(call.photo_urls) ? (call.photo_urls as string[]) : [],
+      completedAt: call.photos_completed_at as string | null,
+    }
+  } else {
+    const { data: convo } = await supabase
+      .from('sms_conversations')
+      .select('id, photos_completed_at, photo_urls')
+      .eq('photo_request_token', token)
+      .maybeSingle()
+    if (convo) {
+      resolved = {
+        source: 'sms',
+        ownerId: convo.id as string,
+        existingUrls: Array.isArray(convo.photo_urls) ? (convo.photo_urls as string[]) : [],
+        completedAt: convo.photos_completed_at as string | null,
+      }
+    }
+  }
+
+  if (!resolved) {
+    log.err('token not found in calls or sms_conversations')
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
   }
-  if (call.photos_completed_at) {
-    log.ok('photos already submitted, returning idempotent ok')
+  if (resolved.completedAt) {
+    log.ok('photos already submitted, returning idempotent ok', { source: resolved.source })
     return Response.json({ ok: true, alreadyDone: true })
   }
 
@@ -55,14 +87,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     if (!ALLOWED_MIME.has(f.type)) return Response.json({ ok: false, error: `${f.name} not an allowed image type` }, { status: 400 })
   }
 
-  log.step(`uploading ${photos.length} photo(s) to storage`)
+  log.step(`uploading ${photos.length} photo(s) to storage`, { source: resolved.source })
   const newSignedUrls: string[] = []
   for (let i = 0; i < photos.length; i++) {
     const f = photos[i]
     const buf = new Uint8Array(await f.arrayBuffer())
     try {
+      // uploadIntakePhoto's `callId` field is the storage-path partition
+      // key; works for both call IDs and sms_conversation IDs (storage
+      // paths read as <ownerId>/<stamp>-<i>-<rand>.<ext>).
       const { signedUrl } = await uploadIntakePhoto({
-        callId: call.id as string,
+        callId: resolved.ownerId,
         data: buf,
         contentType: f.type,
         index: i,
@@ -75,23 +110,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   }
   log.ok(`uploaded ${newSignedUrls.length} photo(s)`)
 
-  const existingUrls = Array.isArray(call.photo_urls) ? (call.photo_urls as string[]) : []
-  const merged = [...existingUrls, ...newSignedUrls]
+  const merged = [...resolved.existingUrls, ...newSignedUrls]
 
+  const targetTable = resolved.source === 'call' ? 'calls' : 'sms_conversations'
   const { error: updateErr } = await supabase
-    .from('calls')
+    .from(targetTable)
     .update({
       photo_urls: merged,
       photos_completed_at: new Date().toISOString(),
     })
-    .eq('id', call.id as string)
+    .eq('id', resolved.ownerId)
 
   if (updateErr) {
-    log.err('calls update failed', updateErr.message)
+    log.err(`${targetTable} update failed`, updateErr.message)
     return Response.json({ ok: false, error: 'DB update failed' }, { status: 500 })
   }
 
-  log.done('photos persisted', { count: newSignedUrls.length, call_id: String(call.id).slice(0, 8) + '…' })
+  log.done('photos persisted', {
+    count: newSignedUrls.length,
+    source: resolved.source,
+    owner_id: resolved.ownerId.slice(0, 8) + '…',
+  })
 
   // We deliberately do NOT re-trigger /api/intake/structure here. The intake/estimate
   // chain runs in parallel after the call ends, racing to produce a quote within

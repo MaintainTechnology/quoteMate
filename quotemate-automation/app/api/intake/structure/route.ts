@@ -90,20 +90,34 @@ export async function POST(req: Request) {
     }
 
     callerNumber = convo.from_number ?? null
-    photoRequestToken = null         // SMS conversations don't issue photo tokens
+    photoRequestToken = (convo.photo_request_token as string | null) ?? null
+    photoRequestAlreadySent = !!convo.photo_request_sent_at
 
-    // Phase 4 / photos — aggregate every MMS-uploaded photo URL across the
-    // conversation. structureIntake already accepts photo URLs from the
-    // voice flow; SMS just feeds it from a different source.
-    photoUrls = (messages ?? [])
+    // Photos arrive on the SMS path through TWO surfaces — both feed
+    // structureIntake the same way:
+    //   1. Inbound MMS attachments → sms_messages.photo_urls
+    //      (extracted by lib/sms/mms.ts, keyed per message)
+    //   2. /upload/[token] uploads → sms_conversations.photo_urls
+    //      (from the photo-request SMS the dialog agent fires when
+    //      it identifies an easy-5 job_type)
+    // We aggregate both into a single de-duplicated list before vision.
+    const mmsPhotoUrls = (messages ?? [])
       .flatMap(m => Array.isArray(m.photo_urls) ? m.photo_urls : [])
       .filter((u): u is string => typeof u === 'string' && u.length > 0)
+
+    const uploadedPhotoUrls = Array.isArray(convo.photo_urls)
+      ? (convo.photo_urls as string[]).filter((u): u is string => typeof u === 'string' && u.length > 0)
+      : []
+
+    photoUrls = Array.from(new Set([...mmsPhotoUrls, ...uploadedPhotoUrls]))
 
     log.ok('SMS conversation stitched', {
       messages: messages?.length ?? 0,
       assumptions: (convo.assumptions_made as string[] | null)?.length ?? 0,
       transcript_chars: transcript.length,
       photos: photoUrls.length,
+      photos_from_mms: mmsPhotoUrls.length,
+      photos_from_upload_link: uploadedPhotoUrls.length,
     })
   } else {
     // ─────────────── VOICE PATH (unchanged) ───────────────

@@ -8,6 +8,7 @@
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { getTierPhoto } from '@/lib/quote/tier-photos'
 
 export const dynamic = 'force-dynamic'
 
@@ -182,6 +183,7 @@ export default async function PublicQuotePage(props: {
               depositPct={depositPct}
               paid={isPaid && quote.paid_tier === 'good'}
               disabled={isPaid && quote.paid_tier !== 'good'}
+              jobType={intake?.job_type ?? null}
             />
             <TierCard
               keyName="better"
@@ -191,6 +193,7 @@ export default async function PublicQuotePage(props: {
               depositPct={depositPct}
               paid={isPaid && quote.paid_tier === 'better'}
               disabled={isPaid && quote.paid_tier !== 'better'}
+              jobType={intake?.job_type ?? null}
             />
             <TierCard
               keyName="best"
@@ -200,6 +203,7 @@ export default async function PublicQuotePage(props: {
               depositPct={depositPct}
               paid={isPaid && quote.paid_tier === 'best'}
               disabled={isPaid && quote.paid_tier !== 'best'}
+              jobType={intake?.job_type ?? null}
             />
           </section>
         )}
@@ -296,6 +300,7 @@ function TierCard({
   depositPct,
   paid,
   disabled,
+  jobType,
 }: {
   keyName: 'good' | 'better' | 'best'
   tier: Tier
@@ -304,11 +309,13 @@ function TierCard({
   depositPct: number | null
   paid: boolean
   disabled: boolean
+  jobType: string | null
 }) {
   if (!tier) return null
   const totalIncGst = incGst(tier.subtotal_ex_gst)
   const dep = deposit(totalIncGst, depositPct)
   const cleanLabel = (tier.label ?? '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  const photo = getTierPhoto(jobType, keyName)
 
   const accent =
     keyName === 'good' ? { ring: 'border-zinc-200', tag: 'bg-zinc-100 text-zinc-700' } :
@@ -316,12 +323,28 @@ function TierCard({
     { ring: 'border-violet-300', tag: 'bg-violet-100 text-violet-700' }
 
   return (
-    <article className={`relative rounded-lg border-2 ${recommended ? accent.ring : 'border-zinc-200'} bg-white p-5 sm:p-6`}>
+    <article className={`relative overflow-hidden rounded-lg border-2 ${recommended ? accent.ring : 'border-zinc-200'} bg-white`}>
       {recommended ? (
-        <span className="absolute -top-3 left-5 rounded-full bg-zinc-900 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+        <span className="absolute top-3 left-5 z-10 rounded-full bg-zinc-900 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white shadow-sm">
           Recommended
         </span>
       ) : null}
+
+      {/* Indicative product photo (mocked for v1 — see lib/quote/tier-photos.ts) */}
+      <div className="relative aspect-video w-full overflow-hidden border-b border-zinc-100 bg-zinc-50">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={photo.url}
+          alt={photo.alt}
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
+        <span className="absolute bottom-3 left-3 rounded-md bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-700 backdrop-blur-sm">
+          Indicative · {photo.caption}
+        </span>
+      </div>
+
+      <div className="p-5 sm:p-6">
 
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -373,6 +396,7 @@ function TierCard({
             Reply to your tradie's SMS to confirm this option.
           </div>
         )}
+      </div>
       </div>
     </article>
   )

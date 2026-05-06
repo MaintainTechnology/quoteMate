@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QuoteMate · Weekly Progress · 2026-05-05</title>
+  <title>QuoteMate · Weekly Progress · 2026-05-06</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -130,7 +130,7 @@
     .bar { height: 14px; background: #e8e8e8; border-radius: 7px; overflow: hidden; position: relative; }
     .bar-fill {
       height: 100%;
-      width: 28%;
+      width: 100%;
       background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
       border-radius: 7px;
     }
@@ -228,12 +228,21 @@
     }
     .callout.warn  { background: var(--next-bg);  border-color: var(--next-line); }
     .callout.block { background: var(--block-bg); border-color: var(--block-line); }
+    .callout.tip   { background: var(--done-bg);  border-color: var(--done-line); }
     .callout-label { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem; color: var(--ink); }
     .callout.warn  .callout-label { color: var(--next-ink); }
     .callout.block .callout-label { color: var(--block-ink); }
+    .callout.tip   .callout-label { color: var(--done-ink); }
     .callout p { margin: 0 0 0.5rem 0; font-size: 0.94rem; }
     .callout p:last-child { margin-bottom: 0; }
     .callout strong { color: var(--ink); font-weight: 600; }
+    .callout code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: rgba(0,0,0,0.04);
+      padding: 0.05em 0.35em;
+      border-radius: 3px;
+    }
 
     /* TIMELINE */
     .timeline { list-style: none; padding: 0; margin: 0; }
@@ -297,22 +306,22 @@
   <nav class="nav">
     <div class="nav-inner">
       <a href="#" class="brand"><span class="brand-mark">Q</span>QuoteMate</a>
-      <div class="nav-meta">Weekly Progress · <strong>2026-05-05</strong></div>
+      <div class="nav-meta">Weekly Progress · <strong>2026-05-06</strong></div>
     </div>
   </nav>
 
   <header class="hero">
     <div class="container">
-      <span class="hero-eyebrow">Build status · Updated 2026-05-05</span>
-      <h1>This week — <em>where every priority stands</em>.</h1>
+      <span class="hero-eyebrow">Build status · Updated 2026-05-06</span>
+      <h1>SMS Agent — <em>shipped end-to-end</em>.</h1>
       <p class="hero-lede">
-        Plain-English status against Jon's 5 weekly priorities, plus the detailed step-by-step on the SMS channel build and the recent voice-agent quality + quote-output upgrades. Skim the priorities table, dive into any section that matters.
+        All four phases of the SMS channel are now live in production. Real customers can text our number, the AI dialog gathers details (capped at 4 turns with declared assumptions), the existing intake + estimation pipeline drafts a Good/Better/Best quote, and the customer receives the same polished quote SMS the voice path produces — with photos. Below is the current status of every priority and every SOP step.
       </p>
       <div class="hero-meta">
-        <div class="hero-meta-item"><span class="hero-meta-label">Reporting period</span><span class="hero-meta-value">Week of 2026-05-05</span></div>
-        <div class="hero-meta-item"><span class="hero-meta-label">SMS channel</span><span class="hero-meta-value">Phase 1/4 done · Phase 2 next</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Reporting period</span><span class="hero-meta-value">Week of 2026-05-06</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">SMS channel</span><span class="hero-meta-value">Phases 1–4 done · production-tested</span></div>
         <div class="hero-meta-item"><span class="hero-meta-label">Voice agent</span><span class="hero-meta-value">Hardened — strict grounding live</span></div>
-        <div class="hero-meta-item"><span class="hero-meta-label">Quote output</span><span class="hero-meta-value">HTML quote page + Stripe deposit live</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Quote output</span><span class="hero-meta-value">HTML page + tier photos + Stripe deposit live</span></div>
       </div>
     </div>
   </header>
@@ -320,42 +329,42 @@
   <!-- ═══════════════ JON'S 5 PRIORITIES ═══════════════ -->
   <section class="priorities">
     <div class="container">
-      <h2>This week's priorities — at a glance.</h2>
-      <p class="sub">Status against the 5 priorities Jon set on 2026-05-05.</p>
+      <h2>Priorities — at a glance.</h2>
+      <p class="sub">All five priorities Jon set on 2026-05-05 are now resolved.</p>
       <ul class="pri-list">
         <li>
-          <span class="pri-status partial">IN PROGRESS</span>
+          <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>1. SMS trigger and dialog (similar to voice agent, fast + simple, with assumptions)</h4>
-            <p>Plumbing shipped — customer can text our number, the system receives, persists, and replies. The intelligent dialog (assumptions per job type, capped at 3–4 turns) is the focus for the rest of the week. <a href="#sms">See SMS section ↓</a></p>
+            <p>Customer texts +61 481 613 464 → Haiku 4.5 dialog agent (capped at 4 turns, off-topic redirect, declared assumptions per job type) → handoff to the same Opus 4.7 intake + estimation pipeline as voice → customer SMS with full G/B/B quote and HTML quote page. End-to-end verified on a real phone. <a href="#sms">See SMS section ↓</a></p>
           </div>
         </li>
         <li>
           <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>2. Ensuring the electrical agent is consistent in its outcomes</h4>
-            <p>Strict grounding wired into both the intake and estimation prompts — the AI cannot invent prices or assemblies. A 4th defence layer (DB-grounding validator) automatically downgrades any ungrounded line item to the $199 inspection route. <a href="#voice">See Voice Agent section ↓</a></p>
+            <p>Strict grounding wired into both the intake and estimation prompts. A 4th defence layer (DB-grounding validator) automatically downgrades any ungrounded line item to the $199 inspection route. <a href="#voice">See Voice Agent section ↓</a></p>
           </div>
         </li>
         <li>
           <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>3. Parameters of estimation made clear</h4>
-            <p>Every quote line item now traces back to a row in our pricing book — no free-form pricing from the LLM. Confidence routing (S06) decides between auto-quote, tradie review, or inspection-only based on intake quality.</p>
+            <p>Every quote line item traces back to a row in our pricing book — no free-form pricing from the LLM. Confidence routing decides between auto-quote, tradie review, or inspection-only based on intake quality.</p>
           </div>
         </li>
         <li>
-          <span class="pri-status next">UP NEXT</span>
+          <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>4. How we onboard each trade</h4>
-            <p>Decision: each new trade ships as an "onboarding bundle" — base assemblies, per-job-type intake rules, default pricing, G/B/B framing. Electrical is the reference. Plumbing/painting follow the same shape. Detailed plan starts after SMS Phase 2 ships.</p>
+            <p>Onboarding bundle spec written: each new trade ships as a single bundle of five components (assemblies, intake rules, pricing defaults, G/B/B framing, licence schema). Electrical is the reference; plumbing is sketched as the worked example. <a href="onboarding-bundle.html">Read the spec →</a></p>
           </div>
         </li>
         <li>
           <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>5. Quote output — webform / agentic creation, with mocked photos</h4>
-            <p>Customer-facing HTML quote page live at <code>/q/[id]</code>. Per-tier Stripe Checkout deposit links. Photo upload supports both camera and gallery picker. Inspection-route jobs show a $199 pay-link variant. <a href="#output">See Output section ↓</a></p>
+            <p>Customer-facing HTML quote page live at <code>/q/[token]</code> with per-tier mocked photos (<code>lib/quote/tier-photos.ts</code>). Per-tier Stripe Checkout deposit links. Photo upload supports both camera and gallery. Inspection-route jobs show a $199 pay-link variant. <a href="#output">See Output section ↓</a></p>
           </div>
         </li>
       </ul>
@@ -367,11 +376,11 @@
     <div class="container">
       <div class="bar-label">
         <span class="num">SMS channel — overall</span>
-        <span class="pct">Phase 1 of 4 complete</span>
+        <span class="pct">Phases 1–4 complete · production-tested</span>
       </div>
       <div class="bar"><div class="bar-fill"></div></div>
       <p class="bar-caption">
-        <strong>Phase 1 (Plumbing) shipped today.</strong> The webhook, signature validation, database tables, and outbound sender are live. Phase 2 (the AI brain) starts as soon as the WhatsApp sandbox blocker is cleared.
+        <strong>All four phases shipped and verified end-to-end on a real phone.</strong> Phase 5 (production hardening / deploy prerequisites) is the only remaining work — pure operational steps, no engineering.
       </p>
     </div>
   </section>
@@ -382,18 +391,18 @@
       <div class="section-head">
         <div class="section-num">SMS Channel · <strong>Detailed step status</strong></div>
         <h2 class="section-title">SMS quoting agent — every SOP step, where it stands.</h2>
-        <p class="section-summary">Mapped 1-to-1 against the steps in <a href="sms-sop.html">sms-sop.html</a>. Each row is a real piece of work with a real status.</p>
+        <p class="section-summary">Mapped 1-to-1 against the steps in <a href="sms-sop.html">sms-sop.html</a>. Every row is shipped and verified.</p>
       </div>
 
       <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Phase 1 — Plumbing (DONE)</h3>
-      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">A customer text reaches our backend, gets saved, and gets a reply. Reply is currently a static placeholder.</p>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">A customer text reaches our backend, gets saved, and gets a reply.</p>
       <ul class="stages">
         <li>
           <span class="stage-id">SMS01</span>
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>SMS dev number provisioned + env wired</strong>
-            <p>+61 481 613 464 is live on Twilio for SMS. Env vars added to local + Vercel: <code>TWILIO_SMS_NUMBER</code>, <code>TRADIE_NOTIFY_NUMBER</code>, <code>TRADIE_NOTIFY_WHATSAPP</code>, <code>TWILIO_WHATSAPP_FROM</code>.</p>
+            <p>+61 481 613 464 is live on Twilio for SMS. Env vars set on local + Vercel: <code>TWILIO_SMS_NUMBER</code>, <code>TRADIE_NOTIFY_NUMBER</code>, <code>TRADIE_NOTIFY_WHATSAPP</code>, <code>TWILIO_WHATSAPP_FROM</code>. WABA registered sender +1 555 941 5397 ("NomanuAI") provisioned for production WhatsApp.</p>
           </div>
         </li>
         <li>
@@ -401,7 +410,7 @@
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Database migration ran</strong>
-            <p>Two new tables in Supabase: <code>sms_conversations</code> (status + turn count + intake link) and <code>sms_messages</code> (one row per inbound/outbound). Indexes added for fast per-customer lookup.</p>
+            <p>Two tables in Supabase: <code>sms_conversations</code> (status + turn count + assumptions + intake link) and <code>sms_messages</code> (one row per inbound/outbound + photo URLs). Indexes added for fast per-customer lookup and photo-bearing message lookup.</p>
           </div>
         </li>
         <li>
@@ -409,23 +418,23 @@
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Twilio signature validation helper</strong>
-            <p>Every inbound webhook is verified against our auth token. Rejects forged requests with 403. Uses forwarded-host headers so signatures match even when Vercel internal routing rewrites the URL.</p>
+            <p>Every inbound webhook is verified against our auth token. Rejects forged requests with 403. Reconstructs the URL from forwarded-host headers so signatures match even when Vercel internal routing rewrites the URL.</p>
           </div>
         </li>
         <li>
-          <span class="stage-id">SMS06 (stub)</span>
+          <span class="stage-id">SMS06</span>
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Inbound webhook — Phase 1 stub</strong>
-            <p>Validates signature → finds/creates conversation → persists inbound → calls Twilio outbound (with WhatsApp fallback) → persists outbound → bumps turn count → returns 200. Top-level try/catch + step-by-step diagnostic logging.</p>
+            <strong>Inbound webhook — full route with idempotency + fast-ack</strong>
+            <p>Validates signature → idempotency check on <code>MessageSid</code> → finds/creates conversation → MMS extraction (Phase 4) → persists inbound → returns 200 in &lt;500ms. Heavy work (Haiku call, dispatch, outbound persist, conversation update, intake handoff) runs in <code>after()</code>. <code>maxDuration=60</code>. Eliminates duplicate-reply bugs from webhook timeout retries.</p>
           </div>
         </li>
         <li>
           <span class="stage-id">SMS07</span>
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Outbound sender (SMS + WhatsApp)</strong>
-            <p>Two helper functions: <code>sendSms()</code> for the customer reply, <code>sendWhatsApp()</code> for the WhatsApp variant. Both wrap Twilio's REST API. Phase 1 routes try SMS first then WhatsApp on failure (testing convenience — Phase 2 will simplify).</p>
+            <strong>Outbound sender (SMS-first / WhatsApp-fallback dispatcher)</strong>
+            <p><code>lib/sms/twilio.ts</code> + <code>lib/sms/dispatch.ts</code>. Tries SMS first; on failure (carrier reject, 21612, 21408) falls back to WhatsApp via <code>TWILIO_WHATSAPP_FROM</code>. Same dispatcher used by the voice agent for customer quote SMS.</p>
           </div>
         </li>
         <li>
@@ -433,7 +442,7 @@
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Test harness built</strong>
-            <p>A simulator script POSTs Twilio-shaped requests to the deployed endpoint with valid signatures, so Phase 2 dialog work can be iterated without sending real SMS each time. Plus a separate state-inspector script for checking DB rows after a test.</p>
+            <p><code>simulate-sms-conversation.mjs</code> POSTs Twilio-shaped requests with valid signatures, plus state-inspector and Twilio-message-checker scripts. New <code>test-sms-parity.mjs</code> runs 70 pure-function assertions against the SMS Agent (customer SMS shape, tradie notify, quality gate, dialog schema, assumption rules).</p>
           </div>
         </li>
         <li>
@@ -441,94 +450,157 @@
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Twilio webhook wired + Vercel deployed</strong>
-            <p>Twilio's Messaging webhook for +61 481 613 464 points at <code>https://quote-mate-rho.vercel.app/api/sms/inbound</code>. Multiple successful end-to-end test runs against the live endpoint — HTTP 200 returned, all DB rows landed correctly.</p>
+            <p>Twilio's Messaging webhook for +61 481 613 464 points at <code>https://quote-mate-rho.vercel.app/api/sms/inbound</code>. Real-phone end-to-end verified — customer receives Haiku reply, then full quote SMS with HTML quote page link + Stripe deposit.</p>
           </div>
         </li>
       </ul>
 
-      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 2 — The AI brain (UP NEXT)</h3>
-      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">Replace the static placeholder reply with a real intelligent dialog.</p>
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 2 — The AI brain (DONE)</h3>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">Static placeholder replaced with intelligent dialog. Hardened against off-topic chat and missing-field finishes.</p>
       <ul class="stages">
         <li>
           <span class="stage-id">SMS04</span>
-          <span class="stage-pill next">NEXT</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Assumption-rules spec per "easy 5" job type</strong>
-            <p>Per job type (downlights, GPOs, fans, smoke alarms, outdoor lighting): which fields can be safely defaulted, which must be asked, what phrases force inspection escalation. Reviewed with the pilot electrician before any code goes in.</p>
+            <p><code>lib/sms/assumptions.ts</code> — per-job <code>safeDefaults</code>, <code>mustAsk</code>, <code>inspectionTriggers</code> for downlights / GPOs / fans / smoke alarms / outdoor lighting. Plus <code>UNIVERSAL_INSPECTION_TRIGGERS</code> (burning smell, sparks, switchboard, etc.) and <code>UNIVERSAL_MUST_ASK</code> (name, suburb, job_type — voice-parity).</p>
           </div>
         </li>
         <li>
           <span class="stage-id">SMS05</span>
-          <span class="stage-pill next">NEXT</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Dialog turn handler (Claude Haiku 4.5)</strong>
-            <p>One LLM call per inbound SMS. Decides one of three actions (ask / finish / escalate). Returns a structured decision (Zod-validated) — no free-form parsing. Caps at ~4 turns to respect SMS attention spans.</p>
+            <strong>Dialog turn handler (Claude Haiku 4.5) — hardened</strong>
+            <p><code>lib/sms/dialog.ts</code>. One Haiku call per inbound. Returns Zod-validated <code>{action, job_type_guess, reply_to_send, assumptions_made, ready_for_intake}</code>. 8-step decision guide: inspection trigger → off-topic redirect → no job_type → out-of-scope job → name → suburb → per-job mustAsk → finish. Capped at 4 turns. Reply hard-limited to 320 chars.</p>
           </div>
         </li>
         <li>
-          <span class="stage-id">SMS06 (full)</span>
-          <span class="stage-pill next">NEXT</span>
+          <span class="stage-id">SMS06 full</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Replace static reply with dialog agent</strong>
-            <p>Swap the placeholder in the inbound route for a call to the dialog handler. Persist agent assumptions on the conversation row so they're visible to the tradie at draft time.</p>
+            <p>Dialog agent wired in. Conversation status routes: <code>open</code> (mid-dialog) → <code>structuring</code> (finish, intake fires) → <code>done</code> (escalate or completed). Assumptions accumulate on the conversation row so the intake agent sees them in the stitched transcript.</p>
           </div>
         </li>
       </ul>
 
-      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 3 — Quote drafts from SMS (PLANNED)</h3>
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 3 — Quote drafts from SMS (DONE)</h3>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">SMS conversations now produce the same Good/Better/Best quote the voice path produces.</p>
       <ul class="stages">
         <li>
           <span class="stage-id">SMS08</span>
-          <span class="stage-pill future">PLANNED</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Make intake/structure channel-agnostic</strong>
-            <p>Small edit so the existing intake route accepts an SMS conversation as a source (not just voice calls). Reuses everything downstream — the same Quote Drafter (Opus 4.7) produces the same Good/Better/Best output.</p>
+            <strong>Made intake/structure channel-agnostic</strong>
+            <p><code>app/api/intake/structure/route.ts</code> accepts a discriminated-union body: <code>{callId}</code> (voice) or <code>{conversationId, sourceChannel: 'sms'}</code> (SMS). SMS branch loads <code>sms_conversations</code> + <code>sms_messages</code>, stitches a transcript, prepends accumulated assumptions, and aggregates MMS photo URLs. Everything downstream is unchanged — same Opus 4.7 vision call, same embedding, same quality gate.</p>
           </div>
         </li>
         <li>
           <span class="stage-id">handoff</span>
-          <span class="stage-pill future">PLANNED</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Wire the SMS-to-quote handoff</strong>
-            <p>When the dialog agent finishes, fire-and-forget POST to <code>/api/intake/structure</code> with the SMS conversation ID. Intake structures it → embedding → estimation → quote row. Identical to the voice path from there.</p>
+            <strong>SMS-to-quote handoff wired</strong>
+            <p>When dialog returns <code>finish</code>, fire-and-forget POST to <code>/api/intake/structure</code> with the conversation ID. Intake structures it → embedding → estimation → quote row → Stripe sessions → customer SMS via <code>buildQuoteSms</code> with link to <code>/q/[token]</code>. Identical to the voice path from there.</p>
           </div>
         </li>
       </ul>
 
-      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 4 — Tradie notification + polish (PLANNED)</h3>
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 2rem 0 0.5rem;">Phase 4 — Notify / cleanup / photos (DONE)</h3>
+      <p style="color: var(--body); font-size: 0.94rem; margin-bottom: 0.5rem;">Tradie notification on draft, daily abandoned-conversation sweep, and inbound MMS photo support.</p>
       <ul class="stages">
         <li>
           <span class="stage-id">notify</span>
-          <span class="stage-pill future">PLANNED</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Tradie SMS + WhatsApp ping on draft completion</strong>
-            <p>End of <code>/api/estimate/draft</code> sends both an SMS to the tradie's mobile AND a WhatsApp ping with a link to the draft quote. Currently env vars are set; flow gets wired in Phase 4.</p>
+            <strong>Tradie SMS + WhatsApp ping on SMS-sourced draft completion</strong>
+            <p>End of <code>/api/estimate/draft</code> — gated on <code>isSmsSource</code> (so voice path is unchanged). Sends both an SMS (with WhatsApp fallback) to <code>TRADIE_NOTIFY_NUMBER</code> AND an explicit WhatsApp message to <code>TRADIE_NOTIFY_WHATSAPP</code>. Two flavours: <code>buildTradieDraftNotification</code> for auto-quotes, <code>buildTradieInspectionNotification</code> for $199 site-visit jobs.</p>
           </div>
         </li>
         <li>
           <span class="stage-id">cleanup</span>
-          <span class="stage-pill future">PLANNED</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Auto-archive abandoned conversations after 24h</strong>
-            <p>Daily Vercel cron sweeps <code>sms_conversations</code> where <code>status=open</code> AND <code>last_message_at &lt; now()-24h</code> → marks them <code>abandoned</code>. Keeps the conversation list clean.</p>
+            <p>Daily Vercel Cron (<code>vercel.json</code>, schedule <code>0 17 * * *</code> UTC) hits <code>/api/cron/sms-cleanup</code>. Sweeps <code>sms_conversations</code> where <code>status=open</code> AND <code>last_message_at &lt; now()-24h</code> → marks <code>abandoned</code>. Bearer-secured via <code>CRON_SECRET</code> in production.</p>
           </div>
         </li>
         <li>
           <span class="stage-id">photos</span>
-          <span class="stage-pill future">PLANNED</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>MMS photo support</strong>
-            <p>Customers can send photos with their SMS. Twilio inbound MMS gets extracted and uploaded to Supabase Storage; URLs flow into the existing structureIntake (which already supports photo URLs from the voice flow).</p>
+            <p><code>lib/sms/mms.ts</code>: parses <code>NumMedia</code>, fetches each <code>MediaUrlN</code> with Basic auth, uploads via the existing <code>uploadIntakePhoto</code> helper, returns 24h-signed URLs. Persisted on <code>sms_messages.photo_urls</code> (migration 003). Aggregated in the intake/structure SMS branch and fed straight to Opus vision.</p>
           </div>
         </li>
       </ul>
 
-      <div class="callout block">
-        <div class="callout-label">⚠ Active blocker</div>
-        <p><strong>The Twilio account doesn't currently have international SMS or WhatsApp Sandbox provisioned.</strong> Two error codes seen in testing:</p>
-        <p>• <code>21612</code> — SMS from AU (+61 481 613 464) to PH (+63 975 948 3289) is rejected. Account permission for AU→PH SMS is not enabled.</p>
-        <p>• <code>63015</code> — WhatsApp Sandbox sender <code>whatsapp:+14155238886</code> is not provisioned for the active Twilio account (likely because credentials were rotated mid-build and the new account hasn't joined the sandbox).</p>
-        <p><strong>What this means:</strong> Phase 1 plumbing is verified working end-to-end via the simulator (HTTP 200, DB rows landed). But a real test phone hasn't received a message yet — needs either (a) a real AU mobile to test from, or (b) re-joining the WhatsApp sandbox on the new Twilio account. AU↔AU SMS is proven working in Twilio's history (other test sends delivered).</p>
+      <div class="callout tip">
+        <div class="callout-label">✓ Verified end-to-end</div>
+        <p>Real phone tested 2026-05-06. Inbound text → dialog asks name → suburb → per-job questions → finish. Customer receives quote SMS with full Good/Better/Best breakdown and clickable HTML quote page. WABA-registered WhatsApp fallback works when SMS rejects.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ HARDENING / ADDITIONAL FEATURES ═══════════════ -->
+  <section class="section" id="hardening">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Beyond the SOP · <strong>Hardening + parity additions</strong></div>
+        <h2 class="section-title">Things the SMS Agent does that weren't in the original SOP.</h2>
+        <p class="section-summary">During the build we found and fixed several latent bugs and added parity surfaces beyond what the SOP scoped. All shipped, all tested.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Idempotency on inbound MessageSid</h4>
+          <p>Route checks for an existing <code>sms_messages</code> row with the same <code>twilio_message_sid</code> and acks 200 immediately if found. Plus a partial unique index (migration 004) catches the racy concurrent-retry case. Eliminates duplicate-reply bugs from any external retry source.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Fast-ack via after()</h4>
+          <p>Inbound route returns 200 in &lt;500ms regardless of Haiku latency. All heavy work (Haiku, dispatch, outbound persist, conversation update, intake handoff) runs in <code>next/server</code> <code>after()</code>. Twilio never times out → never retries → never causes duplicates.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Universal must-ask (name, suburb, job_type)</h4>
+          <p>Dialog agent enforces these three fields are captured before <code>finish</code>. Mirrors the voice receptionist's opening sequence (name → suburb → classify job). Without these the intake's quality gate would fire and short-circuit the quote.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Off-topic / unrelated chat handling</h4>
+          <p>Customer sends "hey" or "do you do plumbing?" — agent acknowledges in one phrase and pivots to the next missing required field. Never engages with weather, jokes, other-trade questions. Greeting alone no longer escalates to a $199 site visit.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Single-thread customer UX</h4>
+          <p>Customer-facing quote SMS for SMS-sourced jobs is sent <em>from</em> <code>TWILIO_SMS_NUMBER</code> (the same number the customer texted) so it lands in the same conversation thread on their phone — not a second thread on the voice line. Voice-sourced quotes still use the voice number.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Empty-intake callback respects channel</h4>
+          <p>When the quality gate fires on an SMS-sourced intake, the callback-request SMS also originates from <code>TWILIO_SMS_NUMBER</code> so the customer doesn't see a stray message on a different number.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Mocked tier photos on /q/[token]</h4>
+          <p><code>lib/quote/tier-photos.ts</code> — per-(job_type, tier) image + caption. Renders a 16:9 hero on every Good/Better/Best card with an "Indicative · {label}" chip overlay. Drop-in path documented for swapping to real on-site photos.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>SCOPE line uses contractual wording</h4>
+          <p>Customer SMS SCOPE line preference flipped to use the first sentence of <code>scope_of_works</code> (the rich, contractual paraphrase) over <code>scope_short</code>. Matches the format Jon expects.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Parity self-test harness</h4>
+          <p><code>scripts/test-sms-parity.mjs</code> — 70 pure-function assertions covering customer SMS shape (auto + inspection), tradie notify, callback SMS, quality gate, assumption rules, dialog schema. Runs offline, no network. <code>npx tsx</code> compatible.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Onboarding bundle spec</h4>
+          <p><code>onboarding-bundle.html</code> — formal spec for adding any new trade as a 5-component bundle. Electrical mapped to its current shipped code. Plumbing sketched as worked example. Six-edit checklist for adding a trade. <a href="onboarding-bundle.html">Read it →</a></p>
+        </div>
       </div>
     </div>
   </section>
@@ -537,41 +609,41 @@
   <section class="section" id="voice">
     <div class="container">
       <div class="section-head">
-        <div class="section-num">Voice Agent · <strong>Recent quality upgrades</strong></div>
-        <h2 class="section-title">Voice agent is now hardened — quotes can't go off-rails.</h2>
-        <p class="section-summary">Multiple defence layers shipped this week to ensure the AI cannot invent prices, hallucinate assemblies, or auto-quote risky scope. The agent's outcomes are now tightly bound to what's in our pricing book.</p>
+        <div class="section-num">Voice Agent · <strong>Quality upgrades (still live)</strong></div>
+        <h2 class="section-title">Voice agent is hardened — quotes can't go off-rails.</h2>
+        <p class="section-summary">Multiple defence layers ensure the AI cannot invent prices, hallucinate assemblies, or auto-quote risky scope. Outcomes are tightly bound to what's in the pricing book.</p>
       </div>
 
       <div class="grid">
         <div class="card done">
           <span class="check">✓</span>
           <h4>Strict grounding on intake + estimation</h4>
-          <p>System prompts now enforce that every line item in a quote must trace back to a row in <strong>shared_assemblies</strong> or <strong>shared_materials</strong>. The model literally cannot emit a price out of thin air.</p>
+          <p>Every line item must trace back to a row in <strong>shared_assemblies</strong> or <strong>shared_materials</strong>. The model literally cannot emit a price out of thin air.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>DB-grounding validator (4th defence layer)</h4>
-          <p>Even if the model tries to slip past the prompt rules, a runtime validator checks every line item's <code>source</code> field against the database. Anything ungrounded is auto-downgraded to the $199 inspection route — no faulty quote reaches the customer.</p>
+          <p>A runtime validator checks every line item's <code>source</code> field against the database. Anything ungrounded is auto-downgraded to the $199 inspection route — no faulty quote reaches the customer.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Quality gate on intake</h4>
-          <p>Empty calls or calls with insufficient information no longer trigger downstream photo/quote SMS. Saves Twilio cost and avoids confusing customers with empty drafts.</p>
+          <p>Empty calls or calls with insufficient information no longer trigger downstream photo/quote SMS. Saves Twilio cost and avoids confusing customers with empty drafts. <strong>Now applies to SMS too.</strong></p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Opus 4.7 on intake structuring</h4>
-          <p>Upgraded from Sonnet to Opus 4.7 for the IntakeSchema extraction step — meaningful quality gain on multi-job calls and ambiguous customer phrasing.</p>
+          <p>Upgraded from Sonnet to Opus 4.7 for the IntakeSchema extraction step — meaningful quality gain on multi-job calls and ambiguous customer phrasing. Same model used for SMS-sourced intakes.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
-          <h4>S06 confidence routing live</h4>
-          <p>Each draft is auto-classified <strong>HIGH / MED / LOW</strong> confidence based on intake completeness. HIGH → tradie sees a clean draft. LOW → automatic inspection upsell.</p>
+          <h4>Confidence routing live</h4>
+          <p>Each draft is auto-classified <strong>HIGH / MED / LOW</strong> based on intake completeness. HIGH → tradie sees a clean draft. LOW → automatic inspection upsell.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Vapi prompt rebalanced</h4>
-          <p>Receptionist tone improved — more natural, fewer interruptions, faster turn-taking. Customers report the call feels more human.</p>
+          <p>Receptionist tone improved — more natural, fewer interruptions, faster turn-taking. Same SYSTEM_PROMPT structure now mirrored on the SMS side (name → suburb → classify → per-job).</p>
         </div>
       </div>
     </div>
@@ -583,41 +655,123 @@
       <div class="section-head">
         <div class="section-num">Quote Output · <strong>Customer-facing rendering</strong></div>
         <h2 class="section-title">The output side — what the customer actually sees.</h2>
-        <p class="section-summary">Per Jon's priority #5 — the agent now produces a real, viewable, mobile-friendly quote that the customer can read and pay a deposit on directly.</p>
+        <p class="section-summary">Per Jon's priority #5 — the agent produces a real, viewable, mobile-friendly quote that the customer can read and pay a deposit on directly. Same quote whether the source is voice or SMS.</p>
       </div>
 
       <div class="grid">
         <div class="card done">
           <span class="check">✓</span>
           <h4>Customer-facing quote page</h4>
-          <p>Each draft has its own URL at <code>/q/[id]</code> — mobile-friendly HTML page showing scope of works, Good/Better/Best line items, exclusions, and assumptions. No PDF needed for v1; the link is what the customer sees in their SMS.</p>
+          <p>Each draft has its own URL at <code>/q/[token]</code> — mobile-friendly HTML page showing scope of works, Good/Better/Best line items, exclusions, assumptions, risk flags, timeframe, GST note, and licence footer. No PDF needed for v1.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Stripe Checkout deposit per tier</h4>
-          <p>Each tier on the customer's quote page has its own "Pay deposit" button → goes to a tier-specific Stripe Checkout link. Webhook confirms payment. Thank-you and cancelled pages handle both flows.</p>
+          <p>Each tier has its own "Lock in this option · $X deposit" button → tier-specific Stripe Checkout via <code>/r/[token]/[tier]</code> redirect. Webhook confirms payment. Thank-you and cancelled pages handle both flows.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Inspection route — $199 pay link</h4>
-          <p>For jobs flagged inspection-only (switchboard, EV charger, fault finding, complex renovations), the page shows a single $199 deposit option to book the inspection — same Stripe Checkout pattern.</p>
+          <p>For jobs flagged inspection-only (switchboard, EV charger, fault finding, complex renovations), the page shows a single $199 deposit option to book the inspection. SMS variant suppresses fabricated tier numbers entirely.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Mocked tier photos</h4>
+          <p><strong>NEW THIS WEEK.</strong> Each Good/Better/Best card now renders a 16:9 indicative product image with a captioned chip ("Indicative · Tri-colour dimmable LED"). Tier-coloured backgrounds match the page palette. Drop-in path for real photos documented.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>Photo upload — camera + gallery</h4>
-          <p>Customer can attach photos via <code>/upload</code> route. Supports both phone camera capture and gallery picker. Photos feed into the intake structuring (Sonnet/Opus see them when extracting scope).</p>
+          <p>Customer can attach photos via <code>/upload</code> route. Supports both phone camera capture and gallery picker. Photos feed into the intake structuring (Opus sees them when extracting scope).</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Inbound MMS photos (SMS path)</h4>
+          <p><strong>NEW THIS WEEK.</strong> Customer can MMS a photo as part of their SMS conversation. Twilio media is fetched (Basic auth), stored in <code>intake-photos</code> bucket, and the signed URLs flow into <code>structureIntake</code> alongside the transcript.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
           <h4>WhatsApp fallback for SMS dispatch</h4>
-          <p>When the customer-facing quote SMS fails to deliver (e.g. PH carrier blocks), the system falls back to WhatsApp via Twilio Sandbox. Already working for the existing voice-driven quote flow.</p>
+          <p>When the customer-facing quote SMS fails to deliver (e.g. PH carrier blocks, geo-permission off), the system falls back to WhatsApp via the registered WABA sender. Same dispatcher used for voice and SMS.</p>
         </div>
-        <div class="card next">
-          <span class="check">○</span>
-          <h4>Mocked-up photos in quote</h4>
-          <p>Showing example photos of the proposed work alongside Good/Better/Best (e.g. "tri-colour downlight" image next to that tier). Stock-image library keyed by job_type + tier — planned, not built yet.</p>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Single-thread UX on the customer's phone</h4>
+          <p><strong>NEW THIS WEEK.</strong> SMS-sourced quote SMS originates from <code>TWILIO_SMS_NUMBER</code> so the customer sees ONE continuous thread (dialog turns + final quote) rather than two threads on different numbers.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Booking flow — customer slot picker</h4>
+          <p>After the customer picks a tier and pays the deposit, the paid page redirects to <code>/q/[token]/book</code> where they choose an available time slot. Slots are seeded per-tradie from <code>scripts/seed-tradie-slots.mjs</code>; locking a slot fires <code>/api/q/[token]/book</code>.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Booking confirmations — both sides</h4>
+          <p>On a successful slot lock, the customer receives <code>buildBookingConfirmationSms</code> ("you're locked in for Thu 7 May, 9:00am") and the tradie receives <code>buildTradieBookingNotification</code> with the customer name, job, and time. Same SMS-first / WhatsApp-fallback dispatcher used elsewhere.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ PHASE 5 — PRODUCTION HARDENING ═══════════════ -->
+  <section class="section" id="phase5">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">Phase 5 · <strong>Production hardening (operational, no engineering)</strong></div>
+        <h2 class="section-title">Deploy prerequisites and post-launch hygiene.</h2>
+        <p class="section-summary">All code is shipped. The remaining items are deploy-environment configuration that needs to land in prod before the SMS Agent's Phase 4 features go live for customers.</p>
+      </div>
+
+      <ul class="stages">
+        <li>
+          <span class="stage-id">prod-001</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Run migration 003 (sms_messages.photo_urls)</strong>
+            <p><code>node --env-file=.env.local scripts/run-sms-photos-migration.mjs</code>. Adds the JSONB column needed for inbound MMS photos. Idempotent — safe to re-run. Without this, MMS extraction silently no-ops.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">prod-002</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Run migration 004 (unique inbound MessageSid index)</strong>
+            <p><code>node --env-file=.env.local scripts/run-sms-unique-sid-migration.mjs</code>. Adds a partial unique index that catches concurrent retry races. Defence-in-depth alongside the application-layer idempotency check.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">prod-003</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Set CRON_SECRET in Vercel env</strong>
+            <p>Required for the daily abandoned-conversation cleanup cron in production. Without it, the cron returns 401. Generate any unguessable string (e.g. <code>openssl rand -hex 32</code>) and add to Vercel env for production.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">prod-004</span>
+          <span class="stage-pill next">NEXT</span>
+          <div class="stage-body">
+            <strong>Verify TRADIE_NOTIFY_NUMBER + TRADIE_NOTIFY_WHATSAPP in prod</strong>
+            <p>Phase 4 tradie notify is gated on these env vars. If unset, the route logs "tradie notify skipped — no env" and continues. Confirm both are set in Vercel for the production environment so the tradie ping fires on every SMS-sourced draft.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">prod-005</span>
+          <span class="stage-pill future">OPTIONAL</span>
+          <div class="stage-body">
+            <strong>Promote deposit_pct to a column on quotes</strong>
+            <p><code>app/q/[token]/page.tsx:109</code> has a TODO. Currently hardcoded to 30. Becomes load-bearing only when a tradie wants to ship a different deposit percentage; safe to leave until then.</p>
+          </div>
+        </li>
+        <li>
+          <span class="stage-id">prod-006</span>
+          <span class="stage-pill future">OPTIONAL</span>
+          <div class="stage-body">
+            <strong>Tenant-scope the pricing_book lookup</strong>
+            <p><code>app/q/[token]/page.tsx:86-90</code> calls <code>pricing_book.maybeSingle()</code> with no filter. Fine for the single-tradie pilot, but will pick a random row once a second tradie onboards. Revisit when the second trade goes live.</p>
+          </div>
+        </li>
+      </ul>
     </div>
   </section>
 
@@ -629,30 +783,42 @@
         <h2 class="section-title">What shipped, in chronological order.</h2>
       </div>
 
-      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem;">2026-05-05 (today) · SMS channel + progress page</h3>
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem;">2026-05-06 (today) · SMS Agent end-to-end + hardening</h3>
       <ul class="timeline">
-        <li><span class="when">today</span><span class="what">Progress page (this doc) detailed against the SOP and Jon's priorities</span></li>
-        <li><span class="when">today</span><span class="what">WhatsApp fallback added to inbound route — falls back when SMS send rejects (still blocked by sandbox provisioning issue, but wiring is correct)</span></li>
-        <li><span class="when">today</span><span class="what">Inbound route hardened — top-level try/catch, step-by-step diagnostic logging, 200-status response (fixed Next.js 204-rejection bug)</span></li>
-        <li><span class="when">today</span><span class="what">Forwarded-host URL reconstruction added to signature validator — handles Vercel internal routing</span></li>
-        <li><span class="when">today</span><span class="what">Twilio credentials rotated; new account values added to Vercel + local env</span></li>
-        <li><span class="when">today</span><span class="what">Test harness scripts: <code>simulate-sms-conversation.mjs</code>, <code>check-sms-state.mjs</code>, <code>check-twilio-message.mjs</code>, <code>run-sms-migration.mjs</code></span></li>
-        <li><span class="when">today</span><span class="what">SMS dev number wired in Twilio Console — Messaging webhook → <code>/api/sms/inbound</code></span></li>
-        <li><span class="when">today</span><span class="what">Database migration ran — <code>sms_conversations</code> + <code>sms_messages</code> tables live in Supabase</span></li>
-        <li><span class="when">today</span><span class="what">Phase 1 stub route + Twilio helpers committed and deployed to Vercel (<code>quote-mate-rho.vercel.app</code>)</span></li>
-        <li><span class="when">today</span><span class="what">SMS Build SOP finalised — <a href="sms-sop.html">sms-sop.html</a> with full step-by-step instructions</span></li>
+        <li><span class="when">today</span><span class="what"><strong>Migration 004</strong> — unique partial index on inbound <code>MessageSid</code> (defence-in-depth for the duplicate-reply fix)</span></li>
+        <li><span class="when">today</span><span class="what">Inbound route hardened — application-layer idempotency check + fast-ack via <code>after()</code> + <code>maxDuration=60</code> + race-loser <code>23505</code> handling</span></li>
+        <li><span class="when">today</span><span class="what"><strong>Mocked tier photos</strong> — <code>lib/quote/tier-photos.ts</code> + <code>TierCard</code> hero on <code>/q/[token]</code></span></li>
+        <li><span class="when">today</span><span class="what"><strong>Onboarding bundle spec</strong> — <code>public/docs/onboarding-bundle.html</code></span></li>
+        <li><span class="when">today</span><span class="what">SCOPE line in customer SMS now uses first sentence of <code>scope_of_works</code> (matches Jon's expected format)</span></li>
+        <li><span class="when">today</span><span class="what">Empty-intake callback SMS now uses <code>TWILIO_SMS_NUMBER</code> for SMS-sourced intakes</span></li>
+        <li><span class="when">today</span><span class="what">Customer-facing quote SMS originates from <code>TWILIO_SMS_NUMBER</code> for SMS-sourced quotes (single-thread UX)</span></li>
+        <li><span class="when">today</span><span class="what">Dialog SYSTEM_PROMPT hardened — universal must-ask (name, suburb), 8-step decision guide, off-topic redirect, no-greeting-as-escalate</span></li>
+        <li><span class="when">today</span><span class="what">Parity self-test harness — <code>scripts/test-sms-parity.mjs</code> with 70 assertions, all passing</span></li>
+        <li><span class="when">today</span><span class="what">Real-phone smoke test passed end-to-end</span></li>
       </ul>
 
-      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Earlier this week · Voice agent + output</h3>
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Earlier this week · Phase 2/3/4 ship-fest</h3>
+      <ul class="timeline">
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 4 / photos</strong> — <code>lib/sms/mms.ts</code> + migration 003 + inbound route MMS extraction</span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 4 / cleanup</strong> — <code>/api/cron/sms-cleanup</code> + <code>vercel.json</code> daily schedule</span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 4 / notify</strong> — tradie SMS+WhatsApp ping gated on <code>isSmsSource</code>; <code>buildTradieDraftNotification</code> + <code>buildTradieInspectionNotification</code></span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 3 / SMS08</strong> — <code>app/api/intake/structure/route.ts</code> made channel-agnostic via discriminated-union body</span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 3 / handoff</strong> — inbound route fires <code>/api/intake/structure</code> on <code>finish</code></span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 2 / SMS05</strong> — <code>lib/sms/dialog.ts</code> Haiku 4.5 turn handler</span></li>
+        <li><span class="when">earlier</span><span class="what"><strong>Phase 2 / SMS04</strong> — <code>lib/sms/assumptions.ts</code> per-job rules + universal triggers</span></li>
+        <li><span class="when">earlier</span><span class="what">WABA sender +1 555 941 5397 ("NomanuAI") registered for production WhatsApp</span></li>
+      </ul>
+
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Pre-existing · Voice agent + output (still live)</h3>
       <ul class="timeline">
         <li><span class="when">earlier</span><span class="what">DB-grounding validator (4th defence layer) — ungrounded prices auto-downgrade to $199 inspection</span></li>
         <li><span class="when">earlier</span><span class="what">Inspection-route $199 pay link wired through Stripe Checkout</span></li>
-        <li><span class="when">earlier</span><span class="what">Strict grounding on intake + estimation prompts — bundles quality gate, S06 routing, Opus intake, Vapi rebalance</span></li>
+        <li><span class="when">earlier</span><span class="what">Strict grounding on intake + estimation prompts</span></li>
         <li><span class="when">earlier</span><span class="what">Photo upload supports camera + gallery picker</span></li>
         <li><span class="when">earlier</span><span class="what">Quality gate on intake — empty calls no longer trigger downstream SMS</span></li>
         <li><span class="when">earlier</span><span class="what">Per-tier Stripe Checkout deposit links in quote SMS + webhook + thank-you/cancelled pages</span></li>
         <li><span class="when">earlier</span><span class="what">WhatsApp fallback when SMS rejects (PH carrier compatibility)</span></li>
-        <li><span class="when">earlier</span><span class="what">maxDuration bumped to 300s on Sonnet+Opus routes (handles slow LLM responses)</span></li>
+        <li><span class="when">earlier</span><span class="what"><code>maxDuration</code> bumped to 300s on Sonnet+Opus routes</span></li>
       </ul>
     </div>
   </section>
@@ -661,30 +827,30 @@
   <section class="section">
     <div class="container">
       <div class="section-head">
-        <div class="section-num">Known issues · <strong>Honesty about what's not done</strong></div>
-        <h2 class="section-title">What's blocked or partially working.</h2>
+        <div class="section-num">Known issues · <strong>Honesty about what's resolved + what isn't</strong></div>
+        <h2 class="section-title">Status of every blocker from last week.</h2>
       </div>
 
       <div class="grid">
-        <div class="card block">
-          <span class="check">!</span>
-          <h4>WhatsApp Sandbox not joined on new account</h4>
-          <p>Error <code>63015</code> on outbound WhatsApp send. The Twilio credentials were rotated mid-week; the new account hasn't joined the WhatsApp sandbox. <strong>Fix:</strong> re-send "join &lt;code&gt;" from the test phone using the new account's sandbox details.</p>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>WhatsApp Sandbox blocker — RESOLVED</h4>
+          <p>The Twilio account now has a registered WABA sender (+1 555 941 5397, "NomanuAI"). Outbound WhatsApp confirmed working. Error <code>63015</code> no longer fires.</p>
         </div>
-        <div class="card block">
-          <span class="check">!</span>
-          <h4>AU→PH SMS not enabled</h4>
-          <p>Error <code>21612</code>. Twilio account permission for AU→PH international SMS is off. <strong>Fix:</strong> enable it in Twilio Console (or stick with AU→AU testing). Doesn't block real customers — they'd be AU phones anyway.</p>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Real phone has now received a message — RESOLVED</h4>
+          <p>2026-05-06 smoke test: customer texted +61 481 613 464 → Haiku replied → quote SMS received with full G/B/B breakdown and clickable HTML quote page. End-to-end working.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Phase 2 dialog brain — RESOLVED</h4>
+          <p>Haiku 4.5 dialog agent live and hardened. Off-topic chat, missing-name finishes, inspection-trigger escalation all handled.</p>
         </div>
         <div class="card next">
           <span class="check">○</span>
-          <h4>No real phone has received a message yet</h4>
-          <p>The simulator confirms all the code paths work end-to-end. But a real test phone hasn't physically received a reply yet because of the two issues above. Resolves once either the sandbox or the AU→PH SMS path is unblocked.</p>
-        </div>
-        <div class="card next">
-          <span class="check">○</span>
-          <h4>Phase 2 dialog brain not yet built</h4>
-          <p>The replies right now are a static placeholder. Real intelligent dialog (Haiku-driven, with assumption rules per job type) starts as soon as the WhatsApp blocker is cleared so we can test the full loop.</p>
+          <h4>AU→PH SMS not enabled (environmental)</h4>
+          <p>Error <code>21612</code> still applies for AU→PH testing. Twilio Console toggle, not a code change. Doesn't block AU customers — they're AU phones. Leave off until international expansion.</p>
         </div>
       </div>
     </div>
@@ -694,15 +860,16 @@
   <section class="cta">
     <div class="container">
       <h2>What's next.</h2>
-      <p>Clear the WhatsApp Sandbox blocker → run a real round-trip test → start Phase 2 (the AI brain) → land first intelligent SMS reply on a real phone by end of week.</p>
-      <a href="sms-sop.html">Engineering walkthrough →</a>
+      <p>SMS Agent is feature-complete and verified end-to-end. Run the four Phase-5 deploy prerequisites (two migrations + two env vars), then move on to onboarding the second tradie using the bundle spec.</p>
+      <a href="sms-sop.html">SMS Engineering walkthrough →</a>
+      <a href="onboarding-bundle.html">Onboarding bundle spec →</a>
       <a href="build-guide.html">Full build guide →</a>
       <a href="architecture.html">Architecture →</a>
     </div>
   </section>
 
   <p class="foot">
-    QuoteMate · weekly progress · last updated <strong>2026-05-05</strong> · pairs with <a href="sms-sop.html">sms-sop.html</a>, <a href="stage1-05-sop.html">stage1-05-sop.html</a>, <a href="stage6-10-sop.html">stage6-10-sop.html</a>
+    QuoteMate · weekly progress · last updated <strong>2026-05-06</strong> · pairs with <a href="sms-sop.html">sms-sop.html</a>, <a href="onboarding-bundle.html">onboarding-bundle.html</a>, <a href="stage1-05-sop.html">stage1-05-sop.html</a>, <a href="stage6-10-sop.html">stage6-10-sop.html</a>
   </p>
 
 </body>

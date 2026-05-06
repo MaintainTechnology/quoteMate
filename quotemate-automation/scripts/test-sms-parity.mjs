@@ -136,8 +136,8 @@ describe("buildQuoteSms — auto-quote customer message (matches voice format)",
     assert.match(body, /Tap to pay: https:\/\/quote-mate-rho\.vercel\.app\/r\/abc123def456\/better/);
     assert.match(body, /Tap to pay: https:\/\/quote-mate-rho\.vercel\.app\/r\/abc123def456\/best/);
   });
-  it("includes the SCOPE summary", () => {
-    assert.match(body, /SCOPE: 5 LED downlights in kitchen/);
+  it("includes the SCOPE summary (first sentence of scope_of_works)", () => {
+    assert.match(body, /SCOPE: Replace 5 existing halogen downlights with new LED fittings in kitchen\./);
   });
   it("ends with the QuoteMate sign-off", () => {
     assert.match(body, /- QuoteMate$/);

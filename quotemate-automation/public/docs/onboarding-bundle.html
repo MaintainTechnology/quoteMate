@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuoteMate · Trade Onboarding Bundle Spec</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f5f5f5;
+      --bg-code: #f8f8f8;
+      --ink: #1a1a1a;
+      --body: #4a4a4a;
+      --muted: #6b6b6b;
+      --line: #e0e0e0;
+      --accent: #0066cc;
+      --warn-bg: #fff8e6;
+      --warn-line: #f0c75e;
+      --warn-ink: #8a6310;
+      --tip-bg: #ecf7ef;
+      --tip-line: #95cba2;
+      --tip-ink: #14532d;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--body);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 2rem; }
+
+    .nav {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 100;
+      padding: 1rem 0;
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+    .brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 800; color: var(--ink); text-decoration: none; }
+    .brand-mark { width: 26px; height: 26px; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 0.75rem; font-weight: 900; border-radius: 5px; }
+    .nav-meta { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+
+    .hero { padding: 5rem 0 3rem; border-bottom: 1px solid var(--line); }
+    .hero-eyebrow {
+      display: inline-block; font-size: 0.75rem; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 1rem;
+      padding: 0.4rem 0.8rem; border: 1px solid var(--line); border-radius: 4px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3rem); font-weight: 800;
+      line-height: 1.1; letter-spacing: -0.025em;
+      color: var(--ink); margin-bottom: 1rem;
+    }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero-lede { font-size: 1.1rem; color: var(--body); max-width: 680px; margin-bottom: 1.5rem; }
+
+    .section { padding: 3.5rem 0; border-bottom: 1px solid var(--line); }
+    .section:nth-of-type(even) { background: var(--bg-soft); }
+    .section h2 {
+      font-size: 1.6rem; font-weight: 700; color: var(--ink);
+      margin-bottom: 0.5rem; letter-spacing: -0.015em;
+    }
+    .section .lead { color: var(--muted); margin-bottom: 1.5rem; font-size: 0.95rem; }
+    .section h3 {
+      font-size: 1.05rem; font-weight: 700; color: var(--ink);
+      margin: 1.5rem 0 0.5rem;
+    }
+    .section p { margin-bottom: 0.8rem; }
+    .section ul, .section ol { margin: 0.6rem 0 1rem 1.5rem; }
+    .section li { margin: 0.3rem 0; }
+    .section strong { color: var(--ink); font-weight: 600; }
+    .section code, .field {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.88em;
+      background: var(--bg-code); padding: 0.1em 0.45em;
+      border-radius: 3px; border: 1px solid var(--line);
+      color: var(--ink);
+    }
+
+    pre {
+      background: var(--bg-code); border: 1px solid var(--line);
+      border-radius: 6px; padding: 1rem 1.2rem;
+      overflow-x: auto; margin: 1rem 0;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+      line-height: 1.55; color: var(--ink);
+    }
+    pre .c { color: var(--muted); }
+    pre .k { color: #b91c1c; font-weight: 600; }
+
+    .callout {
+      padding: 1.1rem 1.4rem; margin: 1.4rem 0;
+      border-radius: 6px; border: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .callout.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+    .callout.tip  { background: var(--tip-bg);  border-color: var(--tip-line); }
+    .callout-label {
+      font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
+      font-weight: 700; margin-bottom: 0.4rem; color: var(--ink);
+    }
+    .callout.warn .callout-label { color: var(--warn-ink); }
+    .callout.tip  .callout-label { color: var(--tip-ink); }
+
+    table {
+      width: 100%; border-collapse: collapse; margin: 1rem 0;
+      font-size: 0.92rem;
+    }
+    th, td {
+      text-align: left; padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); font-weight: 600; background: var(--bg-soft);
+    }
+    td { color: var(--body); vertical-align: top; }
+
+    .grid {
+      display: grid; gap: 1rem; margin: 1rem 0;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .card {
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 1rem 1.2rem; background: var(--bg);
+    }
+    .card h4 { font-size: 0.95rem; font-weight: 700; color: var(--ink); margin-bottom: 0.3rem; }
+    .card p { font-size: 0.86rem; color: var(--muted); margin: 0; line-height: 1.5; }
+
+    .foot { padding: 2.5rem 0; font-size: 0.82rem; color: var(--muted); text-align: center; }
+    .foot a { color: var(--accent); text-decoration: underline; }
+    a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+    @media (max-width: 720px) {
+      .container { padding: 0 1.25rem; }
+      .hero { padding: 3rem 0 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#" class="brand"><span class="brand-mark">Q</span>QuoteMate</a>
+      <div class="nav-meta">Onboarding Bundle Spec · v1</div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <span class="hero-eyebrow">Priority #4 · Trade onboarding</span>
+      <h1>Each new trade ships as an <em>onboarding bundle</em>.</h1>
+      <p class="hero-lede">
+        Electrical is the reference. To add a second trade (plumbing, painting, HVAC) we ship one bundle of five components — the same five every time. This doc defines the shape so the next trade's onboarding is mechanical, not a re-design.
+      </p>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container">
+      <h2>The five components.</h2>
+      <p class="lead">A bundle is the smallest unit that lets the SMS Agent + Voice Agent quote a new trade end-to-end.</p>
+      <div class="grid">
+        <div class="card"><h4>1. Base assemblies</h4><p>The pre-priced building blocks the Estimation Engine looks up to construct G/B/B tiers (e.g. "LED downlight assembly").</p></div>
+        <div class="card"><h4>2. Per-job intake rules</h4><p>For each "easy 5" job the trade can auto-quote: safe defaults, must-ask fields, inspection triggers.</p></div>
+        <div class="card"><h4>3. Default pricing</h4><p>Hourly rate, callout minimum, GST flag, markup %, risk-buffer %. Tradie overlays during onboarding.</p></div>
+        <div class="card"><h4>4. G/B/B framing</h4><p>For each easy-5 job, what the customer expects to see in Good vs Better vs Best (warranty, brand, smart features).</p></div>
+        <div class="card"><h4>5. Licence schema</h4><p>Per-state regulatory display: NSW NECA, VIC ESV, QLD QBCC. Customer-facing footer on every quote.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Shape of a bundle.</h2>
+      <p class="lead">A bundle is a single TypeScript module exporting five named pieces. The SMS Agent and Voice Agent both import from this module — no other code changes per trade.</p>
+
+      <h3>File layout</h3>
+<pre><code>lib/trades/&lt;trade&gt;/
+├── index.ts                <span class="c">// re-exports the bundle</span>
+├── assemblies.ts           <span class="c">// 1. base assemblies (component #1)</span>
+├── intake-rules.ts         <span class="c">// 2. per-job rules + universal triggers (component #2)</span>
+├── pricing-defaults.ts     <span class="c">// 3. hourly rate, GST, markup, risk-buffer (component #3)</span>
+├── tier-framing.ts         <span class="c">// 4. customer-facing G/B/B label hints (component #4)</span>
+└── licence-schema.ts       <span class="c">// 5. per-state licence fields + display (component #5)</span></code></pre>
+
+      <h3>The bundle interface (TypeScript)</h3>
+<pre><code><span class="k">export interface</span> TradeBundle {
+  trade: <span class="k">'electrical'</span> | <span class="k">'plumbing'</span> | <span class="k">'painting'</span> | <span class="k">'hvac'</span>
+  easyFive: ReadonlyArray&lt;JobType&gt;       <span class="c">// jobs the SMS Agent will auto-quote</span>
+  inspectionOnly: ReadonlyArray&lt;JobType&gt; <span class="c">// jobs that route to $199 site visit</span>
+
+  <span class="c">// 1. assemblies — seeded into shared_assemblies + shared_materials</span>
+  assemblies: ReadonlyArray&lt;AssemblySeed&gt;
+
+  <span class="c">// 2. intake rules — consumed by lib/sms/dialog.ts SYSTEM_PROMPT</span>
+  intakeRules: Record&lt;JobType, AssumptionRule&gt;
+  universalInspectionTriggers: ReadonlyArray&lt;string&gt;
+  universalMustAsk: ReadonlyArray&lt;string&gt; <span class="c">// always: name, suburb, job_type</span>
+
+  <span class="c">// 3. pricing defaults — seeded into pricing_book</span>
+  pricingDefaults: PricingBookSeed
+
+  <span class="c">// 4. tier framing — used by Estimation prompt + tier-photos</span>
+  tierFraming: Record&lt;JobType, { good: string; better: string; best: string }&gt;
+
+  <span class="c">// 5. licence schema — per-state regulator display</span>
+  licenceSchema: Record&lt;'NSW'|'VIC'|'QLD'|'WA'|'SA'|'TAS'|'ACT'|'NT', LicenceDisplay&gt;
+}</code></pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Electrical — the reference bundle (already shipped).</h2>
+      <p class="lead">Each component listed here is real, shipped code. To add a second trade, you build the same five things at the same paths.</p>
+
+      <table>
+        <thead><tr><th>Component</th><th>Where it lives today</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>1. Assemblies</td><td><code>sql/seed/electrical_assemblies.sql</code> + <code>shared_assemblies</code> table</td><td>5 auto-quote assemblies: downlight, GPO, ceiling fan, smoke alarm, outdoor light</td></tr>
+          <tr><td>2. Intake rules</td><td><code>lib/sms/assumptions.ts</code></td><td>Per-easy-5 <code>safeDefaults</code> / <code>mustAsk</code> / <code>inspectionTriggers</code> + <code>UNIVERSAL_MUST_ASK</code> + <code>UNIVERSAL_INSPECTION_TRIGGERS</code></td></tr>
+          <tr><td>3. Pricing defaults</td><td><code>pricing_book</code> table (seeded once)</td><td>$110/hr, $99 callout, 28% markup, GST registered, NECA NSW licence</td></tr>
+          <tr><td>4. Tier framing</td><td><code>lib/quote/tier-photos.ts</code> (mock images) + Estimation prompt label hints</td><td>Standard / Tri-colour / Smart per job</td></tr>
+          <tr><td>5. Licence schema</td><td><code>pricing_book.licence_*</code> columns + <code>app/q/[token]/page.tsx</code> footer</td><td>NSW NECA today; VIC ESV / QLD QBCC ready when those tradies onboard</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Worked example — adding plumbing.</h2>
+      <p class="lead">Concrete preview of what the plumbing bundle would look like. Numbers and rules are illustrative — finalised with the pilot plumber.</p>
+
+      <h3>Plumbing easy 5 (auto-quote)</h3>
+      <ul>
+        <li><strong>tap_replacement</strong> — replace existing kitchen / bathroom tap, like-for-like</li>
+        <li><strong>toilet_replacement</strong> — swap an existing toilet, no new plumbing</li>
+        <li><strong>shower_head</strong> — replace shower head / arm, existing pipe</li>
+        <li><strong>basin_replacement</strong> — replace bathroom basin, existing waste + supply</li>
+        <li><strong>laundry_tap</strong> — replace laundry tap or washing-machine valve</li>
+      </ul>
+
+      <h3>Plumbing inspection-only (always $199 site visit)</h3>
+      <ul>
+        <li>hot water system — new or replacement (sizing + gas/electric routing)</li>
+        <li>drainage / blocked sewer line</li>
+        <li>leak detection and repair</li>
+        <li>renovation rough-in</li>
+        <li>backflow prevention installation</li>
+      </ul>
+
+      <h3>Universal inspection triggers (plumbing)</h3>
+      <p>Mostly different from electrical — different danger signals. Replace the existing <code>UNIVERSAL_INSPECTION_TRIGGERS</code> with the trade's own:</p>
+      <ul>
+        <li>burst pipe, flooding, water damage, ceiling stain</li>
+        <li>no hot water, gas smell, water hammer</li>
+        <li>backflow, sewage smell, drain backup</li>
+        <li>asbestos pipework, lead pipework, pre-1970 plumbing</li>
+      </ul>
+
+      <h3>Pricing defaults (illustrative)</h3>
+      <ul>
+        <li>Hourly rate: $120/hr</li>
+        <li>Callout minimum: $130</li>
+        <li>Markup: 22%</li>
+        <li>Licence: <strong>NSW Master Plumbers Association</strong> (or NSW Fair Trading plumber's licence)</li>
+      </ul>
+
+      <h3>G/B/B framing (tap_replacement example)</h3>
+      <ul>
+        <li><strong>GOOD:</strong> Standard chrome mixer, 1yr warranty</li>
+        <li><strong>BETTER:</strong> WELS 5-star ceramic-disc mixer, 5yr warranty</li>
+        <li><strong>BEST:</strong> Premium designer mixer, 10yr warranty, lead-free brass</li>
+      </ul>
+
+      <div class="callout tip">
+        <div class="callout-label">Build with the tradie, not for the tradie</div>
+        <p>Per <a href="../../../CLAUDE.md">CLAUDE.md</a>: most owner-operators don't have a structured price list. Ship the bundle skeleton above, then capture the pilot plumber's overlay through a guided onboarding screen (their actual rates, their preferred brands, their warranty positions). The bundle is the shape; the tradie fills in the numbers.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>What stays trade-agnostic.</h2>
+      <p class="lead">The whole pipeline below the bundle never changes when you add a trade. This is the leverage.</p>
+
+      <table>
+        <thead><tr><th>Stays the same</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>app/api/sms/inbound/route.ts</code></td><td>Reads bundle's intake rules; same dialog turn handler regardless of trade</td></tr>
+          <tr><td><code>lib/sms/dialog.ts</code> SYSTEM_PROMPT</td><td>Substitutes the trade's universal triggers + must-ask + per-job rules at build time</td></tr>
+          <tr><td><code>app/api/intake/structure/route.ts</code></td><td>Channel-agnostic AND trade-agnostic — Opus reads the transcript, schema is generic</td></tr>
+          <tr><td><code>app/api/estimate/draft/route.ts</code></td><td>Uses the bundle's tools (<code>lookup_assembly</code>, <code>apply_markup</code>) over the trade's seed rows</td></tr>
+          <tr><td><code>lib/sms/templates.ts</code> <code>buildQuoteSms</code></td><td>Trade-agnostic. Reads <code>JOB_TYPE_LABEL</code> map — extend with the new trade's labels.</td></tr>
+          <tr><td><code>app/q/[token]/page.tsx</code></td><td>Trade-agnostic — only the licence footer differs (driven by <code>pricing_book.licence_*</code>)</td></tr>
+          <tr><td>Stripe Checkout flow</td><td>Identical across trades</td></tr>
+          <tr><td>WhatsApp fallback</td><td>Identical across trades</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Files you DO touch when adding a trade</h3>
+      <ol>
+        <li>Create <code>lib/trades/&lt;trade&gt;/</code> with the five files</li>
+        <li>Add the trade's seed SQL: <code>sql/seed/&lt;trade&gt;_assemblies.sql</code></li>
+        <li>Add the trade's job_type values to <code>IntakeSchema</code> in <code>lib/intake/schema.ts</code></li>
+        <li>Add the trade's <code>JOB_TYPE_LABEL</code> entries in <code>lib/sms/templates.ts</code> + <code>app/q/[token]/page.tsx</code></li>
+        <li>Add the trade's tier descriptions to <code>lib/quote/tier-photos.ts</code></li>
+        <li>Wire the bundle into the dialog SYSTEM_PROMPT (one line that picks the active trade's rules)</li>
+      </ol>
+
+      <p>That's it. Six edits, one new directory, no architectural changes.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Onboarding the tradie themselves.</h2>
+      <p class="lead">Once the bundle is in code, the new tradie's individual onboarding (their actual rates, brands, warranty positions) is a guided UI flow.</p>
+
+      <h3>Six-step tradie onboarding (planned)</h3>
+      <ol>
+        <li><strong>Identity + licence</strong> — ABN, licence number, state, photo of licence card</li>
+        <li><strong>Default pricing overlay</strong> — adjust hourly, callout, markup; Stripe Connect Express setup</li>
+        <li><strong>Tier framing review</strong> — accept default G/B/B framing for each easy-5 job, or substitute their own brand preferences</li>
+        <li><strong>Assumption rules walkthrough</strong> — review each job's <code>safeDefaults</code> + <code>mustAsk</code>; correct anything that doesn't match how they work</li>
+        <li><strong>Test conversation</strong> — simulate one SMS and one voice intake; tradie sees the exact draft quote that will go to a customer; corrects anything wrong</li>
+        <li><strong>Phone number provisioning</strong> — Twilio number for SMS + Vapi number for voice (both AU long codes)</li>
+      </ol>
+
+      <div class="callout warn">
+        <div class="callout-label">Critical — eval before live customers</div>
+        <p>Per <a href="../../../CLAUDE.md">CLAUDE.md</a>: 100 hold-out (intake → quote) pairs scored on a 5-dimension rubric. No tradie goes live without their bundle achieving threshold scores on the eval set, customised with their corrected pricing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Cross-references.</h2>
+      <ul>
+        <li><a href="../../../docs/strategy.md">strategy.md</a> — v1 wedge, electrical-NSW pivot rationale, why portal-first not voice-first</li>
+        <li><a href="../../../CLAUDE.md">CLAUDE.md</a> — engineering context, conventions, decision-log</li>
+        <li><a href="sms-sop.html">sms-sop.html</a> — SMS Agent build SOP (steps SMS01–SMS10)</li>
+        <li><a href="sms-progress.html">sms-progress.html</a> — Weekly progress against Jon's priorities</li>
+        <li><a href="build-guide.html">build-guide.html</a> — Full build guide (steps 1–10)</li>
+        <li><a href="architecture.html">architecture.html</a> — System architecture diagram</li>
+      </ul>
+    </div>
+  </section>
+
+  <p class="foot">
+    QuoteMate · onboarding bundle spec · v1 · pairs with <a href="sms-sop.html">sms-sop.html</a> and <a href="sms-progress.html">sms-progress.html</a>
+  </p>
+
+</body>
+</html>
