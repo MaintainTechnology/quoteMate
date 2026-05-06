@@ -315,13 +315,13 @@
       <span class="hero-eyebrow">Build status · Updated 2026-05-06</span>
       <h1>SMS Agent — <em>shipped end-to-end</em>.</h1>
       <p class="hero-lede">
-        All four phases of the SMS channel are now live in production. Real customers can text our number, the AI dialog gathers details (capped at 4 turns with declared assumptions), the existing intake + estimation pipeline drafts a Good/Better/Best quote, and the customer receives the same polished quote SMS the voice path produces — with photos. Below is the current status of every priority and every SOP step.
+        All five phases of the SMS channel are live in production. Real customers can text our number, the AI greets + thanks them, the dialog gathers details (capped at 4 turns with declared assumptions), the SMS Agent dispatches a photo-upload link, the existing intake + estimation pipeline drafts a Good/Better/Best quote, and the customer receives the same polished quote SMS the voice path produces — with photos. The tradie gets pinged via SMS + WhatsApp on every draft. Daily abandoned-conversation cron is armed.
       </p>
       <div class="hero-meta">
         <div class="hero-meta-item"><span class="hero-meta-label">Reporting period</span><span class="hero-meta-value">Week of 2026-05-06</span></div>
-        <div class="hero-meta-item"><span class="hero-meta-label">SMS channel</span><span class="hero-meta-value">Phases 1–4 done · production-tested</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">SMS channel</span><span class="hero-meta-value">Phases 1–5 ALL DONE · production-live</span></div>
         <div class="hero-meta-item"><span class="hero-meta-label">Voice agent</span><span class="hero-meta-value">Hardened — strict grounding live</span></div>
-        <div class="hero-meta-item"><span class="hero-meta-label">Quote output</span><span class="hero-meta-value">HTML page + tier photos + Stripe deposit live</span></div>
+        <div class="hero-meta-item"><span class="hero-meta-label">Quote output</span><span class="hero-meta-value">HTML page + tier photos + Stripe deposit + booking</span></div>
       </div>
     </div>
   </header>
@@ -376,11 +376,11 @@
     <div class="container">
       <div class="bar-label">
         <span class="num">SMS channel — overall</span>
-        <span class="pct">Phases 1–4 complete · production-tested</span>
+        <span class="pct">Phases 1–5 ALL DONE · 100% shipped</span>
       </div>
       <div class="bar"><div class="bar-fill"></div></div>
       <p class="bar-caption">
-        <strong>All four phases shipped and verified end-to-end on a real phone.</strong> Phase 5 (production hardening / deploy prerequisites) is the only remaining work — pure operational steps, no engineering.
+        <strong>SMS Agent is fully shipped end-to-end.</strong> All four engineering phases live + verified on a real phone. Phase 5 deploy steps complete: three migrations applied to prod Supabase, <code>CRON_SECRET</code> + <code>TRADIE_NOTIFY_*</code> set in Vercel Production env. Daily cleanup cron armed. Tradie notify firing on every SMS-sourced draft.
       </p>
     </div>
   </section>
@@ -528,8 +528,8 @@
           <span class="stage-id">photos</span>
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>MMS photo support</strong>
-            <p><code>lib/sms/mms.ts</code>: parses <code>NumMedia</code>, fetches each <code>MediaUrlN</code> with Basic auth, uploads via the existing <code>uploadIntakePhoto</code> helper, returns 24h-signed URLs. Persisted on <code>sms_messages.photo_urls</code> (migration 003). Aggregated in the intake/structure SMS branch and fed straight to Opus vision.</p>
+            <strong>Dual-source photo support (MMS + upload-link)</strong>
+            <p>Two surfaces: (1) <strong>MMS attachments</strong> via <code>lib/sms/mms.ts</code> persist to <code>sms_messages.photo_urls</code> (migration 003). (2) <strong>Upload-link photos</strong> via the dialog agent's <code>buildPhotoRequestSms</code> dispatch persist to <code>sms_conversations.photo_urls</code> (migration 005). Both are aggregated and de-duplicated in the intake/structure SMS branch and fed to the same Opus vision call.</p>
           </div>
         </li>
       </ul>
@@ -600,6 +600,26 @@
           <span class="check">✓</span>
           <h4>Onboarding bundle spec</h4>
           <p><code>onboarding-bundle.html</code> — formal spec for adding any new trade as a 5-component bundle. Electrical mapped to its current shipped code. Plumbing sketched as worked example. Six-edit checklist for adding a trade. <a href="onboarding-bundle.html">Read it →</a></p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Photo-request SMS — voice-parity</h4>
+          <p><strong>NEW THIS WEEK.</strong> SMS Agent now mirrors the voice agent's <code>send_sms_photo_link</code>: every conversation gets a fresh <code>photo_request_token</code> on creation; once dialog identifies an easy-5 job_type, the route fires <code>buildPhotoRequestSms</code> with <code>${'${APP_URL}'}/upload/${'${token}'}</code>. <code>/upload/[token]</code> resolves both calls and sms_conversations. Stamps <code>photo_request_sent_at</code> so it never re-sends.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Dual-source photo aggregation</h4>
+          <p><strong>NEW THIS WEEK.</strong> SMS-sourced intakes feed Opus vision a deduplicated union of <code>sms_messages.photo_urls</code> (MMS attachments) AND <code>sms_conversations.photo_urls</code> (uploaded via the photo-request link). Customer can use either path — text the photo, tap the link, or both.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>First-turn intro + gratitude</h4>
+          <p><strong>NEW THIS WEEK.</strong> On the customer's very first message Haiku opens with <em>"G'day, thanks for messaging QuoteMate — I'm the AI quoting assistant…"</em> before transitioning to the question. Subsequent turns drop the intro and stay direct. Enforced via Rule 9 in the SYSTEM_PROMPT plus a turn-marker in the user prompt.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Phase 5 migrations live in prod</h4>
+          <p><strong>SHIPPED 2026-05-06.</strong> Migrations 003 (sms_messages.photo_urls), 004 (unique inbound MessageSid index), and 005 (sms_conversations photo columns) all applied to prod Supabase. Verified at run-time — every required column / index landed. Idempotent re-runs are safe.</p>
         </div>
       </div>
     </div>
@@ -723,8 +743,8 @@
       </div>
 
       <div class="callout tip">
-        <div class="callout-label">✓ Migrations 003–005 applied 2026-05-06</div>
-        <p>All three SQL migrations are now live in prod Supabase. Verified at run-time — every required column / index landed. Two Vercel env steps remain (set <code>CRON_SECRET</code> and verify the <code>TRADIE_NOTIFY_*</code> vars), then redeploy. Once those land, Phase 5 is fully shipped.</p>
+        <div class="callout-label">✓ Phase 5 fully shipped 2026-05-06</div>
+        <p>All three SQL migrations live in prod Supabase + <code>CRON_SECRET</code> set in Vercel Production env + <code>TRADIE_NOTIFY_NUMBER</code> + <code>TRADIE_NOTIFY_WHATSAPP</code> set in Vercel Production env. Redeployed. SMS Agent is now fully operational for real customers.</p>
       </div>
 
       <ul class="stages">
@@ -754,18 +774,18 @@
         </li>
         <li>
           <span class="stage-id">prod-004</span>
-          <span class="stage-pill next">NEXT</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Set CRON_SECRET in Vercel env (manual — Vercel CLI requires interactive login)</strong>
-            <p>Generated value ready to paste: <code>30cd05eeb04697c052b8f9a803891659d0bf3ab03437af8917548dd37fd6ef40</code>. In Vercel dashboard → Project Settings → Environment Variables → Add: name <code>CRON_SECRET</code>, value above, environment <strong>Production</strong>, then redeploy. Vercel Cron auto-injects this as a Bearer token to <code>/api/cron/sms-cleanup</code>.</p>
+            <strong>Set CRON_SECRET in Vercel env</strong>
+            <p>Set in Vercel Production env 2026-05-06. Daily Vercel Cron now Bearer-authenticates against <code>/api/cron/sms-cleanup</code>. Stale conversations (status=open AND last_message_at &lt; now()-24h) get marked <code>abandoned</code> automatically every day at 17:00 UTC. Secret never committed to git.</p>
           </div>
         </li>
         <li>
           <span class="stage-id">prod-005</span>
-          <span class="stage-pill next">NEXT</span>
+          <span class="stage-pill done">DONE</span>
           <div class="stage-body">
-            <strong>Verify TRADIE_NOTIFY_NUMBER + TRADIE_NOTIFY_WHATSAPP in prod</strong>
-            <p>Phase 4 tradie notify is gated on these env vars. In Vercel dashboard → Project Settings → Environment Variables, confirm both are set for the <strong>Production</strong> environment. If unset, the route logs "tradie notify skipped — no env" and continues silently.</p>
+            <strong>TRADIE_NOTIFY_NUMBER + TRADIE_NOTIFY_WHATSAPP set in prod</strong>
+            <p>Set in Vercel Production env 2026-05-06 (mirrored from <code>.env.local</code> values). Phase 4 tradie notify now fires on every SMS-sourced draft — both an SMS (with WhatsApp fallback) to the tradie's mobile AND an explicit WhatsApp message to the WhatsApp identity. Customer still gets their quote regardless.</p>
           </div>
         </li>
         <li>
@@ -796,9 +816,9 @@
         <h2 class="section-title">What shipped, in chronological order.</h2>
       </div>
 
-      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem;">2026-05-06 (today) · SMS Agent end-to-end + hardening + Phase 5 ship</h3>
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem;">2026-05-06 (today) · SMS Agent end-to-end + Phase 5 100% shipped</h3>
       <ul class="timeline">
-        <li><span class="when">today</span><span class="what"><strong>Phase 5 ship</strong> — migrations 003 / 004 / 005 applied to prod Supabase. CRON_SECRET generated, ready to paste into Vercel env. Two manual Vercel env steps remaining.</span></li>
+        <li><span class="when">today</span><span class="what"><strong>Phase 5 fully shipped</strong> — migrations 003 / 004 / 005 applied to prod Supabase + <code>CRON_SECRET</code> set in Vercel Production env + <code>TRADIE_NOTIFY_NUMBER</code> + <code>TRADIE_NOTIFY_WHATSAPP</code> set in Vercel Production env. Redeployed. SMS Agent is fully operational.</span></li>
         <li><span class="when">today</span><span class="what"><strong>Photo-request SMS parity</strong> — SMS Agent now sends <code>${'${APP_URL}'}/upload/${'${token}'}</code> link when easy-5 job_type is identified, same as voice agent's <code>send_sms_photo_link</code>. Migration 005 + token generation + dual-source aggregation in <code>structureIntake</code>.</span></li>
         <li><span class="when">today</span><span class="what"><strong>First-turn intro + gratitude</strong> — Haiku now opens with "G'day, thanks for messaging QuoteMate — I'm the AI quoting assistant…" before the first question. Subsequent turns stay direct.</span></li>
         <li><span class="when">today</span><span class="what"><strong>Migration 004</strong> — unique partial index on inbound <code>MessageSid</code> (defence-in-depth for the duplicate-reply fix)</span></li>
@@ -861,7 +881,22 @@
         <div class="card done">
           <span class="check">✓</span>
           <h4>Phase 2 dialog brain — RESOLVED</h4>
-          <p>Haiku 4.5 dialog agent live and hardened. Off-topic chat, missing-name finishes, inspection-trigger escalation all handled.</p>
+          <p>Haiku 4.5 dialog agent live and hardened. Off-topic chat, missing-name finishes, inspection-trigger escalation all handled. First-turn intro + gratitude shipped today.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Phase 5 SQL migrations — RESOLVED</h4>
+          <p>Migrations 003 / 004 / 005 applied to prod Supabase 2026-05-06. Verified at run-time — all required columns + indexes landed. SMS Agent's photo-request, MMS persistence, and duplicate-reply protection are now DB-ready.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>SMS Agent doesn't ask for photos — RESOLVED</h4>
+          <p>Was a real gap until today. SMS Agent now mirrors the voice receptionist: when easy-5 job_type is identified, dialog dispatches a photo-upload SMS with <code>${'${APP_URL}'}/upload/${'${token}'}</code>. Customer can use the link OR attach via MMS — both surfaces aggregate into Opus vision.</p>
+        </div>
+        <div class="card done">
+          <span class="check">✓</span>
+          <h4>Vercel Production env fully configured — RESOLVED</h4>
+          <p>2026-05-06: <code>CRON_SECRET</code>, <code>TRADIE_NOTIFY_NUMBER</code>, and <code>TRADIE_NOTIFY_WHATSAPP</code> all set in Vercel Production env and redeployed. Daily abandoned-conversation cron is armed; tradie notify fires on every SMS-sourced draft. Phase 5 fully shipped.</p>
         </div>
         <div class="card next">
           <span class="check">○</span>
@@ -876,7 +911,7 @@
   <section class="cta">
     <div class="container">
       <h2>What's next.</h2>
-      <p>SMS Agent is feature-complete and verified end-to-end. Run the four Phase-5 deploy prerequisites (two migrations + two env vars), then move on to onboarding the second tradie using the bundle spec.</p>
+      <p>SMS Agent is fully shipped — all five phases live in prod, verified end-to-end, no outstanding ops items. Next focus: onboard the second tradie using the bundle spec, then run the eval framework against 100 hold-out intake → quote pairs before the first paying customer.</p>
       <a href="sms-sop.html">SMS Engineering walkthrough →</a>
       <a href="onboarding-bundle.html">Onboarding bundle spec →</a>
       <a href="build-guide.html">Full build guide →</a>
