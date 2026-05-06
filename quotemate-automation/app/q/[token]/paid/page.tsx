@@ -19,17 +19,37 @@ export default async function PaidPage(props: {
 
   const { data: quote } = await supabase
     .from('quotes')
-    .select('id, paid_at, paid_tier, total_inc_gst')
+    .select('id, paid_at, paid_tier, total_inc_gst, scheduled_at')
     .eq('share_token', token)
     .single()
+
+  const showBookCta = quote && quote.paid_at && !quote.scheduled_at && sp.tier !== 'inspection'
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 560, margin: '4rem auto', padding: '0 1rem', color: '#111' }}>
       <h1 style={{ fontSize: '1.6rem', marginBottom: '0.5rem' }}>Payment received</h1>
       <p style={{ color: '#444', lineHeight: 1.5 }}>
         Thanks{sp.already ? '' : '!'} Your deposit{sp.tier ? ` for the ${sp.tier.toUpperCase()} option` : ''} is in.
-        Your tradie will be in touch shortly to confirm a time.
+        {showBookCta ? ' Pick a time below to lock in your visit.' : ' Your tradie will be in touch shortly to confirm a time.'}
       </p>
+      {showBookCta ? (
+        <a
+          href={`/q/${token}/book`}
+          style={{
+            display: 'inline-block',
+            marginTop: '1.25rem',
+            padding: '0.85rem 1.25rem',
+            background: '#0f172a',
+            color: 'white',
+            borderRadius: 10,
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            textDecoration: 'none',
+          }}
+        >
+          Pick a time →
+        </a>
+      ) : null}
       {quote ? (
         <ul style={{ marginTop: '1.5rem', padding: 0, listStyle: 'none', borderTop: '1px solid #eee' }}>
           <li style={{ padding: '0.6rem 0', borderBottom: '1px solid #eee' }}>
