@@ -14,7 +14,10 @@
 // single-tradie. When tradie #2 onboards, wrap in a stored procedure.
 
 import { createClient } from '@supabase/supabase-js'
+import { after } from 'next/server'
 import { pipelineLog } from '@/lib/log/pipeline'
+import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
+import { buildBookingConfirmationSms, buildTradieBookingNotification } from '@/lib/sms/templates'
 
 export const maxDuration = 30
 
@@ -53,7 +56,7 @@ export async function POST(
 
   const { data: quote, error: quoteErr } = await supabase
     .from('quotes')
-    .select('id, paid_at, scheduled_at, share_token')
+    .select('id, paid_at, scheduled_at, share_token, intake_id')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -130,5 +133,93 @@ export async function POST(
   }
 
   log.done('quote booked', { quote_id: quote.id, slot })
+
+  // Fire confirmation SMS to the customer + tradie. Wrapped in `after()`
+  // so the response returns instantly; SMS failures are logged loudly
+  // but never undo the booking. Mirrors the pattern in /api/estimate/draft.
+  after(async () => {
+    const sms = pipelineLog('dispatch', quote.id)
+    try {
+      const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
+
+      // Resolve customer name + phone via intake → calls.
+      // intake.caller.phone is set on SMS-sourced quotes; calls.caller_number
+      // is set on voice-sourced quotes. Either one is sufficient.
+      const { data: intake } = await supabase
+        .from('intakes')
+        .select('id, call_id, job_type, caller, scope')
+        .eq('id', quote.intake_id)
+        .maybeSingle()
+
+      let callerNumber: string | null =
+        (intake?.caller as { phone?: string } | null)?.phone ?? null
+
+      if (!callerNumber && intake?.call_id) {
+        const { data: callRow } = await supabase
+          .from('calls')
+          .select('caller_number')
+          .eq('id', intake.call_id)
+          .maybeSingle()
+        callerNumber = callRow?.caller_number ?? null
+      }
+
+      const firstName = (intake?.caller as { name?: string } | null)?.name
+      const bookingUrl = `${appUrl}/q/${token}/book`
+      const quoteUrl = `${appUrl}/q/${token}`
+
+      // ── Customer SMS ──
+      if (callerNumber) {
+        const body = buildBookingConfirmationSms({
+          firstName,
+          scheduledAt: slot,
+          bookingUrl,
+        })
+        sms.step('sending booking confirmation to customer', { to: callerNumber })
+        const r = await dispatchQuoteMessage({ to: callerNumber, text: body })
+        if (r.ok) {
+          sms.ok('customer booking confirmation sent', { channel: r.channel, sid: r.sid })
+        } else {
+          sms.err('customer booking confirmation failed', null, {
+            sms_code: r.smsAttempt.code,
+            sms_reason: r.smsAttempt.reason,
+            wa_code: r.waAttempt?.code,
+            wa_reason: r.waAttempt?.reason,
+          })
+        }
+      } else {
+        sms.ok('customer SMS skipped — no callerNumber resolvable', { quote_id: quote.id })
+      }
+
+      // ── Tradie SMS ──
+      const notifyMobile = process.env.TRADIE_NOTIFY_NUMBER
+      if (notifyMobile) {
+        const tradieBody = buildTradieBookingNotification({
+          customerName: firstName,
+          customerPhone: callerNumber ?? undefined,
+          jobType: intake?.job_type ?? 'other',
+          itemCount: (intake?.scope as { item_count?: number } | null)?.item_count,
+          scheduledAt: slot,
+          quoteUrl,
+        })
+        sms.step('notifying tradie of booking', { to: notifyMobile })
+        const r = await dispatchQuoteMessage({ to: notifyMobile, text: tradieBody })
+        if (r.ok) {
+          sms.ok('tradie booking notification sent', { channel: r.channel, sid: r.sid })
+        } else {
+          sms.err('tradie booking notification failed', null, {
+            sms_code: r.smsAttempt.code,
+            sms_reason: r.smsAttempt.reason,
+            wa_code: r.waAttempt?.code,
+            wa_reason: r.waAttempt?.reason,
+          })
+        }
+      } else {
+        sms.ok('tradie notify skipped — no TRADIE_NOTIFY_NUMBER env')
+      }
+    } catch (e) {
+      sms.err('booking SMS dispatch threw — booking IS persisted, only SMS failed', e)
+    }
+  })
+
   return Response.json({ ok: true, scheduled_at: slot })
 }

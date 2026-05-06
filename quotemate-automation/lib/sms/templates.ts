@@ -54,6 +54,63 @@ export function buildIncompleteCallSms(opts: { firstName?: string }): string {
     .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
 }
 
+// Format an ISO timestamp as a short AU Eastern label, e.g. "Thu 7 May, 9:00am".
+// ASCII output for GSM-7 SMS.
+function fmtSlotShort(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return d
+      .toLocaleString('en-AU', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Australia/Sydney',
+      })
+      .replace(/ /g, ' ')          // narrow no-break space some runtimes emit
+      .replace(/\s*([ap])m\b/i, '$1m')  // tighten "9:00 am" → "9:00am"
+  } catch {
+    return iso
+  }
+}
+
+// Customer booking-confirmation SMS — fires after the slot is locked in
+// on /api/q/[token]/book. ASCII-only, single GSM-7 segment when possible.
+export function buildBookingConfirmationSms(opts: {
+  firstName?: string
+  scheduledAt: string
+  bookingUrl: string
+}): string {
+  const first = (opts.firstName ?? '').split(' ')[0] || 'there'
+  const when = fmtSlotShort(opts.scheduledAt)
+  const body = `Hi ${first}, you're locked in for ${when}. The tradie will text the day before to confirm.\n\nView booking: ${opts.bookingUrl}\n\n- QuoteMate`
+  return body
+    .replace(/[‐-―−]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
+}
+
+// Tradie-side booking notification — fires alongside the customer
+// confirmation. Sent to TRADIE_NOTIFY_NUMBER (and WhatsApp) when set.
+export function buildTradieBookingNotification(opts: {
+  customerName?: string
+  customerPhone?: string
+  jobType: string
+  itemCount?: number
+  scheduledAt: string
+  quoteUrl: string
+}): string {
+  const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
+  const job = JOB_TYPE_LABEL[opts.jobType] ?? opts.jobType.replace(/_/g, ' ')
+  const qty = opts.itemCount ? `${opts.itemCount} ${job}` : job
+  const when = fmtSlotShort(opts.scheduledAt)
+  const body = `[QuoteMate] New booking - ${qty} for ${who} on ${when}. View: ${opts.quoteUrl}`
+  return body
+    .replace(/[‐-――]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
+}
+
 // Photo-request SMS — sent immediately after the call ends, in parallel
 // with the intake/estimate chain. ASCII-only, GSM-7 safe, single segment.
 export function buildPhotoRequestSms(opts: { firstName?: string; uploadUrl: string }): string {
