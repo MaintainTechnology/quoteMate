@@ -110,12 +110,43 @@ if (!voiceId) {
 }
 
 // ─── 3. Build the assistant payload ────────────────────────────────
+// Transcriber: Deepgram Nova-3 with en-AU and a keyword boost list.
+// Boosts trade jargon, acronyms, brand names, and AU suburb names —
+// the words Deepgram has weak priors on. Keep this list in sync with
+// scripts/update-vapi-transcriber.mjs (the patch script for existing
+// assistants on the new Vapi account).
+// Vapi's `keywords` field accepts SINGLE TOKENS only. Multi-word entries
+// like "power point" or "Surry Hills" cause HTTP 400. Trade compounds
+// ("ceiling fan", "smoke alarm") are common enough that Deepgram en-AU
+// handles them unboosted — boost only irregular jargon + acronyms.
+const TRANSCRIBER_KEYWORDS = [
+  "downlight:2", "downlights:2",
+  "GPO:3", "GPOs:3",
+  "switchboard:2",
+  "bollard:1",
+  "fault:1",
+  "oven:1", "cooktop:1", "rangehood:1",
+  "RCD:3", "MCB:3", "RCBO:3", "LED:2", "LEDs:2", "IP65:2",
+  "dimmable:2", "dimmer:1", "halogen:1",
+  "tri-colour:2", "tri-color:2",
+  "weatherproof:1",
+  "QuoteMate:3", "Jon:2",
+  "Clipsal:1", "HPM:1", "NEC:1",
+  "Bondi:1", "Paddington:1", "Coogee:1", "Redfern:1",
+  "Newtown:1", "Marrickville:1", "Manly:1", "Glebe:1",
+  "Erskineville:1", "Chatswood:1", "Randwick:1",
+  "sparky:1", "sparkies:1",
+];
+
 const payload = {
   name: "QuoteMate Receptionist",
   transcriber: {
     provider: "deepgram",
-    model: "nova-2",
+    model: "nova-3",
     language: "en-AU",
+    keywords: TRANSCRIBER_KEYWORDS,
+    smartFormat: true,
+    endpointing: 300,
   },
   voice: {
     provider: "11labs",
