@@ -25,9 +25,13 @@ const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
 export type MmsExtractResult = {
   /** Signed URLs ready for storage on sms_messages.photo_urls */
   signedUrls: string[]
+  /** Permanent storage paths, parallel-indexed with signedUrls.
+   *  Persisted on sms_messages.photo_paths so the public quote page
+   *  can re-sign on demand (signed URLs expire after 24h). */
+  paths: string[]
   /** Per-attachment outcome for diagnostic logging */
   attempts: Array<
-    | { index: number; ok: true; signedUrl: string; contentType: string }
+    | { index: number; ok: true; signedUrl: string; path: string; contentType: string }
     | { index: number; ok: false; reason: string; contentType?: string }
   >
 }
@@ -39,7 +43,7 @@ export async function extractAndStoreMmsPhotos(opts: {
 }): Promise<MmsExtractResult> {
   const numMedia = parseInt(opts.params['NumMedia'] ?? '0', 10)
   if (!Number.isFinite(numMedia) || numMedia <= 0) {
-    return { signedUrls: [], attempts: [] }
+    return { signedUrls: [], paths: [], attempts: [] }
   }
 
   const sid = process.env.TWILIO_ACCOUNT_SID
@@ -47,6 +51,7 @@ export async function extractAndStoreMmsPhotos(opts: {
   if (!sid || !token) {
     return {
       signedUrls: [],
+      paths: [],
       attempts: Array.from({ length: numMedia }, (_, i) => ({
         index: i,
         ok: false as const,
@@ -58,6 +63,7 @@ export async function extractAndStoreMmsPhotos(opts: {
   const auth = 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64')
 
   const signedUrls: string[] = []
+  const paths: string[] = []
   const attempts: MmsExtractResult['attempts'] = []
 
   for (let i = 0; i < numMedia; i++) {
@@ -86,7 +92,7 @@ export async function extractAndStoreMmsPhotos(opts: {
       // 2. Upload via our existing storage helper (re-using callId param for the
       //    path key — works fine for conversationIds, paths read as
       //    <conversationId>/<stamp>-<i>-<rand>.<ext>).
-      const { signedUrl } = await uploadIntakePhoto({
+      const { signedUrl, path } = await uploadIntakePhoto({
         callId: opts.conversationId,
         data: buf,
         contentType,
@@ -94,11 +100,12 @@ export async function extractAndStoreMmsPhotos(opts: {
       })
 
       signedUrls.push(signedUrl)
-      attempts.push({ index: i, ok: true, signedUrl, contentType })
+      paths.push(path)
+      attempts.push({ index: i, ok: true, signedUrl, path, contentType })
     } catch (e: any) {
       attempts.push({ index: i, ok: false, reason: e?.message ?? String(e), contentType })
     }
   }
 
-  return { signedUrls, attempts }
+  return { signedUrls, paths, attempts }
 }

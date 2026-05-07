@@ -21,6 +21,20 @@ import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms } from '@/lib/sms/templates'
 
+// Twilio webhook ack. We send the real customer reply via the REST API
+// inside after() — never as TwiML in the webhook response — so this
+// endpoint must return an EMPTY <Response/> document. If the body is
+// non-TwiML text (e.g. "ok"), Twilio's messaging webhook will treat it
+// as a reply and SMS it back to the customer, producing a phantom "ok"
+// bubble before the agent's actual greeting. Empty TwiML = no auto-reply.
+const TWIML_EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response/>'
+function ackTwiml() {
+  return new Response(TWIML_EMPTY, {
+    status: 200,
+    headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+  })
+}
+
 // Easy-5 jobs benefit from a photo (visual ceiling/wall/access detail)
 // before Opus drafts the quote. Out-of-scope jobs go straight to
 // inspection so a photo prompt would be off-message.
@@ -133,10 +147,7 @@ export async function POST(req: Request) {
         existingMessageId: existingMsg.id,
         conversationId: existingMsg.conversation_id,
       })
-      return new Response('ok (duplicate ignored)', {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain' },
-      })
+      return ackTwiml()
     }
   }
 
@@ -182,8 +193,9 @@ export async function POST(req: Request) {
 
   // 4a. If this is an MMS, fetch the media from Twilio and upload to our
   //     intake-photos bucket BEFORE persisting the inbound row, so the
-  //     resulting signed URLs land on the same row.
+  //     resulting signed URLs + permanent paths land on the same row.
   let inboundPhotoUrls: string[] = []
+  let inboundPhotoPaths: string[] = []
   const numMedia = parseInt(params.NumMedia ?? '0', 10)
   if (Number.isFinite(numMedia) && numMedia > 0) {
     console.log('[sms/inbound] step 4a — extracting MMS attachments', {
@@ -196,6 +208,7 @@ export async function POST(req: Request) {
         params,
       })
       inboundPhotoUrls = result.signedUrls
+      inboundPhotoPaths = result.paths
       const failed = result.attempts.filter(a => !a.ok)
       if (failed.length) {
         console.warn('[sms/inbound] step 4a — some MMS attachments failed', {
@@ -232,6 +245,7 @@ export async function POST(req: Request) {
     body: inboundBody,
     twilio_message_sid: messageSid,
     photo_urls: inboundPhotoUrls,
+    photo_paths: inboundPhotoPaths,
   })
   if (insertErr) {
     if (insertErr.code === '23505') {
@@ -239,10 +253,7 @@ export async function POST(req: Request) {
         messageSid,
         conversationId: conversation.id,
       })
-      return new Response('ok (duplicate ignored)', {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain' },
-      })
+      return ackTwiml()
     }
     console.error('[sms/inbound] inbound persist failed', insertErr)
     return new Response('DB error', { status: 500 })
@@ -456,11 +467,8 @@ export async function POST(req: Request) {
     }
   })
 
-  console.log('[sms/inbound] step 11 — returning 200 OK (work continues in after())')
-  return new Response('ok', {
-    status: 200,
-    headers: { 'Content-Type': 'text/plain' },
-  })
+  console.log('[sms/inbound] step 11 — returning empty TwiML ack (work continues in after())')
+  return ackTwiml()
  } catch (err: any) {
   console.error('[sms/inbound] UNHANDLED error', {
     message: err?.message,

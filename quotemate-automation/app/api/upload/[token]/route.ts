@@ -21,16 +21,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
 
   // Token resolves to EITHER a calls row (voice flow) OR an
   // sms_conversations row (SMS flow). Storage path keys off the resolved
-  // owner-id, then we update the right table with the new URLs.
+  // owner-id, then we update the right table with the new URLs + paths.
   type Resolved =
-    | { source: 'call'; ownerId: string; existingUrls: string[]; completedAt: string | null }
-    | { source: 'sms';  ownerId: string; existingUrls: string[]; completedAt: string | null }
+    | { source: 'call'; ownerId: string; existingUrls: string[]; existingPaths: string[]; completedAt: string | null }
+    | { source: 'sms';  ownerId: string; existingUrls: string[]; existingPaths: string[]; completedAt: string | null }
 
   let resolved: Resolved | null = null
 
   const { data: call } = await supabase
     .from('calls')
-    .select('id, photos_completed_at, photo_urls')
+    .select('id, photos_completed_at, photo_urls, photo_paths')
     .eq('photo_request_token', token)
     .maybeSingle()
 
@@ -39,12 +39,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       source: 'call',
       ownerId: call.id as string,
       existingUrls: Array.isArray(call.photo_urls) ? (call.photo_urls as string[]) : [],
+      existingPaths: Array.isArray(call.photo_paths) ? (call.photo_paths as string[]) : [],
       completedAt: call.photos_completed_at as string | null,
     }
   } else {
     const { data: convo } = await supabase
       .from('sms_conversations')
-      .select('id, photos_completed_at, photo_urls')
+      .select('id, photos_completed_at, photo_urls, photo_paths')
       .eq('photo_request_token', token)
       .maybeSingle()
     if (convo) {
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
         source: 'sms',
         ownerId: convo.id as string,
         existingUrls: Array.isArray(convo.photo_urls) ? (convo.photo_urls as string[]) : [],
+        existingPaths: Array.isArray(convo.photo_paths) ? (convo.photo_paths as string[]) : [],
         completedAt: convo.photos_completed_at as string | null,
       }
     }
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
 
   log.step(`uploading ${photos.length} photo(s) to storage`, { source: resolved.source })
   const newSignedUrls: string[] = []
+  const newPaths: string[] = []
   for (let i = 0; i < photos.length; i++) {
     const f = photos[i]
     const buf = new Uint8Array(await f.arrayBuffer())
@@ -96,13 +99,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       // uploadIntakePhoto's `callId` field is the storage-path partition
       // key; works for both call IDs and sms_conversation IDs (storage
       // paths read as <ownerId>/<stamp>-<i>-<rand>.<ext>).
-      const { signedUrl } = await uploadIntakePhoto({
+      const { signedUrl, path } = await uploadIntakePhoto({
         callId: resolved.ownerId,
         data: buf,
         contentType: f.type,
         index: i,
       })
       newSignedUrls.push(signedUrl)
+      newPaths.push(path)
     } catch (e: any) {
       log.err(`upload failed for photo ${i}`, e?.message ?? e)
       return Response.json({ ok: false, error: 'Storage write failed' }, { status: 500 })
@@ -110,13 +114,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   }
   log.ok(`uploaded ${newSignedUrls.length} photo(s)`)
 
-  const merged = [...resolved.existingUrls, ...newSignedUrls]
+  const mergedUrls = [...resolved.existingUrls, ...newSignedUrls]
+  const mergedPaths = [...resolved.existingPaths, ...newPaths]
 
   const targetTable = resolved.source === 'call' ? 'calls' : 'sms_conversations'
   const { error: updateErr } = await supabase
     .from(targetTable)
     .update({
-      photo_urls: merged,
+      photo_urls: mergedUrls,
+      photo_paths: mergedPaths,
       photos_completed_at: new Date().toISOString(),
     })
     .eq('id', resolved.ownerId)

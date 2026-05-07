@@ -46,6 +46,9 @@ export async function POST(req: Request) {
   // Per-source input fields the rest of the handler depends on.
   let transcript = ''
   let photoUrls: string[] = []
+  // Permanent storage paths for the same photos. Persisted on intakes.photo_paths
+  // so /q/[token] can re-sign on demand (signed URLs expire after 24h).
+  let photoPaths: string[] = []
   let callId: string | null = null
   let conversationId: string | null = null
   // True when the in-call `send_sms_photo_link` Vapi tool already fired the
@@ -72,7 +75,7 @@ export async function POST(req: Request) {
 
     const { data: messages } = await supabase
       .from('sms_messages')
-      .select('direction, body, created_at, photo_urls')
+      .select('direction, body, created_at, photo_urls, photo_paths')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
 
@@ -111,6 +114,19 @@ export async function POST(req: Request) {
 
     photoUrls = Array.from(new Set([...mmsPhotoUrls, ...uploadedPhotoUrls]))
 
+    // Same aggregation for permanent storage paths — these get persisted
+    // on intakes.photo_paths so /q/[token] can render the photos via
+    // freshly-signed URLs (signed URLs expire after 24h).
+    const mmsPhotoPaths = (messages ?? [])
+      .flatMap(m => Array.isArray(m.photo_paths) ? m.photo_paths : [])
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+
+    const uploadedPhotoPaths = Array.isArray(convo.photo_paths)
+      ? (convo.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+      : []
+
+    photoPaths = Array.from(new Set([...mmsPhotoPaths, ...uploadedPhotoPaths]))
+
     log.ok('SMS conversation stitched', {
       messages: messages?.length ?? 0,
       assumptions: (convo.assumptions_made as string[] | null)?.length ?? 0,
@@ -136,6 +152,7 @@ export async function POST(req: Request) {
 
     transcript = call.transcript ?? ''
     photoUrls = call.photo_urls ?? []
+    photoPaths = Array.isArray(call.photo_paths) ? (call.photo_paths as string[]) : []
     callerNumber = call.caller_number ?? null
     photoRequestToken = call.photo_request_token ?? null
     photoRequestAlreadySent = !!call.photo_request_sent_at
@@ -168,7 +185,7 @@ export async function POST(req: Request) {
   const embedding = await embedIntake(intake)
   log.ok('embedding complete', { dims: embedding.length })
 
-  log.step('inserting intakes row')
+  log.step('inserting intakes row', { photo_paths_count: photoPaths.length })
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK
     job_type: intake.job_type,
@@ -184,6 +201,10 @@ export async function POST(req: Request) {
     confidence: intake.confidence,
     confidence_reason: intake.confidence_reason,
     embedding,
+    // Permanent storage paths shared by voice + SMS — re-signed on demand
+    // by the public quote page so customer photos render alongside the
+    // tier cards. Signed URLs are not persisted (24h TTL).
+    photo_paths: photoPaths,
   }).select().single()
 
   if (insertErr || !intakeRow) {

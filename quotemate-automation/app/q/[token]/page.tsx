@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getTierPhoto } from '@/lib/quote/tier-photos'
+import { refreshSignedUrl } from '@/lib/storage/upload'
 
 export const dynamic = 'force-dynamic'
 
@@ -81,7 +82,7 @@ export default async function PublicQuotePage(props: {
   const [{ data: intake }, { data: pricingBook }] = await Promise.all([
     supabase
       .from('intakes')
-      .select('job_type, scope, caller, address, suburb')
+      .select('job_type, scope, caller, address, suburb, photo_paths')
       .eq('id', quote.intake_id)
       .maybeSingle(),
     supabase
@@ -89,6 +90,16 @@ export default async function PublicQuotePage(props: {
       .select('licence_type, licence_number, licence_state, gst_registered')
       .maybeSingle(),
   ])
+
+  // Re-sign customer-uploaded photo paths on every render — signed URLs
+  // expire after 24h, so persisting them is wrong. Path is permanent;
+  // sign-on-demand is cheap. Failures degrade silently (skip the photo).
+  const photoPaths = Array.isArray(intake?.photo_paths)
+    ? (intake.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+    : []
+  const customerPhotoUrls: string[] = photoPaths.length === 0 ? [] : (
+    await Promise.all(photoPaths.map(p => refreshSignedUrl(p).catch(() => null)))
+  ).filter((u): u is string => !!u)
 
   const firstName = (intake?.caller?.name ?? '').toString().split(' ')[0] || 'there'
   const jobLabel = JOB_TYPE_LABEL[intake?.job_type ?? ''] ?? 'electrical work'
@@ -163,6 +174,9 @@ export default async function PublicQuotePage(props: {
             <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-zinc-800">{quote.scope_of_works}</p>
           </section>
         ) : null}
+
+        {/* ─── Customer-supplied photos ──────────────────── */}
+        <CustomerPhotos urls={customerPhotoUrls} />
 
         {/* ─── Inspection-only block OR three tiers ──────── */}
         {isInspection ? (
@@ -291,6 +305,35 @@ export default async function PublicQuotePage(props: {
 }
 
 /* ─────────────── Components ─────────────── */
+
+function CustomerPhotos({ urls }: { urls: string[] }) {
+  if (urls.length === 0) return null
+  return (
+    <section className="mt-8 rounded-lg border border-zinc-200 bg-white p-5 sm:p-6">
+      <h2 className="text-xs font-semibold uppercase tracking-widest text-blue-600">Photos you sent</h2>
+      <p className="mt-2 text-xs text-zinc-500">Your tradie reviewed these to draft the quote below. Tap any photo to view full-size.</p>
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3">
+        {urls.map((url, i) => (
+          <a
+            key={i}
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="block aspect-square overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 transition-opacity hover:opacity-90"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={`Customer photo ${i + 1}`}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+          </a>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 function TierCard({
   keyName,
