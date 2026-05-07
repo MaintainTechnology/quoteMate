@@ -82,7 +82,7 @@ export default async function PublicQuotePage(props: {
   const [{ data: intake }, { data: pricingBook }] = await Promise.all([
     supabase
       .from('intakes')
-      .select('job_type, scope, caller, address, suburb, photo_paths')
+      .select('id, call_id, job_type, scope, caller, address, suburb, photo_paths')
       .eq('id', quote.intake_id)
       .maybeSingle(),
     supabase
@@ -91,12 +91,55 @@ export default async function PublicQuotePage(props: {
       .maybeSingle(),
   ])
 
-  // Re-sign customer-uploaded photo paths on every render — signed URLs
-  // expire after 24h, so persisting them is wrong. Path is permanent;
-  // sign-on-demand is cheap. Failures degrade silently (skip the photo).
-  const photoPaths = Array.isArray(intake?.photo_paths)
+  // Photo aggregation — handle the late-upload race condition.
+  //
+  // intakes.photo_paths is a SNAPSHOT taken when /api/intake/structure runs.
+  // Customers often tap the photo-request SMS and upload AFTER the snapshot
+  // was taken (dialog finishes in ~2-4 turns; intake structures in ~35s;
+  // estimate runs in ~40s; meanwhile the customer is still picking photos).
+  // Late uploads land on calls.photo_paths or sms_conversations.photo_paths
+  // but never make it to intakes.photo_paths.
+  //
+  // To make the customer's photos appear on the quote page even when uploaded
+  // late, we render a UNION of:
+  //   1. intakes.photo_paths            (snapshot at intake time — vision sees these)
+  //   2. The source-of-truth table:
+  //      - calls.photo_paths            (voice-sourced quotes; intake.call_id set)
+  //      - sms_conversations.photo_paths (SMS-sourced quotes; intake.call_id null)
+  // Late uploads appear on the next page refresh — no re-quote, no re-render
+  // trigger needed.
+  const intakePhotoPaths = Array.isArray(intake?.photo_paths)
     ? (intake.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
     : []
+
+  let sourcePhotoPaths: string[] = []
+  if (intake?.call_id) {
+    // Voice-sourced — fetch the live calls row.
+    const { data: callRow } = await supabase
+      .from('calls')
+      .select('photo_paths')
+      .eq('id', intake.call_id)
+      .maybeSingle()
+    sourcePhotoPaths = Array.isArray(callRow?.photo_paths)
+      ? (callRow.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+      : []
+  } else if (intake?.id) {
+    // SMS-sourced — fetch the live sms_conversations row that points at this intake.
+    const { data: convoRow } = await supabase
+      .from('sms_conversations')
+      .select('photo_paths')
+      .eq('intake_id', intake.id)
+      .maybeSingle()
+    sourcePhotoPaths = Array.isArray(convoRow?.photo_paths)
+      ? (convoRow.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+      : []
+  }
+
+  const photoPaths = Array.from(new Set([...intakePhotoPaths, ...sourcePhotoPaths]))
+
+  // Re-sign on every render — signed URLs expire after 24h, so persisting
+  // them is wrong. Path is permanent; sign-on-demand is cheap. Failures
+  // degrade silently (skip the photo).
   const customerPhotoUrls: string[] = photoPaths.length === 0 ? [] : (
     await Promise.all(photoPaths.map(p => refreshSignedUrl(p).catch(() => null)))
   ).filter((u): u is string => !!u)
