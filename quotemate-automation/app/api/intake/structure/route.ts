@@ -7,6 +7,7 @@ import { pipelineLog } from '@/lib/log/pipeline'
 import { withRetry } from '@/lib/util/retry'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { buildIncompleteCallSms, buildPhotoRequestSms, buildQuoteFailureSms } from '@/lib/sms/templates'
+import { findOrCreateCustomer, updateCustomerFromIntake } from '@/lib/customers/lookup'
 
 export const maxDuration = 300
 
@@ -185,9 +186,24 @@ export async function POST(req: Request) {
   const embedding = await embedIntake(intake)
   log.ok('embedding complete', { dims: embedding.length })
 
+  // Customer-memory lookup. Fail-soft (returns null on DB error) so the
+  // intake pipeline keeps working even if the customer table is unhappy.
+  const customer = callerNumber
+    ? await findOrCreateCustomer(callerNumber, sourceChannel)
+    : null
+  if (customer) {
+    log.ok('customer resolved', {
+      customerId: customer.id,
+      hasName: !!customer.first_name,
+      hasSuburb: !!customer.suburb,
+      totalQuotes: customer.total_quotes,
+    })
+  }
+
   log.step('inserting intakes row', { photo_paths_count: photoPaths.length })
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK
+    customer_id: customer?.id ?? null,
     job_type: intake.job_type,
     address: intake.address,
     suburb: intake.suburb,
@@ -212,6 +228,27 @@ export async function POST(req: Request) {
     return Response.json({ error: 'insert failed' }, { status: 500 })
   }
   log.ok('intakes row inserted', { intake_id: intakeRow.id })
+
+  // Customer-memory write-back. Persists the freshly-extracted name,
+  // suburb, address, email onto the customers row so the next inbound
+  // from this phone number can skip those questions. Fail-soft — logs
+  // and moves on if the update fails. No await of the underlying call
+  // gates the rest of the pipeline.
+  if (customer?.id) {
+    try {
+      await updateCustomerFromIntake({
+        customerId: customer.id,
+        intake: {
+          caller: intake.caller,
+          address: intake.address,
+          suburb: intake.suburb,
+        },
+      })
+      log.ok('customer record updated from intake', { customerId: customer.id })
+    } catch (e: any) {
+      log.err('customer update threw', e?.message ?? e)
+    }
+  }
 
   // Link the intake back to the SMS conversation and mark it 'done' so a
   // future inbound creates a fresh conversation rather than reusing this one.

@@ -21,6 +21,7 @@ import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteInFlightSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
+import { findOrCreateCustomer, formatCustomerContext, type CustomerProfile } from '@/lib/customers/lookup'
 
 // Twilio webhook ack. We send the real customer reply via the REST API
 // inside after() — never as TwiML in the webhook response — so this
@@ -52,18 +53,49 @@ const EASY_5_JOB_TYPES = new Set([
 // extraction in structureIntake later. We look for a turn that's 1-3
 // words, mostly letters, no digits (so "6 downlights" or "Bondi" don't
 // match as names). Returns null if we can't be confident.
+// Words that look like names but aren't — common answers to dialog questions
+// that match the "1-3 words, letters only" shape. Anything matching these in
+// any position (case-insensitive, individual word level) disqualifies the
+// turn as a name candidate.
+const NON_NAME_WORDS = new Set([
+  // greetings / acks
+  'hi', 'hey', 'yo', 'ok', 'okay', 'yes', 'yeah', 'nope', 'no',
+  'cheers', 'ta', 'thanks', 'thank', 'sure', 'please',
+  // suburbs / cities
+  'bondi', 'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide',
+  'hobart', 'darwin', 'canberra', 'newcastle', 'gold', 'coast',
+  // colours / lighting answers
+  'warm', 'cool', 'white', 'black', 'colour', 'color', 'tri',
+  'tricolour', 'tricolor', 'dimmable', 'smart', 'standard', 'led',
+  // ceiling / wall / access answers
+  'flat', 'raked', 'high', 'plaster', 'brick', 'concrete', 'tile',
+  'access', 'available', 'roof', 'ceiling',
+  // scope / yes-no answers
+  'replacing', 'replace', 'existing', 'new', 'install', 'indoor',
+  'outdoor', 'fitted', 'wired', 'wiring', 'flat',
+])
+
+// Best-effort first-name guess from prior customer turns. We iterate
+// NEWEST → OLDEST so the most recent legitimate name candidate wins —
+// otherwise an early answer like "Warm White" gets picked before the
+// customer's actual name later in the dialog. Returns null if nothing
+// looks like a name.
 function guessFirstName(turns: ConversationTurn[]): string | undefined {
   const inbound = turns.filter(t => t.direction === 'inbound')
-  for (const t of inbound) {
-    const trimmed = t.body.trim()
-    // 1-3 words, only letters + spaces + hyphens (Anne-Marie OK), no digits
+  // Iterate in REVERSE so most recent inbound is checked first.
+  for (let i = inbound.length - 1; i >= 0; i--) {
+    const trimmed = inbound[i].body.trim()
+    // 1-3 words, only letters + spaces + hyphens (Anne-Marie OK), no digits.
     if (
-      /^[A-Za-z][A-Za-z\- ]{0,30}$/.test(trimmed) &&
-      trimmed.split(/\s+/).length <= 3 &&
-      !/^(hi|hey|yo|ok|okay|yes|yeah|nope|no|cheers|ta|bondi|sydney|melbourne)$/i.test(trimmed)
-    ) {
-      return trimmed.split(/\s+/)[0]
-    }
+      !/^[A-Za-z][A-Za-z\- ]{0,30}$/.test(trimmed) ||
+      trimmed.split(/\s+/).length > 3
+    ) continue
+    // Disqualify if ANY word is in the non-name list — catches "Warm White",
+    // "Flat Plaster", "Cool White", "tri colour" etc. that would otherwise
+    // shape-match a name.
+    const words = trimmed.toLowerCase().split(/\s+/)
+    if (words.some(w => NON_NAME_WORDS.has(w))) continue
+    return trimmed.split(/\s+/)[0]
   }
   return undefined
 }
@@ -126,6 +158,22 @@ export async function POST(req: Request) {
 
   if (!fromNumber || !toNumber || !inboundBody) {
     return new Response('Missing required Twilio fields', { status: 400 })
+  }
+
+  // ─────── Customer memory lookup ───────
+  // Look up (or stub-create) the customer record for this phone number.
+  // Used downstream to: pre-populate the dialog with known fields so
+  // returning customers don't get re-asked their name/suburb, and to
+  // link the conversation back to a customer for cross-channel history.
+  // Fail-soft: returns null on DB error, all downstream code handles null.
+  const customer: CustomerProfile | null = await findOrCreateCustomer(fromNumber, 'sms')
+  if (customer) {
+    console.log('[sms/inbound] step 2 — customer resolved', {
+      customerId: customer.id,
+      hasName: !!customer.first_name,
+      hasSuburb: !!customer.suburb,
+      totalQuotes: customer.total_quotes,
+    })
   }
 
   // ─────── Idempotency guard ───────
@@ -294,6 +342,7 @@ export async function POST(req: Request) {
         from_number: fromNumber,
         to_number: toNumber,
         status: 'open',
+        customer_id: customer?.id ?? null,
         photo_request_token: photoToken,
       })
       .select()
@@ -554,7 +603,13 @@ export async function POST(req: Request) {
       // customer a link is coming; already_sent → don't repeat.
       let decision: Awaited<ReturnType<typeof decideNextTurn>>
       try {
-        decision = await decideNextTurn({ history: turns, inboundCount, customerHistory, photoLink: photoLinkHint })
+        decision = await decideNextTurn({
+          history: turns,
+          inboundCount,
+          customerHistory,
+          photoLink: photoLinkHint,
+          customerContext: formatCustomerContext(customer),
+        })
         console.log('[sms/inbound:after] step 6 — decision', {
           action: decision.action,
           job_type_guess: decision.job_type_guess,

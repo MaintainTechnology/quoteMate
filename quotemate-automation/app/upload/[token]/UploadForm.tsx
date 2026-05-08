@@ -1,5 +1,9 @@
 'use client'
 
+// Photo upload client form. Maintain Technology brand language —
+// dark canvas surfaces, dashed orange drop zones, square orange CTA,
+// JetBrains Mono labels. Pairs with app/upload/[token]/page.tsx.
+
 import { useState } from 'react'
 
 const MAX_FILES = 5
@@ -59,12 +63,15 @@ export function UploadForm({ token }: { token: string }) {
     }
   }
 
+  // ─── Success state ───
   if (status === 'done') {
     return (
-      <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '1rem' }}>
-        <strong style={{ color: '#15803d' }}>✓ Photos received</strong>
-        <p style={{ marginTop: '0.5rem', color: '#166534', lineHeight: 1.5 }}>
-          Thanks — we'll incorporate them into your quote and send it via SMS shortly.
+      <div className="border border-success/40 bg-success/10 p-5">
+        <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-[#34d399] mb-2">
+          ✓ Photos received
+        </div>
+        <p className="text-sm leading-relaxed text-text-pri">
+          Your tradie&apos;s got them. Quote will arrive by SMS shortly if it hasn&apos;t already — usually within a couple of minutes.
         </p>
       </div>
     )
@@ -72,21 +79,23 @@ export function UploadForm({ token }: { token: string }) {
 
   const buttonDisabled = files.length === 0 || status === 'uploading'
 
-  const pickerCommon: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: '1.25rem 1rem', textAlign: 'center',
-    border: '2px dashed #94a3b8', borderRadius: 12, cursor: 'pointer',
-    background: '#f8fafc', color: '#0f172a', fontWeight: 500,
-    minHeight: '5rem', lineHeight: 1.4,
-  }
-
   return (
     <form onSubmit={onSubmit}>
+      {/* ─── Picker (camera + gallery) — only visible while no files chosen ─── */}
       {files.length === 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-          {/* Take a photo — opens device camera (mobile only) */}
-          <label htmlFor="photos-camera" style={pickerCommon}>
-            📷&nbsp;Take a photo
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Camera — opens device camera on mobile */}
+          <label
+            htmlFor="photos-camera"
+            className="group relative flex flex-col items-center justify-center min-h-32 p-6 border-2 border-dashed border-ink-line bg-ink-deep/50 cursor-pointer transition-all hover:border-accent hover:bg-accent/5"
+          >
+            <CameraIcon className="w-7 h-7 text-accent mb-2 transition-transform group-hover:scale-110" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] font-bold text-text-pri">
+              Take a photo
+            </span>
+            <span className="mt-1 font-mono text-[0.6rem] uppercase tracking-widest text-text-dim">
+              Opens camera
+            </span>
             <input
               id="photos-camera"
               type="file"
@@ -94,67 +103,144 @@ export function UploadForm({ token }: { token: string }) {
               capture="environment"
               multiple
               onChange={onPick}
-              style={{ display: 'none' }}
+              className="sr-only"
             />
           </label>
 
-          {/* Choose from gallery / files — no capture attribute, OS picker decides */}
-          <label htmlFor="photos-gallery" style={pickerCommon}>
-            🖼&nbsp;Choose from gallery
+          {/* Gallery — OS picker */}
+          <label
+            htmlFor="photos-gallery"
+            className="group relative flex flex-col items-center justify-center min-h-32 p-6 border-2 border-dashed border-ink-line bg-ink-deep/50 cursor-pointer transition-all hover:border-accent hover:bg-accent/5"
+          >
+            <GalleryIcon className="w-7 h-7 text-accent mb-2 transition-transform group-hover:scale-110" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] font-bold text-text-pri">
+              Choose from gallery
+            </span>
+            <span className="mt-1 font-mono text-[0.6rem] uppercase tracking-widest text-text-dim">
+              Pick existing
+            </span>
             <input
               id="photos-gallery"
               type="file"
               accept="image/jpeg,image/png,image/webp"
               multiple
               onChange={onPick}
-              style={{ display: 'none' }}
+              className="sr-only"
             />
           </label>
         </div>
       ) : (
-        <label htmlFor="photos-gallery-replace" style={{ ...pickerCommon, display: 'block' }}>
-          {files.length} photo{files.length > 1 ? 's' : ''} ready · tap to change
+        // ─── Files chosen — single replace-all surface ───
+        <label
+          htmlFor="photos-replace"
+          className="block w-full p-5 border-2 border-dashed border-accent bg-accent/5 cursor-pointer transition-colors hover:bg-accent/10 text-center"
+        >
+          <div className="font-mono text-xs uppercase tracking-[0.15em] font-bold text-accent">
+            {files.length} photo{files.length > 1 ? 's' : ''} ready
+          </div>
+          <div className="mt-1 font-mono text-[0.6rem] uppercase tracking-widest text-text-dim">
+            Tap to swap or add more
+          </div>
           <input
-            id="photos-gallery-replace"
+            id="photos-replace"
             type="file"
             accept="image/jpeg,image/png,image/webp"
             multiple
             onChange={onPick}
-            style={{ display: 'none' }}
+            className="sr-only"
           />
         </label>
       )}
 
+      {/* ─── Preview thumbnails (4:3 aspect, 2-up mobile / 3-up desktop) ─── */}
       {previews.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8, marginTop: '1rem' }}>
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
           {previews.map((src, i) => (
-            <img
+            <div
               key={i}
-              src={src}
-              alt={`preview ${i + 1}`}
-              style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0' }}
-            />
+              className="relative aspect-4/3 overflow-hidden border border-ink-line bg-ink-deep"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={src}
+                alt={`preview ${i + 1}`}
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute top-2 right-2 font-mono text-[0.55rem] uppercase tracking-widest bg-ink-deep/90 text-text-pri px-1.5 py-0.5 rounded-sm border border-ink-line">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+            </div>
           ))}
         </div>
       ) : null}
 
+      {/* ─── Error line ─── */}
       {errorMessage ? (
-        <p style={{ color: '#b91c1c', marginTop: '1rem', fontSize: '0.9rem' }}>{errorMessage}</p>
+        <p className="mt-4 font-mono text-xs uppercase tracking-widest text-[#fca5a5] bg-danger/10 border-l-2 border-danger px-3 py-2.5">
+          {errorMessage}
+        </p>
       ) : null}
 
+      {/* ─── Submit CTA ─── */}
       <button
         type="submit"
         disabled={buttonDisabled}
-        style={{
-          marginTop: '1.25rem', width: '100%', padding: '0.85rem',
-          background: buttonDisabled ? '#cbd5e1' : '#0f172a',
-          color: 'white', border: 'none', borderRadius: 10,
-          fontSize: '1rem', fontWeight: 600,
-          cursor: buttonDisabled ? 'not-allowed' : 'pointer',
-        }}
+        className={`mt-6 w-full px-5 py-4 font-mono text-xs sm:text-sm uppercase tracking-[0.15em] font-bold transition-colors ${
+          buttonDisabled
+            ? 'bg-ink-line text-text-dim cursor-not-allowed'
+            : 'bg-accent hover:bg-accent-press text-white cursor-pointer'
+        }`}
       >
-        {status === 'uploading' ? 'Uploading…' : 'Send photos'}
+        {status === 'uploading'
+          ? 'Uploading…'
+          : files.length === 0
+          ? 'Pick a photo first'
+          : `Send ${files.length} photo${files.length > 1 ? 's' : ''} →`}
       </button>
+
+      {/* ─── Footnote ─── */}
+      <p className="mt-3 font-mono text-[0.6rem] uppercase tracking-widest text-text-dim text-center">
+        JPEG · PNG · WebP · max 5MB each · up to {MAX_FILES} photos
+      </p>
     </form>
+  )
+}
+
+/* ─── Icons (inline SVG to match the brand's no-emoji aesthetic) ─── */
+
+function CameraIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 7h3l2-3h8l2 3h3a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  )
+}
+
+function GalleryIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <rect x="3" y="3" width="18" height="18" rx="1" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
   )
 }
