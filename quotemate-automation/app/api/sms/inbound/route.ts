@@ -404,17 +404,17 @@ export async function POST(req: Request) {
   // hold-on message so the customer doesn't get a bungled "new job"
   // reply while the previous quote is still being drafted.
   const lookupMode = mode
-  // Photo-link hint flows into Haiku so it can give the customer a
-  // verbal heads-up before the photo-upload SMS arrives unannounced.
-  // Three states (see lib/sms/dialog.ts > PhotoLinkHint):
-  //   - already_sent: photo SMS fired in an earlier turn, don't repeat
-  //   - will_send_now: photo not yet sent and a token exists; if Haiku
-  //     identifies an easy-5 job this turn it'll be dispatched alongside
-  //     the dialog reply, so include "I'll flick you a link in a sec"
+  // Photo-link hint flows into Haiku. Haiku owns the timing decision
+  // via decision.request_photo_link (see lib/sms/dialog.ts Rule 10).
+  //   - already_sent:   photo SMS fired in an earlier turn, don't repeat
+  //   - pending:        photo not yet sent and token exists; Haiku
+  //                     decides the right turn to fire it (typically
+  //                     after all qualifying questions are answered,
+  //                     combined with the verification handshake)
   //   - not_applicable: no token / legacy conversation
-  const photoLinkHint: 'already_sent' | 'will_send_now' | 'not_applicable' =
+  const photoLinkHint: 'already_sent' | 'pending' | 'not_applicable' =
     photoRequestAlreadySent ? 'already_sent'
-      : photoRequestToken ? 'will_send_now'
+      : photoRequestToken ? 'pending'
       : 'not_applicable'
 
   after(async () => {
@@ -529,6 +529,7 @@ export async function POST(req: Request) {
           reply_to_send: DIALOG_FALLBACK_REPLY,
           assumptions_made: [],
           ready_for_intake: false,
+          request_photo_link: false,
           reason_for_escalation: 'dialog agent error',
         }
       }
@@ -574,11 +575,24 @@ export async function POST(req: Request) {
       // as a separate SMS rather than appending to Haiku's reply so the
       // 320-char dialog cap stays clean and the upload-link message is
       // visually distinct in the customer's thread.
+      // Photo SMS firing is now Haiku-driven via decision.request_photo_link.
+      // Haiku sets it true on the appropriate turn (typically the verification
+      // handshake, after all qualifying questions are answered). The route no
+      // longer auto-fires on first job_type identification — that was the bug
+      // where the photo link arrived on turn 2 before customers gave their name.
+      //
+      // Safety-net fallback: if Haiku reaches action='finish' on an easy-5 job
+      // without ever setting request_photo_link, fire the photo SMS on finish
+      // so we don't drop the photo flow entirely. Better late than never.
+      const haikuRequestedPhoto = decision.request_photo_link === true
+      const finishFallbackTrigger =
+        decision.action === 'finish' &&
+        EASY_5_JOB_TYPES.has(decision.job_type_guess)
       const shouldSendPhotoRequest =
         photoRequestToken &&
         !photoRequestAlreadySent &&
-        EASY_5_JOB_TYPES.has(decision.job_type_guess) &&
-        decision.action !== 'escalate_inspection'
+        decision.action !== 'escalate_inspection' &&
+        (haikuRequestedPhoto || finishFallbackTrigger)
 
       if (shouldSendPhotoRequest) {
         console.log('[sms/inbound:after] step 8b — dispatching photo-request SMS', {

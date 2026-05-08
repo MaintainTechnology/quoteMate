@@ -30,6 +30,14 @@ export const TurnDecisionSchema = z.object({
   assumptions_made: z.array(z.string()).default([]),
   ready_for_intake: z.boolean(),
   reason_for_escalation: z.string().nullable().default(null),
+  // Set true ONCE per conversation, on the turn where Haiku is naturally
+  // ready to send the photo-upload link. The right moment is AFTER the
+  // qualifying questions are answered (count, room, ceiling type,
+  // replace-vs-new, colour preference) — typically combined with the
+  // verification handshake. The route gates the photo SMS on this flag,
+  // so firing it too early on turn 1-2 (before customer gave name) no
+  // longer happens. See Rule 10 in the system prompt for full timing.
+  request_photo_link: z.boolean().default(false),
 })
 
 export type TurnDecision = z.infer<typeof TurnDecisionSchema>
@@ -49,16 +57,21 @@ export type ConversationTurn = { direction: 'inbound' | 'outbound'; body: string
 export type CustomerHistoryHint = 'first_time' | 'returning' | 'continuing'
 
 /**
- * Photo-link state hint passed in from the SMS inbound route.
+ * Photo-link state hint passed in from the SMS inbound route to Haiku.
+ * Haiku owns the decision of WHEN to fire the photo SMS via the schema
+ * field `request_photo_link` — see Rule 10 in the system prompt.
  *
- * The route decides whether to fire the photo-upload SMS based on
- * job_type + whether one's already been sent. When the photo SMS WILL
- * fire alongside Haiku's reply, Haiku should give the customer a
- * one-liner heads-up so the link doesn't arrive unannounced. When the
- * photo SMS has already been sent (earlier turn) or won't fire at all,
- * Haiku should NOT mention it — repetition is annoying.
+ *   - pending:        photo SMS not yet sent; Haiku may set
+ *                     request_photo_link=true on the appropriate turn
+ *                     (typically the verification handshake, after all
+ *                     qualifying questions are answered).
+ *   - already_sent:   photo SMS fired in an earlier turn; Haiku must
+ *                     NOT set request_photo_link again and must NOT
+ *                     mention the link.
+ *   - not_applicable: legacy conversation without a photo_request_token,
+ *                     or non-easy-5 job. No photo SMS will ever fire.
  */
-export type PhotoLinkHint = 'will_send_now' | 'already_sent' | 'not_applicable'
+export type PhotoLinkHint = 'pending' | 'already_sent' | 'not_applicable'
 
 const ALL_RULES_TEXT = (
   ['downlights','power_points','ceiling_fans','smoke_alarms','outdoor_lighting'] as JobType[]
@@ -281,25 +294,45 @@ NON-NEGOTIABLE RULES
      ✗ Any "G'day, thanks for messaging QuoteMate" — they already
         know who we are; they're literally mid-conversation with us.
 
-10. PHOTO-LINK HEADS-UP — depends on PHOTO LINK STATE passed in prompt.
-    The route decides whether to fire the photo-upload SMS this turn.
-    If photo link will be sent NOW (state = 'will_send_now'), include a
-    short heads-up phrase in your reply so the customer knows to expect
-    the link — never let the photo SMS arrive unannounced.
+10. PHOTO-LINK TIMING — YOU decide when to fire it via request_photo_link.
 
-    Examples (heads-up only — pair with the next required question or
-    confirmation if you have one to ask):
-      ✓ "Beauty. I'll flick you a quick photo link in a sec — 1-2 pics
-         of the ceiling helps the sparky finalise. Meanwhile, what
-         suburb's the job in?"
-      ✓ "Cheers — I'll send you a photo link straight after this for
-         1-2 ceiling pics. What's the ceiling type — flat plaster,
-         raked, or something else?"
+    The route only sends the photo-upload SMS when YOU set
+    request_photo_link=true on this turn. Setting it is a one-shot
+    trigger — the route stamps photo_request_sent_at after firing so
+    you'll never accidentally double-send. PHOTO LINK STATE in the
+    prompt tells you whether it's already been sent.
 
-    If photo state = 'already_sent' or 'not_applicable': do NOT mention
-    the photo link again. Just answer the next question normally.
-    Repeating "I'll send you a link" when the customer has already got
-    one is annoying and looks broken.
+    WHEN to set request_photo_link=true (ALL of these must be true):
+      a. PHOTO LINK STATE = 'pending'  (not yet sent in this convo)
+      b. job_type is one of the easy 5 (downlights / power_points /
+         ceiling_fans / smoke_alarms / outdoor_lighting)
+      c. action is NOT 'escalate_inspection'
+      d. The customer has answered the QUALIFYING questions for the
+         job_type (count, room, ceiling type, replace-vs-new, colour
+         preference for downlights — or whatever the per-job MUST-ASK
+         list requires). Don't fire on turn 1-2 just because they said
+         "downlights"; wait until the picture's clear.
+
+    The natural moment is the SAME turn where you ask the verification
+    handshake question ("Sound right?"). Combine the photo heads-up
+    with the verification message so the customer hears about the link
+    AND confirms scope in one tidy turn:
+
+      ✓ "Beauty Sam — I'll flick you a photo link in a sec for 1-2
+         ceiling pics, helps the sparky finalise. Just to confirm:
+         6 warm-white LED downlights in the Bondi lounge, replacing
+         halogens, flat plaster ceiling. Sound right?"
+         → set request_photo_link=true on this turn.
+
+    DO NOT fire it earlier. The customer hasn't committed to the job
+    until the qualifying questions are done. Sending the photo link
+    on turn 2 (when they've only said "need 6 downlights") feels
+    abrupt and shows up before they've even given their name.
+
+    If PHOTO LINK STATE = 'already_sent' or 'not_applicable': leave
+    request_photo_link=false and don't mention photos in your reply.
+    Repeating "I'll send you a link" when they already have one is
+    annoying.
 
 11. VERIFICATION HANDSHAKE — required before action='finish'.
     Once you have ALL universal MUST-ASK fields (name, suburb, job_type)
@@ -462,12 +495,12 @@ function customerHistoryDirective(hint: CustomerHistoryHint): string {
 // Maps the PhotoLinkHint to a directive for Haiku (Rule 10).
 function photoLinkDirective(hint: PhotoLinkHint): string {
   switch (hint) {
-    case 'will_send_now':
-      return 'PHOTO LINK STATE: the photo-upload SMS will be dispatched RIGHT AFTER your reply this turn. Rule 10 applies — include a short heads-up phrase ("I\'ll flick you a quick photo link in a sec — helps the sparky") so the customer knows to expect it.'
+    case 'pending':
+      return 'PHOTO LINK STATE: pending — the photo SMS has NOT yet been sent. YOU decide when to fire it. See Rule 10: set request_photo_link=true ONLY when the customer has answered all the qualifying questions for their job (count, room, ceiling, replace-vs-new, colour preference for downlights). Combine with the verification "Sound right?" message and include a heads-up phrase. Do NOT fire on turn 1-2.'
     case 'already_sent':
-      return 'PHOTO LINK STATE: the photo-upload SMS was already sent earlier in this conversation. Rule 10 applies — DO NOT mention the photo link again; the customer already has it.'
+      return 'PHOTO LINK STATE: already_sent — the customer received the photo link earlier. DO NOT set request_photo_link=true again, and DO NOT mention the photo link in your reply.'
     case 'not_applicable':
-      return 'PHOTO LINK STATE: no photo SMS will be sent (e.g. inspection-required job, or photo flow not relevant). Do not mention photos.'
+      return 'PHOTO LINK STATE: not_applicable — no photo SMS will be sent (legacy conversation or non-easy-5 job). Do not mention photos.'
   }
 }
 
