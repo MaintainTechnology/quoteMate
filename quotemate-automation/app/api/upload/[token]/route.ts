@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
+import { after } from 'next/server'
 import { uploadIntakePhoto } from '@/lib/storage/upload'
 import { pipelineLog } from '@/lib/log/pipeline'
+import { generatePreviewImage } from '@/lib/preview/generate'
 
 export const maxDuration = 60
 
@@ -143,6 +145,61 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   // ~70s. By the time photos arrive, the quote SMS may already have gone out.
   // Photos are stored for AUDIT and future tradie review. v2: queue a re-quote if
   // photos reveal risks the transcript missed.
+
+  // ─── AI preview trigger 1 (photo upload) ───
+  // Customer just submitted photos. Find the linked quote (via the
+  // intake row that points at this call/conversation) and kick off
+  // Gemini-driven preview generation in after() so the upload response
+  // returns fast. The customer's first photo becomes the reference
+  // image — Gemini edits THAT photo to show the proposed work.
+  // generatePreviewImage() is idempotent — safe to fire even if another
+  // trigger already started or finished generation.
+  after(async () => {
+    try {
+      let intakeId: string | null = null
+      if (resolved.source === 'call') {
+        const { data } = await supabase
+          .from('intakes')
+          .select('id')
+          .eq('call_id', resolved.ownerId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        intakeId = (data?.id as string | null) ?? null
+      } else {
+        const { data } = await supabase
+          .from('sms_conversations')
+          .select('intake_id')
+          .eq('id', resolved.ownerId)
+          .maybeSingle()
+        intakeId = (data?.intake_id as string | null) ?? null
+      }
+
+      if (!intakeId) {
+        log.ok('preview trigger: no intake yet — estimate-draft trigger will catch this when the quote drafts', { source: resolved.source })
+        return
+      }
+
+      const { data: quote } = await supabase
+        .from('quotes')
+        .select('id')
+        .eq('intake_id', intakeId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!quote?.id) {
+        log.ok('preview trigger: intake exists but no quote yet — estimate-draft trigger will catch this', { intakeId })
+        return
+      }
+
+      log.step('preview trigger 1 — kicking off Gemini generation', { quoteId: quote.id })
+      const result = await generatePreviewImage(quote.id as string)
+      log.ok('preview trigger 1 result', { status: result.status })
+    } catch (e: any) {
+      log.err('preview trigger 1 threw', e?.message ?? String(e))
+    }
+  })
 
   return Response.json({ ok: true, count: newSignedUrls.length })
 }

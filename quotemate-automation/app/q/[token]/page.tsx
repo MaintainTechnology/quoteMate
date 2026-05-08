@@ -6,10 +6,13 @@
 // below are exposed.
 
 import { createClient } from '@supabase/supabase-js'
+import { after } from 'next/server'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getTierPhoto } from '@/lib/quote/tier-photos'
 import { refreshSignedUrl } from '@/lib/storage/upload'
+import { generatePreviewImage } from '@/lib/preview/generate'
+import { PreviewSection } from './PreviewSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,7 +76,7 @@ export default async function PublicQuotePage(props: {
 
   const { data: quote } = await supabase
     .from('quotes')
-    .select('id, intake_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at')
+    .select('id, intake_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at, preview_status, preview_image_path')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -143,6 +146,33 @@ export default async function PublicQuotePage(props: {
   const customerPhotoUrls: string[] = photoPaths.length === 0 ? [] : (
     await Promise.all(photoPaths.map(p => refreshSignedUrl(p).catch(() => null)))
   ).filter((u): u is string => !!u)
+
+  // ─── AI preview state for this render + Trigger 2 ───
+  // Compute the initial state to seed <PreviewSection/>. If status='idle'
+  // and we have photos, fire generation in after() so the customer sees
+  // a loading skeleton on this render and the image lands on the next
+  // poll. Idempotent CAS in generatePreviewImage() prevents double-runs.
+  const previewStatus = (quote.preview_status as
+    'idle' | 'no_photos' | 'generating' | 'ready' | 'failed' | null) ?? 'idle'
+  let previewImageUrl: string | null = null
+  if (previewStatus === 'ready' && quote.preview_image_path) {
+    try {
+      previewImageUrl = await refreshSignedUrl(quote.preview_image_path as string)
+    } catch {
+      // Sign failed — leave URL null, polling will retry.
+    }
+  }
+  // Trigger 2: kick off generation if it hasn't started yet AND we have photos.
+  // Inspection-only quotes get skipped inside generatePreviewImage().
+  if (previewStatus === 'idle' && photoPaths.length > 0 && !quote.needs_inspection) {
+    after(async () => {
+      try {
+        await generatePreviewImage(quote.id as string)
+      } catch (e: any) {
+        console.error('[preview] page-load trigger 2 threw', { quoteId: quote.id, error: e?.message ?? String(e) })
+      }
+    })
+  }
 
   const firstName = (intake?.caller?.name ?? '').toString().split(' ')[0] || 'there'
   const jobLabel = JOB_TYPE_LABEL[intake?.job_type ?? ''] ?? 'electrical work'
@@ -220,6 +250,15 @@ export default async function PublicQuotePage(props: {
 
         {/* ─── Customer-supplied photos ──────────────────── */}
         <CustomerPhotos urls={customerPhotoUrls} />
+
+        {/* ─── AI preview (Gemini-edited from the customer's photo) ─── */}
+        {!isInspection ? (
+          <PreviewSection
+            shareToken={token}
+            initialStatus={previewStatus}
+            initialImageUrl={previewImageUrl}
+          />
+        ) : null}
 
         {/* ─── Inspection-only block OR three tiers ──────── */}
         {isInspection ? (

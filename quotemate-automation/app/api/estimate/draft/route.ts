@@ -12,6 +12,7 @@ import { pipelineLog } from '@/lib/log/pipeline'
 import { createCheckoutSessionsForQuote, createInspectionCheckoutSession, generateShareToken } from '@/lib/stripe/checkout'
 import { withRetry } from '@/lib/util/retry'
 import { decideRouting } from '@/lib/routing/decide'
+import { generatePreviewImage } from '@/lib/preview/generate'
 
 export const maxDuration = 300
 
@@ -248,6 +249,29 @@ export async function POST(req: Request) {
         log.err('Stripe inspection-fee creation failed — SMS will mention the fee without a link', e?.message ?? e)
       }
     }
+
+    // ─── AI preview trigger 3 (estimate draft completion) ───
+    // Quote row exists; if photos already on file the preview can begin
+    // generating in parallel with SMS dispatch. Customer's first photo
+    // is the reference — Gemini edits THAT image. Idempotent: if photo
+    // upload already kicked it off (trigger 1), the CAS in
+    // generatePreviewImage() skips this call.
+    after(async () => {
+      const previewLog = pipelineLog('dispatch', `preview:${quote!.id.slice(0, 8)}`)
+      try {
+        previewLog.step('preview trigger 3 — checking for photos on intake', { intake_id: intake.id })
+        const photoPaths = (Array.isArray(intake.photo_paths) ? intake.photo_paths : []) as string[]
+        if (photoPaths.length === 0) {
+          previewLog.ok('skipped — no photos yet on intake; will retry on photo-upload trigger', { intake_id: intake.id })
+          return
+        }
+        previewLog.step('kicking off Gemini generation', { quote_id: quote!.id, photo_count: photoPaths.length })
+        const result = await generatePreviewImage(quote!.id as string)
+        previewLog.ok('preview trigger 3 result', { status: result.status })
+      } catch (e: any) {
+        previewLog.err('preview trigger 3 threw', e?.message ?? String(e))
+      }
+    })
 
     // Auto-send the quote to the caller via SMS (Path B per current product mode).
     // Skip if no caller_number available. Errors are logged but never fail the route.
