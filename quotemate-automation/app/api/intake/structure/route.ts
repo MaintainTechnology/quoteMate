@@ -200,6 +200,50 @@ export async function POST(req: Request) {
     })
   }
 
+  // ─── Customer-memory BACKFILL ───────────────────────────────────────
+  // Closes the loop on the dialog's conservative re-engagement design.
+  //
+  // When formatCustomerContext() injects the KNOWN CUSTOMER MEMORY block,
+  // Haiku is instructed to skip the "what's your first name?" / "what
+  // suburb?" questions silently if those fields are already known.
+  // That means the conversation transcript NEVER contains the name or
+  // suburb — Opus has no signal to extract them, so structureIntake()
+  // returns intake.caller.name = null and intake.suburb = null with
+  // confidence = LOW. The quality gate downstream then false-fires
+  // 'empty' on a perfectly good intake and the customer gets the
+  // "we didn't catch enough" SMS instead of a quote.
+  //
+  // Fix: when the customer record has a stable field that the intake
+  // is missing, backfill it. We only fill BLANKS — if Opus extracted a
+  // value (e.g. customer corrected the suburb mid-conversation), we
+  // never overwrite it with the stale customer-record value.
+  if (customer) {
+    const backfilled: string[] = []
+    const callerName = (intake.caller?.name ?? '').trim()
+    if (!callerName) {
+      const fromCustomer = (customer.full_name ?? customer.first_name ?? '').trim()
+      if (fromCustomer) {
+        intake.caller = { ...(intake.caller ?? {}), name: fromCustomer }
+        backfilled.push(`caller.name=${fromCustomer}`)
+      }
+    }
+    if (!(intake.suburb ?? '').trim() && customer.suburb) {
+      intake.suburb = customer.suburb
+      backfilled.push(`suburb=${customer.suburb}`)
+    }
+    if (!(intake.address ?? '').trim() && customer.address) {
+      intake.address = customer.address
+      backfilled.push(`address=${customer.address}`)
+    }
+    if (!(intake.caller?.email ?? '').trim() && customer.email) {
+      intake.caller = { ...(intake.caller ?? {}), email: customer.email }
+      backfilled.push(`caller.email=${customer.email}`)
+    }
+    if (backfilled.length) {
+      log.ok('backfilled intake fields from customer record', { fields: backfilled })
+    }
+  }
+
   log.step('inserting intakes row', { photo_paths_count: photoPaths.length })
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK

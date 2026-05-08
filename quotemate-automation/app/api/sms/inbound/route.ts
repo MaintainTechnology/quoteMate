@@ -702,9 +702,11 @@ export async function POST(req: Request) {
           const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
           // Customer's first name is best-effort — Opus will recover it from
           // the transcript later regardless. Pull from the most recent
-          // inbound turn that looks like a name (1-3 words, mostly letters)
-          // OR fall back to a generic greeting.
-          const firstName = guessFirstName(turns)
+          // inbound turn that looks like a name (1-3 words, mostly letters);
+          // if the transcript doesn't have one (returning-customer flows skip
+          // re-asking the name when we already know it), fall back to the
+          // customer record. Last resort: generic greeting.
+          const firstName = guessFirstName(turns) ?? customer?.first_name ?? undefined
           const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms' })
           const photoDispatch = await dispatchQuoteMessage({
             to: fromNumber,
@@ -811,10 +813,12 @@ export async function POST(req: Request) {
             error: e?.message ?? String(e),
           })
           try {
-            // Best-effort first-name lookup from the dialog turns we already
-            // loaded — Opus would have extracted it later but we don't get
-            // that chance here.
-            const failureFirstName = guessFirstName(turns)
+            // Best-effort first-name lookup. Try the dialog transcript first,
+            // then the customer record (returning customers skip re-stating
+            // their name in conversation when we already have it stored).
+            // Opus would have extracted it later, but we don't get that
+            // chance here — the intake handoff already failed.
+            const failureFirstName = guessFirstName(turns) ?? customer?.first_name ?? undefined
             const failureBody = buildQuoteFailureSms({ firstName: failureFirstName })
             const failureDispatch = await dispatchQuoteMessage({
               to: fromNumber,
