@@ -30,16 +30,28 @@ export type AssumptionRule = {
 export const ASSUMPTION_RULES: Record<JobType, AssumptionRule> = {
   downlights: {
     safeDefaults: {
-      'access.ceiling_type': 'flat',
+      // Wall type doesn't apply for ceiling fittings — keep as plaster
+      // for any wall-related material lookups, no customer-visible impact.
       'access.wall_type':    'plaster',
-      'access.roof_access':  'true',
-      'scope.indoor_outdoor':'indoor',
-      'scope.existing_wiring': 'true (assume yes when "replace" is mentioned)',
+      // Roof access can be derived once ceiling type is known.
+      'access.roof_access':  'true (derive from ceiling_type answer)',
+      // Indoor inferred from room name (lounge/kitchen/bedroom = indoor).
+      // If the customer says "deck" or "outdoor" we'll catch it as outdoor_lighting.
+      'scope.indoor_outdoor':'indoor (when room name is interior — lounge, kitchen, bedroom, etc.)',
       'property.pre_1970':   'false (assume modern unless customer says old/period)',
     },
     mustAsk: [
       'how many downlights',
       'which room or area (one short phrase, e.g. "kitchen")',
+      // Ceiling type materially changes labour difficulty — flat plaster
+      // is fastest, raked/cathedral need ladders + harnesses, sheet metal
+      // needs different tooling. Always ask, do NOT silently default.
+      'ceiling type (flat plaster, raked, cathedral, sheet metal, or not sure)',
+      // Existing-wiring vs new-install is a labour multiplier of 3-5x
+      // (running new cable through ceilings is way more work than swapping
+      // a fitting). Even when the customer says "replace", confirm —
+      // some customers say "replace" but mean "I want to add new lights".
+      'replacing existing downlights (existing wiring) or new install (no fittings there now)',
     ],
     inspectionTriggers: [
       'raked ceiling', 'high ceiling', 'cathedral ceiling',
