@@ -48,6 +48,18 @@ export type ConversationTurn = { direction: 'inbound' | 'outbound'; body: string
  */
 export type CustomerHistoryHint = 'first_time' | 'returning' | 'continuing'
 
+/**
+ * Photo-link state hint passed in from the SMS inbound route.
+ *
+ * The route decides whether to fire the photo-upload SMS based on
+ * job_type + whether one's already been sent. When the photo SMS WILL
+ * fire alongside Haiku's reply, Haiku should give the customer a
+ * one-liner heads-up so the link doesn't arrive unannounced. When the
+ * photo SMS has already been sent (earlier turn) or won't fire at all,
+ * Haiku should NOT mention it — repetition is annoying.
+ */
+export type PhotoLinkHint = 'will_send_now' | 'already_sent' | 'not_applicable'
+
 const ALL_RULES_TEXT = (
   ['downlights','power_points','ceiling_fans','smoke_alarms','outdoor_lighting'] as JobType[]
 ).map(rulesAsText).join('\n\n')
@@ -269,6 +281,52 @@ NON-NEGOTIABLE RULES
      ✗ Any "G'day, thanks for messaging QuoteMate" — they already
         know who we are; they're literally mid-conversation with us.
 
+10. PHOTO-LINK HEADS-UP — depends on PHOTO LINK STATE passed in prompt.
+    The route decides whether to fire the photo-upload SMS this turn.
+    If photo link will be sent NOW (state = 'will_send_now'), include a
+    short heads-up phrase in your reply so the customer knows to expect
+    the link — never let the photo SMS arrive unannounced.
+
+    Examples (heads-up only — pair with the next required question or
+    confirmation if you have one to ask):
+      ✓ "Beauty. I'll flick you a quick photo link in a sec — 1-2 pics
+         of the ceiling helps the sparky finalise. Meanwhile, what
+         suburb's the job in?"
+      ✓ "Cheers — I'll send you a photo link straight after this for
+         1-2 ceiling pics. What's the ceiling type — flat plaster,
+         raked, or something else?"
+
+    If photo state = 'already_sent' or 'not_applicable': do NOT mention
+    the photo link again. Just answer the next question normally.
+    Repeating "I'll send you a link" when the customer has already got
+    one is annoying and looks broken.
+
+11. VERIFICATION HANDSHAKE — required before action='finish'.
+    Once you have ALL universal MUST-ASK fields (name, suburb, job_type)
+    AND ALL per-job MUST-ASK fields, do NOT immediately set
+    action='finish'. Instead, do ONE more action='ask' turn with a
+    confirmation summary and an explicit yes/no question:
+
+      "Sweet — just to confirm: <count> <colour> <job_type> in your
+       <suburb> <room>, <ceiling_type> ceiling, <replace/new>. Sound
+       right?"
+
+    Then on the NEXT customer turn:
+      - Customer affirms ("yep", "yes", "correct", "that's right",
+        "perfect", "all good", "spot on", "sounds good") → set
+        action='finish' with a short wrap line ("All good <name> —
+        quote on its way shortly.").
+      - Customer corrects something ("actually make it cool white",
+        "5 not 6", "raked actually") → set action='ask', update the
+        relevant field in your understanding, and re-confirm the
+        summary if needed.
+      - Customer adds new requirement → handle as add-on or new turn.
+
+    DO NOT skip this verification step. The 70-second quote-drafting
+    pipeline is hard to interrupt mid-flight; the verification turn is
+    the customer's last clean opportunity to course-correct before
+    pricing locks in.
+
 REQUIRED FIELDS — must all be captured in the SMS thread before quoting
 The Intake Agent reads the FULL conversation transcript and extracts
 these fields. If any are missing when you set action='finish', the
@@ -324,21 +382,34 @@ QuoteMate — I'm the AI quoting assistant. <reply>").
    (in the order listed under that job_type's MUST ASK above).
 
 8. ALL universal fields (name, suburb, job_type) AND all per-job
-   MUST-ASK fields are satisfied:
-   action='finish'. Reply with a short confirmation that ECHOES BACK
-   what the customer told you (count, room, ceiling type, replace vs
-   new install) — do NOT pre-fill specs the customer never confirmed.
-   Set ready_for_intake=true. Examples:
-     ✓ "Got it Mike — 5 downlight replacements in your Bondi kitchen,
-        flat plaster ceiling, existing wiring. Quote on its way in 2
-        mins — reply if anything's different."
-     ✓ "Got it Sarah — 4 new downlights in the Bondi lounge, raked
-        ceiling, no existing fittings there. Quote in 2 mins."
-     ✗ "Got it Mike — I'll quote on flat plaster ceiling, existing
-        wiring, indoor."  ← BAD: don't claim defaults the customer
-                              didn't actually state. If you don't have
-                              ceiling type or replace-vs-new from the
-                              customer, action='ask' instead of 'finish'.
+   MUST-ASK fields are satisfied — apply Rule 11's two-step handshake:
+
+   8a. Customer has NOT yet affirmed the summary (no "yep" / "yes" /
+       "correct" / "all good" in their last message):
+       action='ask'. Send a verification message that ECHOES BACK what
+       they told you and asks for explicit confirmation. Examples:
+         ✓ "Sweet — just to confirm: 5 warm-white LED downlight
+            replacements in your Bondi kitchen, flat plaster ceiling,
+            existing wiring. Sound right?"
+         ✓ "Got it — 4 new tri-colour downlights in the Bondi lounge,
+            raked ceiling, no existing fittings there. Sound right?"
+         ✗ "Got it Mike — I'll quote on flat plaster ceiling, existing
+            wiring, indoor."  ← BAD: don't claim specs the customer
+                                  didn't state, and don't skip the
+                                  Sound right? handshake.
+
+   8b. Customer's last message AFFIRMS the summary ("yep", "yes",
+       "correct", "that's right", "perfect", "all good", "sounds good",
+       "spot on"):
+       action='finish'. Reply with a short wrap line and set
+       ready_for_intake=true. Examples:
+         ✓ "All good Sam — quote on its way shortly."
+         ✓ "Beauty — quote drafting now, you'll see it in 2 mins."
+
+   8c. Customer's last message CORRECTS something ("actually 5 not 6",
+       "make it cool white", "raked actually"):
+       action='ask'. Update your understanding from the correction,
+       then re-issue a fresh "Sound right?" with the corrected info.
 
 OUTPUT FORMAT
 You MUST return JSON matching the TurnDecisionSchema. The schema is
@@ -388,10 +459,23 @@ function customerHistoryDirective(hint: CustomerHistoryHint): string {
   }
 }
 
+// Maps the PhotoLinkHint to a directive for Haiku (Rule 10).
+function photoLinkDirective(hint: PhotoLinkHint): string {
+  switch (hint) {
+    case 'will_send_now':
+      return 'PHOTO LINK STATE: the photo-upload SMS will be dispatched RIGHT AFTER your reply this turn. Rule 10 applies — include a short heads-up phrase ("I\'ll flick you a quick photo link in a sec — helps the sparky") so the customer knows to expect it.'
+    case 'already_sent':
+      return 'PHOTO LINK STATE: the photo-upload SMS was already sent earlier in this conversation. Rule 10 applies — DO NOT mention the photo link again; the customer already has it.'
+    case 'not_applicable':
+      return 'PHOTO LINK STATE: no photo SMS will be sent (e.g. inspection-required job, or photo flow not relevant). Do not mention photos.'
+  }
+}
+
 export async function decideNextTurn(args: {
   history: ConversationTurn[]
   inboundCount: number      // number of customer messages so far (inclusive of latest)
   customerHistory?: CustomerHistoryHint
+  photoLink?: PhotoLinkHint
 }): Promise<TurnDecision> {
   // Wrap Haiku call in withRetry so a transient Anthropic 529 (overloaded)
   // or network blip doesn't drop the customer's reply silently. 3 attempts
@@ -407,6 +491,8 @@ export async function decideNextTurn(args: {
         `INBOUND TURN COUNT (customer messages so far, including latest): ${args.inboundCount}`,
         `CUSTOMER HISTORY: ${args.customerHistory ?? (args.inboundCount === 1 ? 'first_time' : 'continuing')}`,
         customerHistoryDirective(args.customerHistory ?? (args.inboundCount === 1 ? 'first_time' : 'continuing')),
+        `PHOTO LINK STATE: ${args.photoLink ?? 'not_applicable'}`,
+        photoLinkDirective(args.photoLink ?? 'not_applicable'),
         `CONVERSATION HISTORY (oldest first):`,
         formatHistory(args.history),
         ``,

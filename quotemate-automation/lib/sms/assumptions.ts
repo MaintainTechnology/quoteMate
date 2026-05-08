@@ -52,6 +52,12 @@ export const ASSUMPTION_RULES: Record<JobType, AssumptionRule> = {
       // a fitting). Even when the customer says "replace", confirm —
       // some customers say "replace" but mean "I want to add new lights".
       'replacing existing downlights (existing wiring) or new install (no fittings there now)',
+      // Colour/feature preference anchors the 3 tiers around what the
+      // customer actually wants. shared_materials has: Basic warm white
+      // ($28), Tri-colour ($48), Dimmable IP-rated ($72). Without
+      // preference the agent generates 3 tiers blindly; with it,
+      // tiers become refinements of the same product family.
+      'colour or feature preference (warm white, cool white, tri-colour, dimmable, smart Wi-Fi, or no preference / standard)',
     ],
     inspectionTriggers: [
       'raked ceiling', 'high ceiling', 'cathedral ceiling',

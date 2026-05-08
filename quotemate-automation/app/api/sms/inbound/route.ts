@@ -404,6 +404,18 @@ export async function POST(req: Request) {
   // hold-on message so the customer doesn't get a bungled "new job"
   // reply while the previous quote is still being drafted.
   const lookupMode = mode
+  // Photo-link hint flows into Haiku so it can give the customer a
+  // verbal heads-up before the photo-upload SMS arrives unannounced.
+  // Three states (see lib/sms/dialog.ts > PhotoLinkHint):
+  //   - already_sent: photo SMS fired in an earlier turn, don't repeat
+  //   - will_send_now: photo not yet sent and a token exists; if Haiku
+  //     identifies an easy-5 job this turn it'll be dispatched alongside
+  //     the dialog reply, so include "I'll flick you a link in a sec"
+  //   - not_applicable: no token / legacy conversation
+  const photoLinkHint: 'already_sent' | 'will_send_now' | 'not_applicable' =
+    photoRequestAlreadySent ? 'already_sent'
+      : photoRequestToken ? 'will_send_now'
+      : 'not_applicable'
 
   after(async () => {
     try {
@@ -490,13 +502,16 @@ export async function POST(req: Request) {
         turnCount: turns.length,
         inboundCount,
         customerHistory,
+        photoLink: photoLinkHint,
       })
       // 6. Ask Haiku what to do next — ask | finish | escalate_inspection.
-      // customerHistory drives the OPENER LOGIC (Rule 9 in the system prompt):
-      // first_time → full intro, returning → "welcome back", continuing → no greeting.
+      // customerHistory drives Rule 9 (opener logic): first_time → full intro,
+      // returning → "welcome back", continuing → no greeting.
+      // photoLink drives Rule 10 (photo heads-up): will_send_now → tell the
+      // customer a link is coming; already_sent → don't repeat.
       let decision: Awaited<ReturnType<typeof decideNextTurn>>
       try {
-        decision = await decideNextTurn({ history: turns, inboundCount, customerHistory })
+        decision = await decideNextTurn({ history: turns, inboundCount, customerHistory, photoLink: photoLinkHint })
         console.log('[sms/inbound:after] step 6 — decision', {
           action: decision.action,
           job_type_guess: decision.job_type_guess,
