@@ -359,17 +359,25 @@ export async function POST(req: Request) {
     .select()
     .maybeSingle()
 
-  if (lockErr) {
-    console.error('[sms/inbound] lock claim threw', lockErr)
-    // Don't fail the whole webhook — fall through and try to process
-    // anyway. Worst case: customer might get a duplicate reply (the bug
-    // we're trying to prevent) but at least they get one.
-  }
-
-  if (!lockedRow) {
-    // Another webhook is already preparing a reply for this conversation.
-    // Our message is persisted; the leader's tail-check will see it and
-    // either fold it into its current reply or trigger a follow-up turn.
+  // Distinguish three outcomes:
+  //   1. lockErr set         → DB / schema problem. FAIL OPEN — process the
+  //                            message without dedup. Customer reply is more
+  //                            important than risking an occasional duplicate.
+  //                            Common case: migration 007 not yet applied →
+  //                            'processing_until' column missing → PGRST204.
+  //   2. lockedRow set       → we acquired the lock cleanly, proceed.
+  //   3. lockedRow null + no err → another webhook holds the lock. Coalesce.
+  const lockInfraBroken = !!lockErr
+  if (lockInfraBroken) {
+    console.error('[sms/inbound] lock claim threw — FAILING OPEN (processing without dedup)', {
+      conversationId: conversation.id,
+      code: (lockErr as { code?: string } | null)?.code,
+      message: lockErr?.message,
+      hint: 'If code=PGRST204 the migration 007_sms_conversation_locking.sql has not been applied — run scripts/run-conversation-locking-migration.mjs',
+    })
+  } else if (!lockedRow) {
+    // Real coalesce — lock infra is working AND another webhook holds it.
+    // Our message is persisted; the leader's debounce window will pick it up.
     console.log('[sms/inbound] coalesced — leader holds the lock; bailing without dispatch', {
       conversationId: conversation.id,
     })
@@ -727,14 +735,26 @@ export async function POST(req: Request) {
       // to the fallback. Clearing processing_until lets the next inbound
       // SMS (which may be sitting in DB after a failed lock claim) be
       // processed by the next webhook for this customer.
+      //
+      // If the column doesn't exist (migration 007 unapplied), this update
+      // returns an error which we log but DO NOT throw on — fail-open is
+      // already in effect upstream so the customer has been served.
       try {
-        await supabase
+        const { error: releaseErr } = await supabase
           .from('sms_conversations')
           .update({ processing_until: null })
           .eq('id', conversationId)
-        console.log('[sms/inbound:after] lock released', { conversationId })
+        if (releaseErr) {
+          console.warn('[sms/inbound:after] lock release returned error (will auto-expire in 60s)', {
+            conversationId,
+            code: (releaseErr as { code?: string }).code,
+            message: releaseErr.message,
+          })
+        } else {
+          console.log('[sms/inbound:after] lock released', { conversationId })
+        }
       } catch (releaseErr: any) {
-        console.error('[sms/inbound:after] lock release failed (will auto-expire in 60s)', {
+        console.error('[sms/inbound:after] lock release threw (will auto-expire in 60s)', {
           conversationId,
           error: releaseErr?.message ?? String(releaseErr),
         })
