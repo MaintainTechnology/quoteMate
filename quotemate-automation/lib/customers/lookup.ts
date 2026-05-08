@@ -171,6 +171,15 @@ export async function updateCustomerFromIntake(opts: {
  * Render a compact "KNOWN CUSTOMER" block for the dialog system prompt.
  * Returns null if there's nothing useful to inject (stub customer with no
  * fields populated).
+ *
+ * Conservative re-engagement design:
+ *   - Greeting stays neutral (no name leak — someone else may have the phone).
+ *   - If first_name is known, skip the "what's your first name?" question
+ *     silently and use the name in later acknowledgements.
+ *   - If suburb is known, REPLACE the standard "what suburb?" question with
+ *     an address-confirmation handshake ("still at the Bondi place, right?").
+ *   - On correction ("Coogee now"), the new value flows through to the
+ *     post-intake updateCustomerFromIntake() and overwrites the row.
  */
 export function formatCustomerContext(c: CustomerProfile | null): string | null {
   if (!c) return null
@@ -182,12 +191,33 @@ export function formatCustomerContext(c: CustomerProfile | null): string | null 
   if (c.email) known.push(`email: ${c.email}`)
   if (c.total_quotes > 0) known.push(`total_quotes_with_us: ${c.total_quotes}`)
   if (known.length === 0) return null
+
+  const suburbExample = c.suburb ?? 'Bondi'
+  const nameExample = c.first_name ?? 'Sam'
+
   return [
-    'KNOWN CUSTOMER (returning) — do NOT re-ask any field listed below.',
-    'Greet by first_name. Skip the universal must-ask gate for any',
-    'field already populated. If the customer volunteers a different',
-    'value, accept it (the post-intake update will overwrite the row).',
+    'KNOWN CUSTOMER MEMORY — apply conservative re-engagement.',
     '',
+    'GREETING: stay neutral. Do NOT volunteer the name in the welcome',
+    'line. Someone else may be holding the phone. Rule 9 Case B applies',
+    'unchanged ("Welcome back — what can I help you with this time?").',
+    '',
+    'NAME: if first_name is known, skip the "what\'s your first name?"',
+    'question silently — treat the name as already captured. Use it in',
+    'acknowledgements once the customer has engaged with the new request',
+    `(e.g. "Cheers ${nameExample} — ...").`,
+    '',
+    'SUBURB: if suburb is known, REPLACE the standard "and what suburb',
+    'is the job in?" question with an address-confirmation handshake:',
+    `  ✓ "Cheers ${nameExample} — still at the ${suburbExample} place, right?"`,
+    `  ✓ "Got it — still at the same ${suburbExample} spot?"`,
+    'If the customer affirms ("yep", "still there"), use the stored',
+    'suburb and move to the next missing field — do NOT ask again.',
+    'If they correct ("Coogee now" / "this job\'s at my mum\'s in Penrith"),',
+    'use the new suburb for this conversation. The post-intake write-back',
+    'will reconcile the customers row.',
+    '',
+    'KNOWN FIELDS (do NOT re-ask):',
     ...known.map(k => `  - ${k}`),
   ].join('\n')
 }
