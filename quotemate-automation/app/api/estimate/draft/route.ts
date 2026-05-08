@@ -13,6 +13,7 @@ import { createCheckoutSessionsForQuote, createInspectionCheckoutSession, genera
 import { withRetry } from '@/lib/util/retry'
 import { decideRouting } from '@/lib/routing/decide'
 import { generatePreviewImage } from '@/lib/preview/generate'
+import { generateSampleImages } from '@/lib/preview/samples'
 
 export const maxDuration = 300
 
@@ -259,17 +260,27 @@ export async function POST(req: Request) {
     after(async () => {
       const previewLog = pipelineLog('dispatch', `preview:${quote!.id.slice(0, 8)}`)
       try {
-        previewLog.step('preview trigger 3 — checking for photos on intake', { intake_id: intake.id })
         const photoPaths = (Array.isArray(intake.photo_paths) ? intake.photo_paths : []) as string[]
-        if (photoPaths.length === 0) {
-          previewLog.ok('skipped — no photos yet on intake; will retry on photo-upload trigger', { intake_id: intake.id })
-          return
-        }
-        previewLog.step('kicking off Gemini generation', { quote_id: quote!.id, photo_count: photoPaths.length })
-        const result = await generatePreviewImage(quote!.id as string)
-        previewLog.ok('preview trigger 3 result', { status: result.status })
+        previewLog.step('preview + samples trigger 3 — kicking off Gemini in parallel', {
+          quote_id: quote!.id,
+          intake_id: intake.id,
+          photo_count: photoPaths.length,
+        })
+
+        // Sample gallery doesn't need customer photos — fires regardless.
+        // Main preview only fires if we have at least one photo on the
+        // intake (photo-upload trigger 1 will catch it later otherwise).
+        const previewPromise = photoPaths.length > 0
+          ? generatePreviewImage(quote!.id as string)
+          : Promise.resolve({ status: 'skipped' as const, reason: 'no photos yet on intake' })
+
+        const samplesPromise = generateSampleImages(quote!.id as string)
+
+        const [previewResult, samplesResult] = await Promise.all([previewPromise, samplesPromise])
+        previewLog.ok('preview trigger 3 result', { status: previewResult.status })
+        previewLog.ok('samples trigger 3 result', { status: samplesResult.status })
       } catch (e: any) {
-        previewLog.err('preview trigger 3 threw', e?.message ?? String(e))
+        previewLog.err('preview/samples trigger 3 threw', e?.message ?? String(e))
       }
     })
 

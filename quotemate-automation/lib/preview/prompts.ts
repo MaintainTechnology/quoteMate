@@ -50,6 +50,90 @@ function footerText(): string {
   ].join('\n')
 }
 
+// ────────────────────────────────────────────────────────────────────
+// SAMPLE GALLERY PROMPTS
+//
+// 3 generic text-to-image prompts that show typical examples of the
+// proposed work. NOT based on the customer's photo — these are
+// "examples of similar work" to complement the room-specific preview.
+// Each angle is distinct so the customer sees 3 useful perspectives.
+// ────────────────────────────────────────────────────────────────────
+
+export type SamplePromptSet = {
+  wide: string      // wide-angle view of the whole installation
+  detail: string    // close-up of the fitting + light pattern
+  lit: string       // result shown in use (lights on, evening, etc.)
+}
+
+const SAMPLE_FOOTER = [
+  ``,
+  `STYLE: photorealistic, modern Australian residential interior.`,
+  `WATERMARK: small semi-transparent "AI SAMPLE" in bottom-right corner.`,
+  `OUTPUT: single image, 4:3 aspect ratio, magazine-quality.`,
+].join('\n')
+
+export function buildSamplePrompts(intake: PromptIntake): SamplePromptSet | null {
+  const count = intake.scope?.item_count ?? 0
+  const ceiling = intake.access?.ceiling_type ?? 'flat plaster'
+  const tempK = colorTempHint(intake.scope?.color_temp)
+  const room = detectRoom(intake.scope?.description)
+
+  switch (intake.job_type) {
+    case 'downlights':
+      return {
+        wide:
+          `Photorealistic wide-angle view of a typical Australian ${room} with ${count || 6} ${tempK} LED downlights evenly spaced on a ${ceiling} ceiling. Lights ON, daytime ambient lighting. Modern furniture, clean install, neat trim. No people in frame.${SAMPLE_FOOTER}`,
+        detail:
+          `Photorealistic close-up of a single ${tempK} LED downlight installed neatly in a ${ceiling} ceiling. Showing the trim, beam pattern, and clean cut-out. Crisp focus on the fitting. Slight bokeh background. No people.${SAMPLE_FOOTER}`,
+        lit:
+          `Photorealistic evening view of an Australian ${room} with ${count || 6} ${tempK} LED downlights illuminated. Cosy ambient glow, lights on, dusk through windows. Modern furniture, no people in frame.${SAMPLE_FOOTER}`,
+      }
+
+    case 'power_points':
+      return {
+        wide:
+          `Photorealistic wide-angle view of a typical Australian ${room} interior wall with ${count || 4} double GPO (Australian power points), AS/NZS 3112 standard, white face plates, mounted at standard height. Clean install. No people.${SAMPLE_FOOTER}`,
+        detail:
+          `Photorealistic close-up of a single Australian double GPO installed in a plaster wall. White face plate, clean cut-out, no scuffs. Slight bokeh background. High detail. No people.${SAMPLE_FOOTER}`,
+        lit:
+          `Photorealistic Australian ${room} with newly-installed double GPOs, an appliance plugged in (lamp or charger), warm interior lighting. Lifestyle context, no people in frame.${SAMPLE_FOOTER}`,
+      }
+
+    case 'ceiling_fans':
+      return {
+        wide:
+          `Photorealistic wide-angle view of a typical Australian ${room} with a modern ${count > 1 ? `${count} ceiling fans, one per room area` : 'ceiling fan'} centred on the ${ceiling} ceiling. Matte white or brushed nickel finish, 3-blade design. Daytime ambient lighting. No people.${SAMPLE_FOOTER}`,
+        detail:
+          `Photorealistic close-up of a modern ceiling fan installed neatly on a ${ceiling} ceiling. Showing the housing, blades, optional integrated light. Clean install. Slight bokeh background. No people.${SAMPLE_FOOTER}`,
+        lit:
+          `Photorealistic evening view of an Australian ${room} with the ceiling fan running and integrated light on. Subtle motion blur on blades, cosy ambient lighting. No people.${SAMPLE_FOOTER}`,
+      }
+
+    case 'smoke_alarms':
+      return {
+        wide:
+          `Photorealistic wide-angle view of a typical Australian ${room} or hallway ceiling showing ${count || 4} small white photoelectric smoke alarms positioned at standard locations. AS 3786 compliant fittings. Daytime ambient lighting. No people.${SAMPLE_FOOTER}`,
+        detail:
+          `Photorealistic close-up of a single white photoelectric smoke alarm installed on a ${ceiling} ceiling. Low-profile, ~10cm diameter, neat install. High detail. Slight bokeh background. No people.${SAMPLE_FOOTER}`,
+        lit:
+          `Photorealistic Australian residential ceiling at night showing the smoke alarm with its small status LED visible. Subtle ambient light from a nearby room. Reassuring atmosphere. No people.${SAMPLE_FOOTER}`,
+      }
+
+    case 'outdoor_lighting':
+      return {
+        wide:
+          `Photorealistic wide-angle view of a typical Australian deck, eaves, or backyard showing ${count || 4} ${tempK} IP-rated LED outdoor light fittings. Weatherproof, modern aluminium or matte black finish, evenly spaced. Dusk lighting, lights starting to glow. No people.${SAMPLE_FOOTER}`,
+        detail:
+          `Photorealistic close-up of a single IP-rated outdoor LED light fitting mounted on a wall or eaves. Weatherproof gasket visible, clean install, weathered timber/render around. High detail. No people.${SAMPLE_FOOTER}`,
+        lit:
+          `Photorealistic evening view of an Australian backyard or deck illuminated by ${count || 4} ${tempK} IP-rated outdoor LED lights. Warm welcoming glow, modern Aussie outdoor living. No people.${SAMPLE_FOOTER}`,
+      }
+
+    default:
+      return null
+  }
+}
+
 export function buildPreviewPrompt(intake: PromptIntake): string {
   const room = detectRoom(intake.scope?.description)
   const count = intake.scope?.item_count ?? 0

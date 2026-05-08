@@ -4,6 +4,7 @@ import { after } from 'next/server'
 import { uploadIntakePhoto } from '@/lib/storage/upload'
 import { pipelineLog } from '@/lib/log/pipeline'
 import { generatePreviewImage } from '@/lib/preview/generate'
+import { generateSampleImages } from '@/lib/preview/samples'
 
 export const maxDuration = 60
 
@@ -193,9 +194,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
         return
       }
 
-      log.step('preview trigger 1 — kicking off Gemini generation', { quoteId: quote.id })
-      const result = await generatePreviewImage(quote.id as string)
-      log.ok('preview trigger 1 result', { status: result.status })
+      log.step('preview + samples trigger 1 — kicking off Gemini generation (parallel)', { quoteId: quote.id })
+      // Run preview (room-specific edit) + sample gallery (3 generic
+      // examples) in parallel. Each is independently idempotent.
+      const [previewResult, samplesResult] = await Promise.all([
+        generatePreviewImage(quote.id as string),
+        generateSampleImages(quote.id as string),
+      ])
+      log.ok('preview trigger 1 result', { status: previewResult.status })
+      log.ok('samples trigger 1 result', { status: samplesResult.status })
     } catch (e: any) {
       log.err('preview trigger 1 threw', e?.message ?? String(e))
     }

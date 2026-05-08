@@ -12,6 +12,7 @@ import { notFound } from 'next/navigation'
 import { getTierPhoto } from '@/lib/quote/tier-photos'
 import { refreshSignedUrl } from '@/lib/storage/upload'
 import { generatePreviewImage } from '@/lib/preview/generate'
+import { generateSampleImages } from '@/lib/preview/samples'
 import { PreviewSection } from './PreviewSection'
 
 export const dynamic = 'force-dynamic'
@@ -76,7 +77,7 @@ export default async function PublicQuotePage(props: {
 
   const { data: quote } = await supabase
     .from('quotes')
-    .select('id, intake_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at, preview_status, preview_image_path')
+    .select('id, intake_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at, preview_status, preview_image_path, samples_status, sample_image_paths')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -147,11 +148,11 @@ export default async function PublicQuotePage(props: {
     await Promise.all(photoPaths.map(p => refreshSignedUrl(p).catch(() => null)))
   ).filter((u): u is string => !!u)
 
-  // ─── AI preview state for this render + Trigger 2 ───
-  // Compute the initial state to seed <PreviewSection/>. If status='idle'
-  // and we have photos, fire generation in after() so the customer sees
-  // a loading skeleton on this render and the image lands on the next
-  // poll. Idempotent CAS in generatePreviewImage() prevents double-runs.
+  // ─── AI preview + sample-gallery state for this render + Trigger 2 ───
+  // Compute the initial state to seed <PreviewSection/>. If either is
+  // still 'idle', fire generation in after() so the customer sees a
+  // loading skeleton on this render and the images land on the next
+  // poll. Idempotent CAS prevents double-runs.
   const previewStatus = (quote.preview_status as
     'idle' | 'no_photos' | 'generating' | 'ready' | 'failed' | null) ?? 'idle'
   let previewImageUrl: string | null = null
@@ -162,12 +163,26 @@ export default async function PublicQuotePage(props: {
       // Sign failed — leave URL null, polling will retry.
     }
   }
-  // Trigger 2: kick off generation if it hasn't started yet AND we have photos.
-  // Inspection-only quotes get skipped inside generatePreviewImage().
-  if (previewStatus === 'idle' && photoPaths.length > 0 && !quote.needs_inspection) {
+
+  const samplesStatus = (quote.samples_status as
+    'idle' | 'generating' | 'ready' | 'partial' | 'failed' | null) ?? 'idle'
+  const samplePaths = (Array.isArray(quote.sample_image_paths) ? quote.sample_image_paths : []) as string[]
+  const sampleImageUrls: string[] = (samplesStatus === 'ready' || samplesStatus === 'partial')
+    ? (await Promise.all(samplePaths.map(p => refreshSignedUrl(p).catch(() => null))))
+        .filter((u): u is string => !!u)
+    : []
+
+  // Trigger 2: kick off whichever generations haven't started yet.
+  // Inspection-only quotes get skipped inside the generators.
+  const needsPreview = previewStatus === 'idle' && photoPaths.length > 0 && !quote.needs_inspection
+  const needsSamples = samplesStatus === 'idle' && !quote.needs_inspection
+  if (needsPreview || needsSamples) {
     after(async () => {
       try {
-        await generatePreviewImage(quote.id as string)
+        await Promise.all([
+          needsPreview ? generatePreviewImage(quote.id as string) : Promise.resolve(),
+          needsSamples ? generateSampleImages(quote.id as string) : Promise.resolve(),
+        ])
       } catch (e: any) {
         console.error('[preview] page-load trigger 2 threw', { quoteId: quote.id, error: e?.message ?? String(e) })
       }
@@ -251,12 +266,14 @@ export default async function PublicQuotePage(props: {
         {/* ─── Customer-supplied photos ──────────────────── */}
         <CustomerPhotos urls={customerPhotoUrls} />
 
-        {/* ─── AI preview (Gemini-edited from the customer's photo) ─── */}
+        {/* ─── AI preview (room-specific) + sample gallery (3 generic) ─── */}
         {!isInspection ? (
           <PreviewSection
             shareToken={token}
-            initialStatus={previewStatus}
-            initialImageUrl={previewImageUrl}
+            initialPreviewStatus={previewStatus}
+            initialPreviewImageUrl={previewImageUrl}
+            initialSamplesStatus={samplesStatus}
+            initialSampleImageUrls={sampleImageUrls}
           />
         ) : null}
 
@@ -390,18 +407,27 @@ export default async function PublicQuotePage(props: {
 
 function CustomerPhotos({ urls }: { urls: string[] }) {
   if (urls.length === 0) return null
+  // Layout adapts to photo count so each photo gets meaningful real estate:
+  //   1 photo  → full width, 4:3 aspect (~768×576 on desktop)
+  //   2 photos → 2-up on desktop, stacked on mobile (~768×576 each on mobile)
+  //   3+ photos → 1-up on mobile, 2-up on tablet, 3-up on desktop
+  const cols =
+    urls.length === 1 ? 'grid-cols-1' :
+    urls.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+    'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+
   return (
     <section className="mt-8 rounded-lg border border-zinc-200 bg-white p-5 sm:p-6">
       <h2 className="text-xs font-semibold uppercase tracking-widest text-blue-600">Photos you sent</h2>
       <p className="mt-2 text-xs text-zinc-500">Your tradie reviewed these to draft the quote below. Tap any photo to view full-size.</p>
-      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3">
+      <div className={`mt-4 grid gap-3 sm:gap-4 ${cols}`}>
         {urls.map((url, i) => (
           <a
             key={i}
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="block aspect-square overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 transition-opacity hover:opacity-90"
+            className="block aspect-4/3 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 transition-opacity hover:opacity-90"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
