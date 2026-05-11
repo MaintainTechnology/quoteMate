@@ -7,7 +7,9 @@ export async function structureIntake(transcript: string, photoUrls: string[] = 
     model: anthropic('claude-opus-4-7'),
     schema: IntakeSchema,
     maxRetries: 0, // wrapper handles retries with logging — no double-retry
-    temperature: 0, // determinism: same transcript → same intake fields
+    // Opus 4.7 ignores temperature (extended-thinking model). The AI SDK
+    // warns on every call if it's set, so omit it. Determinism comes from
+    // strict system grounding + structured output, not from temperature.
     system: `STRICT GROUNDING — non-negotiable, supersedes everything below
 1. ONLY extract what the caller said in the transcript or what is
    visibly present in the photos. Never infer from "what jobs like

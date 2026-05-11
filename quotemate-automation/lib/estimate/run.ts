@@ -77,7 +77,9 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
     tools,
     stopWhen: stepCountIs(10),  // build-guide says `maxSteps: 10`; AI SDK v5+ renamed it to stopWhen+stepCountIs
     maxRetries: 0,              // wrapper handles retries with logging — no double-retry
-    temperature: 0,             // determinism: same intake → same draft quote
+    // Opus 4.7 ignores temperature — AI SDK warns on every call if it's
+    // set. Determinism here comes from the strict tool-call grounding +
+    // pricing book lookup, not from temperature.
   })
 
   const cacheMeta = (result.providerMetadata as any)?.anthropic

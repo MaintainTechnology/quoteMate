@@ -36,7 +36,11 @@ export const SlotsSchema = z.object({
     'downlights', 'power_points', 'ceiling_fans', 'smoke_alarms', 'outdoor_lighting',
     'unknown', 'out_of_scope',
   ]).nullable().optional(),
-  count: z.number().int().positive().nullable().optional(),
+  // .min(1) rather than .positive() — Zod emits exclusiveMinimum: 0 for
+  // .positive(), which Anthropic's JSON Schema validator rejects on the
+  // 'integer' type ("For 'integer' type, properties exclusiveMinimum,
+  // maximum are not supported"). .min(1) emits minimum: 1 which is fine.
+  count: z.number().int().min(1).nullable().optional(),
   room: z.string().nullable().optional(),
   ceiling_type: z.enum([
     'flat_plaster', 'raked', 'cathedral', 'sheet_metal', 'unknown',
