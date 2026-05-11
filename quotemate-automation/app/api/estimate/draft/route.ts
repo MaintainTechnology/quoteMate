@@ -30,7 +30,20 @@ export async function POST(req: Request) {
   try {
     log.step('loading intake, pricing_book, caller_number')
     const { data: intake } = await supabase.from('intakes').select('*').eq('id', intakeId).single()
-    const { data: pricingBook } = await supabase.from('pricing_book').select('*').single()
+
+    // v5 multi-trade: pick the pricing_book row matching intake.trade.
+    // Legacy intake rows pre-dating v5 have no trade field — fall back to
+    // 'electrical' for them (the existing NSW/NECA pilot tenant).
+    const intakeTrade = (intake?.trade as 'electrical' | 'plumbing' | undefined) ?? 'electrical'
+    const { data: pricingBook } = await supabase
+      .from('pricing_book')
+      .select('*')
+      .eq('trade', intakeTrade)
+      .single()
+    if (!pricingBook) {
+      log.err('no pricing_book row for trade — aborting', null, { trade: intakeTrade })
+      return Response.json({ ok: false, error: `No pricing_book row for trade=${intakeTrade}` }, { status: 500 })
+    }
 
     // Channel-aware customer lookup. Voice path: intake.call_id is set -> read
     // calls.caller_number. SMS path: intake.call_id is null -> look up the
@@ -62,6 +75,7 @@ export async function POST(req: Request) {
 
     log.ok('inputs loaded', {
       source: isSmsSource ? 'sms' : 'voice',
+      trade: intakeTrade,
       job_type: intake.job_type,
       confidence: intake.confidence,
       caller_number: call?.caller_number ? 'set' : 'null',

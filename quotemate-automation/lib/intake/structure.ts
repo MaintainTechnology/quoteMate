@@ -1,11 +1,17 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { generateObject } from 'ai'
-import { IntakeSchema } from './schema'
+import { IntakeSchema, deriveTradeFromJobType } from './schema'
 
 export async function structureIntake(transcript: string, photoUrls: string[] = []) {
+  // `trade` is required on the canonical IntakeSchema (v5 multi-trade) but
+  // omitted from generateObject so Opus doesn't have to classify it. We
+  // derive it from the emitted job_type below — see deriveTradeFromJobType.
+  // The voice path will almost always resolve to 'electrical' (Vapi pilot
+  // is electrical-only); the SMS path can resolve to either trade based on
+  // the customer's described issue.
   const { object } = await generateObject({
     model: anthropic('claude-opus-4-7'),
-    schema: IntakeSchema,
+    schema: IntakeSchema.omit({ trade: true }),
     maxRetries: 0, // wrapper handles retries with logging — no double-retry
     // Opus 4.7 ignores temperature (extended-thinking model). The AI SDK
     // warns on every call if it's set, so omit it. Determinism comes from
@@ -113,5 +119,5 @@ or switchboard work.`,
       ],
     }],
   })
-  return object
+  return { ...object, trade: deriveTradeFromJobType(object.job_type) }
 }

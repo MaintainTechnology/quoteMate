@@ -73,16 +73,26 @@ function n(v: number | string): number {
 // ─────────────────────────────────────────────────────────────────
 
 export type Category =
+  // ── Electrical (v3) ─────────────────────────────
   | 'downlight'
   | 'gpo'
   | 'smoke_alarm'
   | 'fan'
   | 'outdoor_light'
   | 'rcbo'
-  | 'sundry'
   | 'oven_cooktop'
   | 'ev_charger'
   | 'switchboard'
+  // ── Plumbing (v5 multi-trade) ──────────────────
+  | 'drain'        // hand-rod / jet-blast clear of blocked drain
+  | 'hot_water'    // HWS replacement (electric / gas / heat pump)
+  | 'tap'          // tap repair, tap replace, mixer, washer
+  | 'toilet'       // toilet suite install, cistern repair
+  | 'cctv'         // CCTV drain camera inspection
+  | 'gas'          // gas appliance connection, gas leak detection
+  | 'prv'          // pressure reduction valve install
+  // ── Shared ───────────────────────────────────────
+  | 'sundry'       // disposal, terminals, fittings, seals, tape, etc.
   | 'general'
 
 /** Extract category tags from arbitrary product-name or line-description text. */
@@ -90,6 +100,7 @@ export function categorise(text: string): Set<Category> {
   const t = (text ?? '').toLowerCase()
   const cats = new Set<Category>()
 
+  // ── Electrical ──────────────────────────────────────────────────
   // Outdoor first — "outdoor IP-rated LED light" must beat the bare-LED rule.
   if (/\b(outdoor|exterior|deck|weatherproof|ip[-\s]?rated|garden|patio|wall\s*pack)\b/.test(t)) {
     cats.add('outdoor_light')
@@ -99,13 +110,33 @@ export function categorise(text: string): Set<Category> {
   if (/\bsmoke\s*alarm|\binterconnect(?:ed)?\s+alarm/.test(t)) cats.add('smoke_alarm')
   if (/\b(ceiling\s*fan|\bfan\b)/.test(t)) cats.add('fan')
   if (/\b(rcbo|safety\s*switch|safety\s*breaker|circuit\s*breaker)\b/.test(t)) cats.add('rcbo')
-  if (/\b(sundries|sundry|terminals|consumables|miscellaneous|extras|disposal|removal\s*of\s*old)\b/.test(t)) {
-    cats.add('sundry')
-  }
   if (/\b(oven|cooktop|stove|range\s*hood)\b/.test(t)) cats.add('oven_cooktop')
   if (/\b(ev\s*charger|electric\s*vehicle|wallbox)\b/.test(t)) cats.add('ev_charger')
   if (/\b(switchboard|switch\s*board|main\s*board|distribution\s*board)\b/.test(t)) {
     cats.add('switchboard')
+  }
+
+  // ── Plumbing (v5) ───────────────────────────────────────────────
+  // CCTV first — "CCTV drain inspection" must beat the bare-drain rule.
+  if (/\b(cctv|drain[-\s]?camera|camera\s*inspection)/.test(t)) cats.add('cctv')
+  if (/\b(drain|blockage|blocked\s*pipe|jet[-\s]?blast(?:ing)?|hand[-\s]?rod(?:ding)?|jet[-\s]?clear)/.test(t)) {
+    cats.add('drain')
+  }
+  if (/\b(hot\s*water|\bhws\b|heat\s*pump|continuous[-\s]?flow|storage\s*tank|water\s*heater)/.test(t)) {
+    cats.add('hot_water')
+  }
+  if (/\b(tap[s]?\b|mixer|tap\s*washer|faucet|spout)/.test(t)) cats.add('tap')
+  if (/\b(toilet|cistern|close[-\s]?coupled|wall[-\s]?faced|in[-\s]?wall\s*cistern|flush\s*valve|fill\s*valve)/.test(t)) {
+    cats.add('toilet')
+  }
+  if (/\b(gas\s*(?:appliance|leak|fitting|cooktop|oven|line|supply|pipe|connection)|gas[-\s]?bayonet|\blpg\b)\b/.test(t)) {
+    cats.add('gas')
+  }
+  if (/\b(pressure[-\s]?reduction\s*valve|\bprv\b|pressure\s*valve)/.test(t)) cats.add('prv')
+
+  // ── Shared sundries (both trades) ───────────────────────────────
+  if (/\b(sundries|sundry|terminals|consumables|miscellaneous|extras|disposal|removal\s*of\s*old|fittings\s*and\s*seals|pipe\s*tape|plumbing\s*sundries|teflon|ptfe)\b/.test(t)) {
+    cats.add('sundry')
   }
 
   if (cats.size === 0) cats.add('general')

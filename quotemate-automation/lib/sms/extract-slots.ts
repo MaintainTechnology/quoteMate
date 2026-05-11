@@ -33,7 +33,14 @@ export const SlotsSchema = z.object({
   email: z.string().nullable().optional(),
   // Per-job slots — scoped to the current request, not written back.
   job_type: z.enum([
+    // ── Electrical SMS auto-classifiable (v3 strategy) ─────────
     'downlights', 'power_points', 'ceiling_fans', 'smoke_alarms', 'outdoor_lighting',
+    // ── Plumbing SMS auto-classifiable (v5 strategy) ───────────
+    // Dialog flow stays electrical-centric for now (see strategy.md v5
+    // deferral); plumbing SMS leads are classified here so the route
+    // handler can route them to the portal for richer intake.
+    'blocked_drain', 'hot_water', 'tap_repair', 'tap_replace',
+    'toilet_repair', 'toilet_replace',
     'unknown', 'out_of_scope',
   ]).nullable().optional(),
   // z.number() (NOT .int()) — Anthropic's structured-output validator rejects
@@ -185,7 +192,7 @@ export function mergeSlotUpdates(
   }
 }
 
-const SYSTEM_PROMPT = `Extract structured slot values from a customer SMS message in an Australian electrical-quoting conversation.
+const SYSTEM_PROMPT = `Extract structured slot values from a customer SMS message in an Australian trade-quoting conversation (electrical or plumbing — both share this SMS line).
 
 You are NOT writing a reply. You only extract WHAT THE CUSTOMER JUST SAID.
 
@@ -271,11 +278,23 @@ EXTRACTION RULES:
        (Rule 0): if it asked "what suburb?" → suburb; if it asked
        "which room?" → room.
   6. JOB_TYPE extraction:
+     ELECTRICAL (auto-quote subset):
      - downlights / power_points / ceiling_fans / smoke_alarms / outdoor_lighting
-     - Anything else (switchboard, EV charger, fault find, ovens, renovation,
-       three-phase, rewire) → out_of_scope
      - "GPOs", "power points", "outlets" → power_points
      - "smoke alarms", "smokies", "smoke detectors" → smoke_alarms
+     - Other electrical (switchboard, EV charger, fault find, ovens,
+       renovation, three-phase, rewire) → out_of_scope
+
+     PLUMBING (auto-quote subset — v5 multi-trade):
+     - "blocked drain", "drain blocked", "slow drain", "gurgling" → blocked_drain
+     - "hot water", "HWS", "no hot water", "hot water unit dead" → hot_water
+     - "dripping tap", "leaking tap", "tap washer" → tap_repair
+     - "new tap", "replace tap", "upgrade tapware", "kitchen mixer" → tap_replace
+     - "running toilet", "cistern leaking", "toilet won't stop" → toilet_repair
+     - "new toilet", "replace toilet suite" → toilet_replace
+     - Other plumbing (gas leak, gas fitting, burst pipe, bathroom reno,
+       CCTV-only, PRV) → out_of_scope (these need portal/voice intake;
+       SMS dialog can't safely scope them)
   7. COUNT extraction:
      - "6 downlights" → count: 6
      - "a couple" → 2; "a few" → 3; "half a dozen" → 6

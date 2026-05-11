@@ -1,6 +1,6 @@
 # QuoteMate — Strategy & Re-evaluation
 
-> **Current iteration: v3 (2026-04-28).** v1 trade pivoted from **painting** to **electrical** based on pilot-access reality. The prose in §1–§12 below is the v2 painting analysis, kept as audit-log record. See [Iteration history](#iteration-history) at the bottom for the v3 rationale and what changed.
+> **Current iteration: v5 (2026-05-11).** v1 trade pivoted from **painting** to **electrical** in v3; v5 expands to **multi-trade** (electrical + plumbing) for a Brisbane plumber pilot. The prose in §1–§12 below is the v2 painting analysis, kept as audit-log record. See [Iteration history](#iteration-history) at the bottom for v3 (electrical pivot), v4 (photo-capture pattern), and v5 (multi-trade expansion) rationale.
 
 > Status: living document. Each iteration sharpens the analysis against the project assets and prior reasoning.
 
@@ -508,4 +508,49 @@ The voice-first AI receptionist is a fundraise pitch, not a v1 product. **If you
   - Real callers hit asbestos/old-switchboard surprises that photos would have caught — then we either tighten the auto-quote scope or add a confidence-gated "wait briefly for photos" branch in Stage 06 routing
   - Mobile app development begins — Pattern 1 is replaced wholesale by in-app capture
 
-- *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics, electrical multi-trade expansion to plumbing/HVAC).
+- **v5** (2026-05-11): **multi-trade expansion — plumbing alongside electrical (Brisbane pilot).**
+
+  **What's settled:**
+
+  The system now supports two trades simultaneously via a `trade` column on `pricing_book`, plus the pre-existing `trade` column on `shared_assemblies` and `shared_materials`. Electrical (NSW/NECA) and plumbing (QLD/QBCC) live in the same database; the estimator routes to a trade-specific system prompt based on `intake.trade`. Plumbing follows the same Good/Better/Best architecture and strict-grounding discipline — no ranged quotes, every dollar amount traces to a DB row.
+
+  **Why this crosses v1 scope:**
+
+  v3 locked v1 to "NSW electrical, easy 5 job types." Adding plumbing is a deliberate scope expansion driven by a second pilot opportunity (Brisbane plumber). The architectural cost is low because `trade` was already a column on assemblies/materials — the schema was architected for multi-trade from day 1, just not exercised. The product cost is two prompts to maintain and a per-trade `pricing_book` row.
+
+  **Plumbing "easy 5" (auto-quote tiered):**
+
+  - `blocked_drain` (G: hand rod · B: jet blast · X: jet blast + CCTV)
+  - `hot_water` (G: like-for-like electric · B: gas/continuous flow · X: heat pump w/ QLD rebate)
+  - `tap_repair` (G: washer · B: full tap replace · X: replace + new isolation valve)
+  - `toilet_repair` (G: cistern internals · B: full suite · X: wall-faced/in-wall premium)
+  - `tap_replace` (G: basin/laundry · B: kitchen mixer · X: wall-mounted premium)
+
+  **Plumbing inspection-route (cannot auto-quote):**
+
+  Gas fitting (leak detection, appliance connection — requires gas-licence verification), burst pipe repair (access/make-good unknown), bathroom renovation (rough-in + fit-off), CCTV-only inspections, hot-water replacements where electrical/gas line upgrades are needed.
+
+  **What didn't change:**
+
+  - Strict-grounding rule still binding: no fabricated ranges, every line item from DB
+  - Good/Better/Best framing reused — plumbing JSON's low/high ranges converted to midpoint assemblies
+  - $199 site-visit fee + inspection-fallback shape reused
+  - No auto-send — tradie human-in-loop preserved
+  - 4-agent architecture, eval framework, Stripe Connect Express — all unchanged
+
+  **What's deferred to future iterations:**
+
+  - Full multi-tenancy (`tenant_id` + RLS): both trades share one DB without per-tenant isolation. Acceptable for a 2-tenant pilot; required before scaling beyond 5 tradies. CLAUDE.md's "multi-tenant via Supabase RLS from day 1" goal becomes the next architectural debt to pay
+  - Plumbing-specific intake schema fields: currently reuses electrical access/property fields where applicable; plumbing-specific detail (fixture type, fuel type, indoor/outdoor) lives in `scope.description` and is parsed by the plumbing prompt rather than structured
+  - Cross-trade SMS slot extraction: the SMS extractor's per-job slots are electrical-centric (ceiling_type, colour); plumbing SMS leads classify by job_type and rely on portal completion for richer detail
+  - QBCC licence-specific PDF rendering for QLD plumbing quotes
+  - Plumbing RAG corpus: shares the `intakes` embeddings table; cross-trade matches are filtered by `job_type` at the SQL layer, so plumbing intakes naturally only match plumbing past quotes once corpus exists
+
+  **Trigger for the next iteration:**
+
+  - Plumbing pilot signs up 2+ tradies → invest in true multi-tenancy before the third
+  - Plumbing intake quality drops below 4.0/5 on the eval rubric → richer plumbing-specific intake schema
+  - QBCC compliance audit fails → harden QLD PDF rendering before any further multi-trade growth
+  - Third trade gets pitched → stop bolting trades on per-pilot and refactor to a trade-registry pattern
+
+- *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics, full multi-tenancy refactor).

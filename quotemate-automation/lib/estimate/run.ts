@@ -64,7 +64,8 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
     messages: [
       {
         role: 'system',
-        content: systemPrompt(pricingBook),
+        // v5 multi-trade: router picks electrical vs plumbing prompt by intake.trade
+        content: systemPrompt(intake, pricingBook),
         providerOptions: {
           anthropic: { cacheControl: { type: 'ephemeral' } },
         },
@@ -104,7 +105,9 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
   // Auto-quote path: every line_item.unit_price_ex_gst MUST be derivable
   // from pricing_book + shared_materials + shared_assemblies. If even one
   // line item fails grounding, downgrade the entire quote to inspection.
-  const candidates = await loadCandidatePrices(pricingBook)
+  // v5 multi-trade: scope grounding to intake.trade so an electrical quote
+  // can never coincidentally validate against a plumbing price (or vice versa).
+  const candidates = await loadCandidatePrices(pricingBook, intake?.trade ?? null)
   const check = validateQuoteGrounding(draft, pricingBook as PricingBookForValidation, candidates)
 
   if (check.valid) {
@@ -136,11 +139,19 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
  * Load every shared_materials and shared_assemblies row (name + price) and
  * expand each into raw + marked-up candidate prices so the validator can
  * enforce both price-grounding AND semantic-category-grounding.
+ *
+ * v5 multi-trade: pass `trade` to scope candidates to the intake's trade.
+ * Without this filter, an electrical quote could "pass" validation by
+ * coincidentally matching a plumbing price — the trade column is now the
+ * canonical scope.
  */
-async function loadCandidatePrices(pricingBook: any) {
+async function loadCandidatePrices(pricingBook: any, trade: string | null) {
+  const materialsQuery = supabase.from('shared_materials').select('name, default_unit_price_ex_gst, trade')
+  const assembliesQuery = supabase.from('shared_assemblies').select('name, default_unit_price_ex_gst, trade')
+
   const [{ data: materials }, { data: assemblies }] = await Promise.all([
-    supabase.from('shared_materials').select('name, default_unit_price_ex_gst'),
-    supabase.from('shared_assemblies').select('name, default_unit_price_ex_gst'),
+    trade ? materialsQuery.eq('trade', trade) : materialsQuery,
+    trade ? assembliesQuery.eq('trade', trade) : assembliesQuery,
   ])
 
   return buildCandidatePrices(

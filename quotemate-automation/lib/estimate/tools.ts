@@ -51,22 +51,35 @@ function applyPropertyFilters(query: any, f: PropertyFilters) {
   return query
 }
 
+// Trade enum — v5 multi-trade routing. The DB carries both electrical and
+// plumbing rows in shared_assemblies / shared_materials, so callers MUST
+// pass `trade` to avoid cross-trade contamination. The prompts (see
+// electrical-prompt.ts and plumbing-prompt.ts) instruct Opus to always
+// include trade in lookup_* calls.
+const TradeEnum = z.enum(['electrical', 'plumbing'])
+
 export const lookupAssembly = tool({
   description:
-    'Search the electrical assembly library by name plus optional property filters. ' +
-    'When intake.scope.specs has values (color_temp, dimmable, smart, weatherproof, supplied_by), ' +
-    'PASS THEM THROUGH so only matching assemblies are returned. ' +
-    'Example: lookupAssembly({ query: "outdoor light", weatherproof: true }) returns only outdoor-rated assemblies.',
+    'Search the assembly library by name plus optional filters. ' +
+    'ALWAYS pass `trade` ("electrical" or "plumbing") — the DB carries both ' +
+    'and queries without trade may return non-sensical cross-trade matches. ' +
+    'For electrical jobs, when intake.scope.specs has values (color_temp, ' +
+    'dimmable, smart, weatherproof, supplied_by), PASS THEM THROUGH so only ' +
+    'matching assemblies are returned. ' +
+    'Example: lookupAssembly({ query: "outdoor light", trade: "electrical", weatherproof: true }) ' +
+    'returns only outdoor-rated electrical assemblies.',
   inputSchema: z.object({
     query: z.string(),
+    trade: TradeEnum.optional(),
     color_temp: z.enum(['warm_white', 'cool_white', 'tri_colour']).optional(),
     dimmable: z.boolean().optional(),
     smart: z.boolean().optional(),
     weatherproof: z.boolean().optional(),
     supplied_by: z.enum(['tradie', 'customer']).optional(),
   }),
-  execute: async ({ query, ...filters }) => {
+  execute: async ({ query, trade, ...filters }) => {
     let q = supabase.from('shared_assemblies').select('*').ilike('name', `%${query}%`)
+    if (trade) q = q.eq('trade', trade)
     q = applyPropertyFilters(q, filters)
     const { data } = await q.limit(5)
     return data ?? []
@@ -75,22 +88,26 @@ export const lookupAssembly = tool({
 
 export const lookupMaterial = tool({
   description:
-    'Search electrical materials by name or brand plus optional property filters. ' +
-    'When intake.scope.specs has values, PASS THEM THROUGH. ' +
-    'Example: lookupMaterial({ query: "downlight", color_temp: "warm_white", dimmable: true }) ' +
-    'returns only warm-white-capable, dimmable downlights.',
+    'Search materials by name or brand plus optional filters. ' +
+    'ALWAYS pass `trade` ("electrical" or "plumbing") — the DB carries both ' +
+    'and unfiltered queries may return cross-trade matches. ' +
+    'For electrical jobs, when intake.scope.specs has values, PASS THEM THROUGH. ' +
+    'Example: lookupMaterial({ query: "downlight", trade: "electrical", color_temp: "warm_white", dimmable: true }) ' +
+    'returns only warm-white-capable, dimmable electrical downlights.',
   inputSchema: z.object({
     query: z.string(),
+    trade: TradeEnum.optional(),
     color_temp: z.enum(['warm_white', 'cool_white', 'tri_colour']).optional(),
     dimmable: z.boolean().optional(),
     smart: z.boolean().optional(),
     weatherproof: z.boolean().optional(),
     supplied_by: z.enum(['tradie', 'customer']).optional(),
   }),
-  execute: async ({ query, ...filters }) => {
+  execute: async ({ query, trade, ...filters }) => {
     let q = supabase.from('shared_materials').select('*').or(
       `name.ilike.%${query}%,brand.ilike.%${query}%`
     )
+    if (trade) q = q.eq('trade', trade)
     q = applyPropertyFilters(q, filters)
     const { data } = await q.limit(5)
     return data ?? []

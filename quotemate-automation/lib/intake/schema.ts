@@ -1,7 +1,14 @@
 import { z } from 'zod'
 
 export const IntakeSchema = z.object({
+  // Trade routing — required at root, not optional, to keep below the
+  // 24-optional-field cap on Anthropic's generateObject schema (see
+  // brand_preference removal comment below). The structurer / receptionist
+  // sets this before calling generateObject; defaults to 'electrical' on
+  // legacy intake rows.
+  trade: z.enum(['electrical', 'plumbing']),
   job_type: z.enum([
+    // ── Electrical (NSW/NECA pilot, v3 strategy) ────────────────
     'downlights',
     'power_points',
     'ceiling_fans',
@@ -12,6 +19,19 @@ export const IntakeSchema = z.object({
     'ev_charger',
     'fault_finding',
     'renovation',
+    // ── Plumbing (QLD/QBCC pilot, v5 strategy) ──────────────────
+    'blocked_drain',
+    'hot_water',
+    'tap_repair',
+    'tap_replace',
+    'toilet_repair',
+    'toilet_replace',
+    'gas_fitting',
+    'burst_pipe',
+    'bathroom_renovation',
+    'cctv_inspection',
+    'prv_install',
+    // ── Fallback ────────────────────────────────────────────────
     'other',
   ]),
   address: z.string(),
@@ -70,3 +90,27 @@ export const IntakeSchema = z.object({
 })
 
 export type Intake = z.infer<typeof IntakeSchema>
+
+// v5 multi-trade: derive trade from job_type. Used by the intake structurer
+// (lib/intake/structure.ts) and the SMS path so callers never have to set
+// trade explicitly — they just emit a job_type and the trade falls out.
+// Job types not in the plumbing set (including 'other' and 'renovation')
+// default to electrical.
+const PLUMBING_JOB_TYPES = new Set<string>([
+  'blocked_drain',
+  'hot_water',
+  'tap_repair',
+  'tap_replace',
+  'toilet_repair',
+  'toilet_replace',
+  'gas_fitting',
+  'burst_pipe',
+  'bathroom_renovation',
+  'cctv_inspection',
+  'prv_install',
+])
+
+export function deriveTradeFromJobType(jobType: string | null | undefined): 'electrical' | 'plumbing' {
+  if (jobType && PLUMBING_JOB_TYPES.has(jobType)) return 'plumbing'
+  return 'electrical'
+}

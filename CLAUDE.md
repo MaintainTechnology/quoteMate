@@ -13,7 +13,7 @@ These were settled after substantive re-evaluation (see iteration history at the
 | Decision | What it means in practice |
 |---|---|
 | **Portal-first v1, not voice-first** | The AI receptionist (voice agent) is a v3+ premium tier. v1 is tradie-typed-intake on a portal. Voice has bad unit economics at SaaS price points (~$1,500/mo COGS per tradie at moderate call volume). |
-| **Electrical (NSW) first, not painting** | Pilot access dominates regulatory simplicity. v3 pivoted away from painting after operational electrical content (9 job-flow question trees, real AU electrician rates, considered "easy 5 vs hard 5" pilot strategy) signalled an actual electrician pilot relationship. License-display schema (per-state — NSW NECA, VIC ESV, QLD QBCC) is shipped Phase 1. See `docs/strategy.md` v3 entry for full rationale. |
+| **Electrical (NSW) first; plumbing (QLD) added in v5** | Pilot access dominates regulatory simplicity. v3 pivoted away from painting after operational electrical content (9 job-flow question trees, real AU electrician rates, considered "easy 5 vs hard 5" pilot strategy) signalled an actual electrician pilot relationship. **v5 (2026-05-11) added a Brisbane plumber pilot alongside electrical** — both trades share the same DB via the `trade` column on `pricing_book` / `shared_assemblies` / `shared_materials`. No third trade should land without another iteration entry. License-display schema (per-state — NSW NECA, VIC ESV, QLD QBCC) is shipped Phase 1. See `docs/strategy.md` v3 entry for the electrical pivot and v5 for multi-trade expansion. |
 | **Four agents, not ten** | Quote Drafter, Quote Reviewer, Inspection Coordinator, Conversion Engine. Reception agent is reserved for v3. |
 | **Build the pricing book WITH the tradie** | Most owner-operators don't have a structured price list. Ship a base assembly library per trade (built by paid domain experts) and capture the tradie's overlay through guided onboarding. |
 | **Eval framework before prompt iteration** | 100 hold-out (intake → quote) pairs, scored by 5-dimension rubric. No prompt change ships without delta measurement. |
@@ -61,7 +61,7 @@ Don't add infrastructure speculatively — wait until the relevant phase begins.
 - **Currency stored ex-GST; displayed inc-GST** in customer-facing UI
 - **Pricing books are versioned**; quotes reference `pricing_book_version_id` so historical quotes stay accurate when prices change
 - **AU/NZ-first**: formatting, language, dates, address parsing all default to AU/NZ patterns
-- **Multi-tenant via Supabase RLS from day 1** — never bolt it on later
+- **Multi-tenant via Supabase RLS from day 1** — never bolt it on later. *(v5 deferral: the 2-trade pilot currently shares one DB without per-tenant isolation. Full `tenant_id`/RLS work is flagged as the next architectural debt — see `docs/strategy.md` v5 "What's deferred". Required before scaling beyond ~5 tradies.)*
 - **Money-touching LLM steps must use tool-calling**, never emit prices from free-form text
 - **Quotes never auto-send in v1** — tradie human-in-loop on every send
 
@@ -70,7 +70,7 @@ Don't add infrastructure speculatively — wait until the relevant phase begins.
 - **For strategy or product questions** — read `docs/strategy.md` first. It has the current thinking. The earlier chat-only analysis (recorded as v1 in the iteration history) is superseded.
 - **For visual context** — the assets in `assets/` are ground truth for the user-facing flow; both README and strategy doc reference them.
 - **When changing a "decisions that shape the work" entry** — append a new iteration entry to `docs/strategy.md` rather than editing the prior one in place. The history is the audit log.
-- **When in doubt about scope** — the v1 wedge is portal-first electrical in NSW, scoped to the "easy 5" job types (downlights, GPOs, ceiling fans, smoke alarms, outdoor/deck lighting). If a proposed feature isn't needed for those, it likely belongs in v2 or v3, not v1. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations are inspection-only routes — never auto-quoted in v1.
+- **When in doubt about scope** — the v1 wedge is portal-first electrical in NSW, scoped to the "easy 5" electrical job types (downlights, GPOs, ceiling fans, smoke alarms, outdoor/deck lighting). v5 added a parallel Brisbane plumbing pilot with its own auto-quote "easy 5" (blocked_drain, hot_water, tap_repair/replace, toilet_repair/replace) — see `docs/strategy.md` v5 for the full list and inspection-only routes. If a proposed feature isn't needed for either auto-quote wedge, it likely belongs in v2 or v3, not v1. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations stay inspection-only on the electrical side; gas fitting, burst pipe, and bathroom renovation stay inspection-only on the plumbing side — never auto-quoted in v1.
 - **After editing `docs/strategy.md`** — invoke the `strategy-reviewer` agent to catch any drift across README, CLAUDE.md, and the assets.
 
 ## Skills, agents, and commands toolkit
@@ -120,6 +120,7 @@ See [`.claude/PLUGINS.md`](.claude/PLUGINS.md) for the full list and rationale.
 
 ## How Claude should approach changes here
 
-- **Don't propose voice-agent or multi-trade work for v1.** Both are deferred by deliberate decision; surface that the request is out-of-scope and ask whether to add it as a v2/v3 entry in the strategy doc.
+- **Don't propose voice-agent work for v1** — deferred to v3+ premium tier by deliberate decision; surface that the request is out-of-scope and ask whether to add it as a v3 entry in the strategy doc.
+- **Don't propose a THIRD trade without an iteration entry.** v5 expanded from electrical-only to electrical + plumbing (Brisbane pilot). Adding painting, carpentry, landscaping, or anything else requires a fresh `docs/strategy.md` entry first — the existing two-trade pilot is the boundary, not a green light for unlimited expansion.
 - **Don't recommend ServiceM8/Tradify-style features that already exist in incumbents.** The wedge is the AI quote draft + the paid inspection flow. Calendar, CRM, and invoicing are deferred until those are working.
 - **Treat the iteration log in `docs/strategy.md` as load-bearing.** When decisions evolve, the log is how everyone (including future Claude sessions) understands why.

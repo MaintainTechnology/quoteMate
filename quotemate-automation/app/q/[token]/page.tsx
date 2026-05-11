@@ -88,17 +88,22 @@ export default async function PublicQuotePage(props: {
 
   if (!quote) notFound()
 
-  const [{ data: intake }, { data: pricingBook }] = await Promise.all([
-    supabase
-      .from('intakes')
-      .select('id, call_id, job_type, scope, caller, address, suburb, photo_paths')
-      .eq('id', quote.intake_id)
-      .maybeSingle(),
-    supabase
-      .from('pricing_book')
-      .select('licence_type, licence_number, licence_state, gst_registered')
-      .maybeSingle(),
-  ])
+  // v5 multi-trade: must fetch intake before pricing_book so we can filter
+  // pricing_book by intake.trade. Without this filter the .maybeSingle()
+  // would return null once there are 2+ rows in pricing_book (electrical
+  // + plumbing). Legacy intake rows without a trade column fall back to
+  // 'electrical' (the original NSW/NECA pilot).
+  const { data: intake } = await supabase
+    .from('intakes')
+    .select('id, call_id, job_type, scope, caller, address, suburb, photo_paths, trade')
+    .eq('id', quote.intake_id)
+    .maybeSingle()
+  const intakeTrade = ((intake as { trade?: string } | null)?.trade as 'electrical' | 'plumbing' | undefined) ?? 'electrical'
+  const { data: pricingBook } = await supabase
+    .from('pricing_book')
+    .select('licence_type, licence_number, licence_state, gst_registered')
+    .eq('trade', intakeTrade)
+    .maybeSingle()
 
   // Photo rendering — STRICT per-quote scoping.
   //

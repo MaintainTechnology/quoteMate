@@ -176,6 +176,7 @@ export async function POST(req: Request) {
     }
   )
   log.ok('Opus structured intake', {
+    trade: intake.trade,
     job_type: intake.job_type,
     confidence: intake.confidence,
     inspection_required: intake.inspection_required,
@@ -268,10 +269,13 @@ export async function POST(req: Request) {
     has_scope: !!(intake.scope?.description && intake.scope.description.length >= 10),
   })
 
-  log.step('inserting intakes row', { photo_paths_count: photoPaths.length })
+  log.step('inserting intakes row', { photo_paths_count: photoPaths.length, trade: intake.trade })
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK
     customer_id: customer?.id ?? null,
+    // v5 multi-trade: derived from job_type by structureIntake. Drives the
+    // pricing_book row + prompt routing downstream in /api/estimate/draft.
+    trade: intake.trade,
     job_type: intake.job_type,
     address: intake.address,
     suburb: intake.suburb,

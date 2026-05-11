@@ -132,7 +132,12 @@ The build is planned in five phases over roughly six months to a paid launch wit
 | **4 — Conversion engine** (4 wks) | Availability nudge, SMS follow-up, calendar integration, basic CRM | +15% win-rate lift vs Phase 3 baseline |
 | **5 — Launch** | 50 tradies in the wedge segment, high-touch onboarding, second trade added | — |
 
-**Initial wedge:** **electrical, NSW, residential.** Single trade keeps the pricing book + assembly library focused before going broad. v1 scope is the "easy 5" job types — downlights, GPOs, ceiling fans, smoke alarms, outdoor / deck lighting. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations are inspection-route only (never auto-quoted in v1). Per-state license display (NECA/ESV/QBCC) is shipped Phase 1. See [`docs/strategy.md`](docs/strategy.md) v3 entry for the rationale behind the painting → electrical pivot.
+**Initial wedge:** **electrical (NSW, residential)** — joined by **plumbing (Brisbane, residential)** in v5 (2026-05-11). Two parallel single-trade pilots keep each pricing book + assembly library focused before going broad. v1 scope is the "easy 5" auto-quoteable job types per trade:
+
+- **Electrical:** downlights, GPOs, ceiling fans, smoke alarms, outdoor / deck lighting. Switchboards, fault finding, EV chargers, underground cabling, and complex renovations are inspection-route only.
+- **Plumbing:** blocked drain, hot water, tap repair, tap replace, toilet repair, toilet replace. Gas fitting, burst pipe, and bathroom renovation are inspection-route only.
+
+Per-state license display (NECA for NSW electrical, QBCC for QLD plumbing; ESV reserved for VIC) is shipped Phase 1. See [`docs/strategy.md`](docs/strategy.md) v3 entry for the painting → electrical pivot and v5 entry for the multi-trade expansion.
 
 ---
 
