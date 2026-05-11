@@ -21,13 +21,20 @@ import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteInFlightSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
-import { findOrCreateCustomer, formatCustomerContext, type CustomerProfile } from '@/lib/customers/lookup'
+import {
+  findOrCreateCustomer,
+  formatCustomerContext,
+  writeCustomerCorrections,
+  type CustomerProfile,
+} from '@/lib/customers/lookup'
 import {
   extractSlots,
   mergeSlotUpdates,
   normaliseState,
+  PERSISTENT_PROFILE_SLOTS,
   seedStateFromKnownFields,
   type ConversationState,
+  type PersistentProfileSlot,
 } from '@/lib/sms/extract-slots'
 
 // Twilio webhook ack. We send the real customer reply via the REST API
@@ -295,6 +302,8 @@ export async function POST(req: Request) {
       const seeded = seedStateFromKnownFields({
         first_name: customer?.first_name ?? null,
         suburb: customer?.suburb ?? null,
+        address: customer?.address ?? null,
+        email: customer?.email ?? null,
       })
       await supabase
         .from('sms_conversations')
@@ -370,10 +379,13 @@ export async function POST(req: Request) {
     // Pre-seed conversation_state from the customers row. Any field present
     // is marked source='from_memory' so the slot extractor + dialog know it
     // came from storage. If the customer corrects it later, mergeSlotUpdates
-    // flips that source to 'customer_corrected' and the scrub bails.
+    // flips the source to 'customer_corrected', the scrub bails, AND the
+    // eager write-back below propagates the change to the customers row.
     const initialState = seedStateFromKnownFields({
       first_name: customer?.first_name ?? null,
       suburb: customer?.suburb ?? null,
+      address: customer?.address ?? null,
+      email: customer?.email ?? null,
     })
     const { data: created, error: createErr } = await supabase
       .from('sms_conversations')
@@ -667,6 +679,43 @@ export async function POST(req: Request) {
               sources: next.sources,
               reasoning: extraction.reasoning,
             })
+
+            // ─────── Eager profile write-back ───────
+            // When the customer corrects a persistent profile slot (name,
+            // suburb, address, email) — either implicitly ("Chandler" when
+            // we had Coorparoo) or explicitly ("update my address to X") —
+            // persist the change to the customers row immediately. Don't
+            // wait for finish: the change should survive an early exit
+            // (end_conversation, escalate_inspection) and be available to
+            // every future conversation from this number.
+            if (customer?.id) {
+              const correctedProfileSlots = PERSISTENT_PROFILE_SLOTS.filter(
+                k => updateKeys.includes(k) && next.sources[k] === 'customer_corrected',
+              )
+              if (correctedProfileSlots.length > 0) {
+                const fields: Record<PersistentProfileSlot, string | null> = {
+                  first_name: null, suburb: null, address: null, email: null,
+                }
+                for (const k of correctedProfileSlots) {
+                  fields[k] = (next.slots[k] as string | undefined) ?? null
+                }
+                console.log('[sms/inbound:after] eager profile write-back triggered', {
+                  conversationId,
+                  customerId: customer.id,
+                  fields: correctedProfileSlots,
+                })
+                try {
+                  await writeCustomerCorrections({
+                    customerId: customer.id,
+                    fields,
+                  })
+                } catch (e: any) {
+                  console.warn('[sms/inbound:after] eager write-back threw - non-fatal, finish-time backfill will retry', {
+                    message: e?.message,
+                  })
+                }
+              }
+            }
           }
         } else {
           console.log('[sms/inbound:after] no slot updates this turn', {
@@ -798,6 +847,7 @@ export async function POST(req: Request) {
         photoRequestToken &&
         !photoRequestAlreadySent &&
         decision.action !== 'escalate_inspection' &&
+        decision.action !== 'end_conversation' &&
         (haikuRequestedPhoto || finishFallbackTrigger)
 
       if (shouldSendPhotoRequest) {
@@ -805,6 +855,13 @@ export async function POST(req: Request) {
           conversationId,
           jobType: decision.job_type_guess,
         })
+        // Brief delay before firing the photo SMS so it doesn't race the
+        // verification-handshake SMS we just sent in step 7. AU long codes
+        // can reorder messages sent <2s apart on the carrier side, which
+        // led to the customer seeing the photo link BEFORE the handshake
+        // message that announced it. 2.5s is enough headroom for reliable
+        // ordering without being a noticeable typing pause.
+        await new Promise(resolve => setTimeout(resolve, 2500))
         try {
           const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
           const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
@@ -856,9 +913,13 @@ export async function POST(req: Request) {
 
       // 9. Update conversation: bump turn_count, merge assumptions, set status
       //    based on the dialog agent's decision.
+      //    end_conversation: customer wrapped up gracefully without booking.
+      //    Status='done', NO intake handoff, NO recovery SMS, NO photo SMS.
+      //    Flowing through to step 10 below intake fires only on action='finish'.
       const newStatus =
         decision.action === 'finish' ? 'structuring'
       : decision.action === 'escalate_inspection' ? 'done'
+      : decision.action === 'end_conversation' ? 'done'
       : 'open'
 
       const mergedAssumptions = [

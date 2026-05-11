@@ -21,8 +21,17 @@ import {
 import type { ConversationState, SlotKey } from './extract-slots'
 
 // What the dialog agent returns for every inbound SMS turn.
+//
+// Actions:
+//   ask                   — gather more info; stay in dialog
+//   finish                — all required info captured + verified; fire intake/structure
+//   escalate_inspection   — out-of-scope job or universal trigger; offer $199 booking
+//   end_conversation      — customer signaled goodbye / no work needed; close cleanly
+//                           (status='done', NO intake handoff, NO recovery SMS, NO
+//                           inspection booking offer). Use for "bye", "nothing for
+//                           now", "just chatting", "not interested today", "cancel".
 export const TurnDecisionSchema = z.object({
-  action: z.enum(['ask', 'finish', 'escalate_inspection']),
+  action: z.enum(['ask', 'finish', 'escalate_inspection', 'end_conversation']),
   job_type_guess: z.enum([
     'downlights','power_points','ceiling_fans','smoke_alarms','outdoor_lighting',
     'unknown',
@@ -435,6 +444,30 @@ Reply examples below are written for turn 2+. On turn 1, prepend the
 greeting + gratitude per Rule 9 (e.g. "G'day, thanks for messaging
 QuoteMate — I'm the AI quoting assistant. <reply>").
 
+GOODBYE PRE-CHECK (apply BEFORE all numbered rules):
+If the customer's last message clearly signals they are done with the
+conversation — phrases like 'bye', 'goodbye', 'see ya', 'no thanks',
+'nothing for now', 'not interested', 'not today', 'maybe later', 'cancel',
+'never mind', 'just chatting', 'leave it for now', "I'll get back to you",
+'all good cheers' (as a sign-off) — set action='end_conversation' with a
+polite short closeout reply. Do NOT offer the $199 inspection (they did
+not ask for one). Do NOT ask any follow-up questions (they are leaving).
+Do NOT continue gathering job details. Examples:
+  ✓ "No worries Sam - cheers for reaching out. Give us a ring whenever
+     you're ready to quote."
+  ✓ "All good Mike - we're here when the work pops up."
+  ✓ "No dramas - catch you next time."
+  ✓ "Sweet, take care - hit us up anytime."
+
+CRITICAL: end_conversation is for graceful customer-initiated exits ONLY.
+Do NOT use it because YOU are frustrated, because turn count is high, or
+because the customer is being unclear — those still go to ask / escalate.
+Customer must clearly express they are leaving.
+
+Inspection triggers (Rule 1 below) take precedence over goodbye — if
+the message contains both ('burning smell, bye') treat it as an
+inspection escalation, not a goodbye.
+
 1. INSPECTION TRIGGER fires (any universal trigger word in the message):
    action='escalate_inspection'. Reply:
      "Thanks — for that I'll need to send a sparky for a quick look.
@@ -490,6 +523,29 @@ QuoteMate — I'm the AI quoting assistant. <reply>").
    action='ask'. Reply with ONE short question for the missing field
    (in the order listed under that job_type's MUST ASK above).
 
+   ★ PRESERVE OPTION LISTS VERBATIM ★
+   When the MUST-ASK line includes parenthetical options
+   "(option A, option B, option C, ...)", you MUST present ALL of them
+   to the customer. Do NOT silently drop options to shorten the reply.
+   Compact phrasing is fine, but every named option must appear.
+
+   Concrete examples for the downlights colour question
+   "(warm white, cool white, tri-colour, dimmable, smart Wi-Fi, or no
+   preference / standard)":
+     ✓ "Right you are - warm white, cool white, tri-colour, dimmable,
+        smart Wi-Fi, or no preference?"
+     ✓ "Easy - what colour: warm white, cool white, tri-colour,
+        dimmable, smart Wi-Fi, or no preference?"
+     ✗ "Right you are - warm white, cool white, or no preference?"
+       (DROPPED tri-colour / dimmable / smart Wi-Fi — wrong)
+     ✗ "Warm or cool white?"
+       (collapsed too aggressively — wrong)
+
+   Rationale: the customer-facing tiers (Good/Better/Best) include
+   tri-colour and premium options. If the option isn't surfaced in
+   the question, the customer can't ask for it and the BETTER tier
+   recommendation feels like a bait-and-switch.
+
 8. ALL universal fields (name, suburb, job_type) AND all per-job
    MUST-ASK fields are satisfied — apply Rule 11's two-step handshake:
 
@@ -524,12 +580,13 @@ OUTPUT FORMAT
 You MUST return JSON matching the TurnDecisionSchema. The schema is
 enforced by the calling code; if your output doesn't match, the call
 fails.
-- action: 'ask' | 'finish' | 'escalate_inspection'
+- action: 'ask' | 'finish' | 'escalate_inspection' | 'end_conversation'
 - job_type_guess: one of the easy 5, or 'unknown' if not yet clear
 - reply_to_send: literal SMS text we'll send back (<= 320 chars, ONE question max)
 - assumptions_made: list of safe-default phrases applied this turn
 - ready_for_intake: true ONLY when action='finish'
-- reason_for_escalation: short string when escalating; otherwise null
+- reason_for_escalation: short string when escalating; null otherwise.
+  For end_conversation, set this to "customer wrapped up - <short reason>".
 `
 
 function formatHistory(history: ConversationTurn[]): string {
@@ -608,7 +665,7 @@ function formatStateBlock(state: ConversationState | undefined): string | null {
 //     exactly what bit Con on 2026-05-11)
 function scrubAskingForKnownSuburb(args: {
   reply: string
-  action: 'ask' | 'finish' | 'escalate_inspection'
+  action: 'ask' | 'finish' | 'escalate_inspection' | 'end_conversation'
   state: ConversationState | undefined
 }): string {
   if (args.action !== 'ask') return args.reply
