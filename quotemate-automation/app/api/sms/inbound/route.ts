@@ -881,7 +881,7 @@ export async function POST(req: Request) {
           // re-asking the name when we already know it), fall back to the
           // customer record. Last resort: generic greeting.
           const firstName = guessFirstName(turns) ?? customer?.first_name ?? undefined
-          const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms' })
+          const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms', jobType: decision.job_type_guess })
           const photoDispatch = await dispatchQuoteMessage({
             to: fromNumber,
             from: toNumber,
@@ -997,7 +997,7 @@ export async function POST(req: Request) {
             // Opus would have extracted it later, but we don't get that
             // chance here — the intake handoff already failed.
             const failureFirstName = guessFirstName(turns) ?? customer?.first_name ?? undefined
-            const failureBody = buildQuoteFailureSms({ firstName: failureFirstName })
+            const failureBody = buildQuoteFailureSms({ firstName: failureFirstName, jobType: decision.job_type_guess })
             const failureDispatch = await dispatchQuoteMessage({
               to: fromNumber,
               from: toNumber,

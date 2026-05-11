@@ -210,13 +210,30 @@ export function buildTradieBookingNotification(opts: {
 //
 // Voice path keeps a polite "thanks for calling" opener since the customer
 // hung up before this SMS lands and won't have seen any prior text.
+// Job-type → tradie noun. Keep electrical/plumbing aware so the SMS
+// templates don't say "sparky" on a plumbing job (and vice-versa).
+// 'tradie' is the safe fallback when job_type is unknown.
+const ELECTRICAL_JOB_TYPES = new Set([
+  'downlights','power_points','ceiling_fans','smoke_alarms','outdoor_lighting',
+])
+const PLUMBING_JOB_TYPES = new Set([
+  'blocked_drain','hot_water','tap_repair','tap_replace','toilet_repair','toilet_replace',
+])
+function tradieNoun(jobType?: string | null): string {
+  if (jobType && ELECTRICAL_JOB_TYPES.has(jobType)) return 'sparky'
+  if (jobType && PLUMBING_JOB_TYPES.has(jobType))   return 'plumber'
+  return 'tradie'
+}
+
 export function buildPhotoRequestSms(opts: {
   firstName?: string
   uploadUrl: string
   source?: 'voice' | 'sms'
+  jobType?: string | null
 }): string {
   const first = (opts.firstName ?? '').split(' ')[0] || ''
   const named = first ? `${first}, ` : ''
+  const tradie = tradieNoun(opts.jobType)
 
   if (opts.source === 'voice') {
     // Voice flows always lead with the call-context greeting so the
@@ -228,9 +245,9 @@ export function buildPhotoRequestSms(opts: {
   // SMS variants — keep the link prominent, vary the framing.
   const variants = [
     `Hey ${named}here's a quick link to drop 1-2 photos so we can finalise your quote: ${opts.uploadUrl}\n\nOptional, but it really helps.`,
-    `${first ? `Cheers ${first}, ` : 'Cheers, '}when you've got a sec, snap 1-2 photos of the spot here: ${opts.uploadUrl}\n\nNot required, just helps the sparky pin down the quote.`,
+    `${first ? `Cheers ${first}, ` : 'Cheers, '}when you've got a sec, snap 1-2 photos of the spot here: ${opts.uploadUrl}\n\nNot required, just helps the ${tradie} pin down the quote.`,
     `${named ? `${first}, ` : ''}photos help us nail the quote. Upload 1-2 here whenever you're ready: ${opts.uploadUrl}\n\nTotally optional.`,
-    `${first ? `Hi ${first}, ` : 'Hi, '}drop us a couple of photos here so the sparky can lock in the right gear: ${opts.uploadUrl}\n\nOptional but a big help.`,
+    `${first ? `Hi ${first}, ` : 'Hi, '}drop us a couple of photos here so the ${tradie} can lock in the right gear: ${opts.uploadUrl}\n\nOptional but a big help.`,
   ]
   return gsm7Safe(pickVariant(variants))
 }
@@ -243,13 +260,14 @@ export function buildPhotoRequestSms(opts: {
 //
 // Optional firstName personalises the apology when we have it from
 // the dialog. Falls back to no name when we don't.
-export function buildQuoteFailureSms(opts: { firstName?: string }): string {
+export function buildQuoteFailureSms(opts: { firstName?: string; jobType?: string | null }): string {
   const first = (opts.firstName ?? '').split(' ')[0] || ''
   const sorry = first ? `Sorry ${first}, ` : 'Sorry, '
+  const tradie = tradieNoun(opts.jobType)
   const variants = [
-    `${sorry}we hit a technical snag finalising your quote on our end. The sparky's been pinged and will give you a callback shortly. Apologies for the wait.`,
-    `${sorry}our system tripped up finalising your quote. The sparky's been notified and will call back soon, apologies for the hassle.`,
-    `${sorry}something glitched on our end while putting your quote together. The sparky's been alerted and will be in touch shortly.`,
+    `${sorry}we hit a technical snag finalising your quote on our end. The ${tradie}'s been pinged and will give you a callback shortly. Apologies for the wait.`,
+    `${sorry}our system tripped up finalising your quote. The ${tradie}'s been notified and will call back soon, apologies for the hassle.`,
+    `${sorry}something glitched on our end while putting your quote together. The ${tradie}'s been alerted and will be in touch shortly.`,
   ]
   return gsm7Safe(pickVariant(variants))
 }
