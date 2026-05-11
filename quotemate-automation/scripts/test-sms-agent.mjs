@@ -64,9 +64,18 @@ if (!SUPA_URL || !SUPA_KEY)
 // ── scripted scenarios ──────────────────────────────────────────────────
 // Each scenario is just an array of customer messages, sent in order.
 // The agent decides when to finish / escalate; the harness reports it.
+//
+// Scenarios are grouped:
+//   • electrical_* — NSW/NECA pilot (v3 strategy)
+//   • plumbing_*   — QLD/QBCC pilot (v5 strategy)
+//
+// Plumbing scenarios test the v5 multi-trade path end-to-end:
+//   classification → trade='plumbing' on intake → plumbing pricing_book
+//   row picked → plumbing-prompt.ts drives the quote.
 const SCENARIOS = {
+  // ════════════ ELECTRICAL (existing, NSW/NECA) ════════════
   downlights: {
-    title: 'Happy path · 6 downlights, single-storey, ceiling access fine',
+    title: 'Electrical happy path · 6 downlights, single-storey, ceiling access fine',
     messages: [
       'hi need a quote for 6 downlights',
       'single storey, ceiling cavity is accessible',
@@ -74,14 +83,16 @@ const SCENARIOS = {
       'bondi 2026, this weekend if possible',
     ],
     expectedFinal: 'finish',
+    expectedTrade: 'electrical',
   },
   switchboard: {
-    title: 'Inspection required · switchboard upgrade (out of SMS scope)',
+    title: 'Electrical inspection · switchboard upgrade (out of SMS scope)',
     messages: ['can you quote a switchboard upgrade for my house?'],
     expectedFinal: 'escalate_inspection',
+    expectedTrade: 'electrical',
   },
   offtopic: {
-    title: 'Off-topic steer · should re-ask the next missing field',
+    title: 'Electrical off-topic steer · should re-ask the next missing field',
     messages: [
       'hey what do you think of the rugby last night',
       'oh ok, i need 4 power points installed in my garage',
@@ -89,9 +100,10 @@ const SCENARIOS = {
       'paddington 2021, brick garage, surface mount is fine',
     ],
     expectedFinal: 'finish',
+    expectedTrade: 'electrical',
   },
   ambiguous: {
-    title: 'Ambiguous start · agent should ask for clarification',
+    title: 'Electrical ambiguous start · agent should ask for clarification',
     messages: [
       'electrician?',
       'i need some lights done',
@@ -100,9 +112,10 @@ const SCENARIOS = {
       'erskineville 2043, any time next week',
     ],
     expectedFinal: 'finish',
+    expectedTrade: 'electrical',
   },
   photos: {
-    title: 'Customer offers photos mid-flow (text-only — MMS not simulated)',
+    title: 'Electrical customer offers photos mid-flow (text-only — MMS not simulated)',
     messages: [
       'hey need 2 ceiling fans installed',
       'i can send you photos of the rooms if helpful',
@@ -110,6 +123,76 @@ const SCENARIOS = {
       'redfern 2016, no special features, standard install',
     ],
     expectedFinal: 'finish',
+    expectedTrade: 'electrical',
+  },
+
+  // ════════════ PLUMBING (v5, QLD/QBCC) ════════════════════
+  // Note: dialog flow stays electrical-centric per strategy.md v5 deferral.
+  // The agent may ask about ceiling_type or colour — customer answers are
+  // designed to be plausible / steer the agent forward regardless.
+  blocked_drain: {
+    title: 'Plumbing happy path · blocked kitchen drain (hand-rod tier)',
+    messages: [
+      'hi, my kitchen sink is gurgling and water wont drain at all',
+      'Coorparoo 4151, single storey home',
+      'just the kitchen sink, slow for a few days then stopped',
+      "I'm Jeff, can you come tomorrow morning",
+    ],
+    expectedFinal: 'finish',
+    expectedTrade: 'plumbing',
+  },
+  hot_water: {
+    title: 'Plumbing happy path · electric HWS dead, like-for-like replacement',
+    messages: [
+      'our hot water unit died this morning, need a quote to replace',
+      'electric storage 250L on the back wall, Bardon 4065',
+      'happy with electric again, same spot, asap please',
+      "I'm Sarah, single storey, easy access",
+    ],
+    expectedFinal: 'finish',
+    expectedTrade: 'plumbing',
+  },
+  tap_repair: {
+    title: 'Plumbing happy path · dripping basin tap (washer replace)',
+    messages: [
+      'bathroom basin tap is dripping non-stop, can you fix it',
+      'Spring Hill 4000, just the hot side',
+      "I'm Mark, single storey unit, sometime this week is fine",
+      'no other plumbing issues',
+    ],
+    expectedFinal: 'finish',
+    expectedTrade: 'plumbing',
+  },
+  toilet_repair: {
+    title: 'Plumbing happy path · running cistern (internals replace)',
+    messages: [
+      'the toilet in our ensuite wont stop running, water just keeps going',
+      'Paddington 4064, only one toilet affected',
+      "I'm Anna, any time next week",
+      'single storey, no other issues',
+    ],
+    expectedFinal: 'finish',
+    expectedTrade: 'plumbing',
+  },
+  gas_fitting: {
+    title: 'Plumbing inspection · gas smell near cooktop (emergency, gas-licence required)',
+    messages: [
+      'i can smell gas near our cooktop in the kitchen, kind of worrying',
+      'Toowong 4066, single storey',
+      "I'm David, urgent please",
+    ],
+    expectedFinal: 'escalate_inspection',
+    expectedTrade: 'plumbing',
+  },
+  bathroom_renovation: {
+    title: 'Plumbing inspection · bathroom rough-in (multi-fixture, multi-visit)',
+    messages: [
+      'doing a full bathroom reno in about 6 weeks, need a plumbing quote for rough-in and fit-off',
+      'New Farm 4005, gutting the whole bathroom back to studs',
+      "I'm Priya, builder is starting demo on the 1st of June",
+    ],
+    expectedFinal: 'escalate_inspection',
+    expectedTrade: 'plumbing',
   },
 }
 
@@ -175,6 +258,26 @@ async function fetchLastOutbound(conversationId, sinceIso) {
     )
     if (rows[0]) return rows[0]
     await sleep(300)
+  }
+  return null
+}
+
+// v5: fetch the intake row to surface trade + job_type for verification.
+// The conversation row gets intake_id set once structureIntake completes.
+// Polls for a few seconds because the structurer runs in after().
+async function fetchIntakeForConversation(conversationId) {
+  for (let i = 0; i < 20; i++) {
+    const conv = await supaGet(
+      `sms_conversations?id=eq.${conversationId}&select=intake_id,status`,
+    )
+    const intakeId = conv?.[0]?.intake_id
+    if (intakeId) {
+      const rows = await supaGet(
+        `intakes?id=eq.${intakeId}&select=id,trade,job_type,confidence,inspection_required`,
+      )
+      if (rows?.[0]) return rows[0]
+    }
+    await sleep(500)
   }
   return null
 }
@@ -246,9 +349,9 @@ async function runScenario(name, scenario, fromNumber) {
       ? 'escalate_inspection'
       : 'ask'
   const expected = scenario.expectedFinal
-  const ok = action === expected
+  const dialogOk = action === expected
   console.log(
-    `${ok ? '✓ PASS' : '✗ FAIL'}  expected=${expected}  got=${action}  ` +
+    `${dialogOk ? '✓ PASS' : '✗ FAIL'} (dialog)  expected=${expected}  got=${action}  ` +
       `final_status=${final.status}  turn_count=${final.turn_count}`,
   )
   if ((final.assumptions_made ?? []).length) {
@@ -256,7 +359,26 @@ async function runScenario(name, scenario, fromNumber) {
     for (const a of final.assumptions_made) console.log(`    · ${a}`)
   }
   console.log(`  conversation_id=${final.id}  started=${startedAt}`)
-  return pass && ok
+
+  // v5: confirm trade classification on the resulting intake row.
+  // Skipped silently for scenarios that don't reach intake creation
+  // (e.g. early escalations where the dialog closes pre-structuring).
+  let tradeOk = true
+  if (scenario.expectedTrade && (final.status === 'structuring' || final.status === 'done')) {
+    const intake = await fetchIntakeForConversation(final.id)
+    if (!intake) {
+      console.log(`  ⓘ intake not yet structured — trade check skipped`)
+    } else {
+      tradeOk = intake.trade === scenario.expectedTrade
+      console.log(
+        `${tradeOk ? '✓ PASS' : '✗ FAIL'} (trade)   expected=${scenario.expectedTrade}  ` +
+          `got=${intake.trade}  job_type=${intake.job_type}  ` +
+          `confidence=${intake.confidence}  inspection=${intake.inspection_required}`,
+      )
+    }
+  }
+
+  return pass && dialogOk && tradeOk
 }
 
 // ── interactive REPL ────────────────────────────────────────────────────
