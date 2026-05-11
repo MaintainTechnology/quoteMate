@@ -3,8 +3,8 @@ active: true
 iteration: 1
 session_id: aa0020a1-6441-4dd1-a984-2624ec9ad446
 max_iterations: 0
-completion_promise: "All 3 SMS agent tests pass"
-started_at: "2026-05-11T05:09:20Z"
+completion_promise: "All plumbing quote tests pass"
+started_at: "2026-05-11T08:15:27Z"
 ---
 
-Run 3 SMS AI Agent tests against quote-mate-rho.vercel.app via the n8n workflow id t3Hu6NyvxiXvLOD4 - fixing any defects that surface. Test A is returning-customer memory: seed customers row for +61489083371 with Sam Bondi address then text 4 GPOs replaced and verify agent skips name and suburb questions. Test B is mid-conversation correction: text actually moved to Coogee new address 5 Beach Rd and verify customers row updated with source customer_corrected. Test C is graceful end: reset state, text do you do solar panels then Nothing for now I dont need help and verify action end_conversation fires with friendly wrap status done no follow-up. Use scripts reset-sms-state.mjs and check-conversation-state.mjs to inspect state. Use n8n_test_workflow to fire SMS and n8n_executions to read agent replies. For each defect identify root cause fix in lib/sms or app/api/sms commit and push to main wait 2 min for Vercel deploy then re-run that test.
+Test the SMS AI Agent plumbing quote pipeline. Run four plumbing scenarios three times each: blocked_drain, hot_water, tap_repair, toilet_repair. Use n8n workflow t3Hu6NyvxiXvLOD4 to send test SMS and capture replies. Reset state between runs via scripts reset-sms-state.mjs. Audit each generated quote for accurate pricing matching shared_assemblies and shared_materials catalogue, accurate scope text, GST applied, deposit at thirty percent, and three meaningful tiers. Plumbing catalogue prices: hand rod thirty dollars, install electric HWS forty five labour plus seven fifty material, tap washer eight, toilet cistern twenty five. Fix any issue by editing lib estimate or lib sms files, commit and push, wait ninety seconds for Vercel deploy, then re-run.

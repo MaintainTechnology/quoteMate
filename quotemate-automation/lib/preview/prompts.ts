@@ -121,6 +121,39 @@ function humaniseSlot(slot: string): string {
   return slot.replace(/_/g, ' ')
 }
 
+// Pick the single "anchor product" — the headline item the tradie
+// quoted for. Used to enforce visual consistency across all 4 Gemini
+// calls (Preview, Wide, Close-up, In-use). Without an anchor, each
+// call interprets the spec independently and the 3 sample images
+// drift apart (e.g. wide shows wall-faced toilet, close-up shows
+// close-coupled).
+//
+// Selection:
+//   1. Filter to material line items in the selected tier
+//   2. Exclude sundries (terminals, fittings, tape, seals, etc.)
+//   3. Prefer the line whose quantity matches the customer's count
+//      (typically the headline product — e.g. "8 × Dimmable IP-rated
+//      downlight" when customer asked for 8)
+//   4. Otherwise pick the first remaining material
+//   5. Return null if no anchor can be derived; the prompt then falls
+//      back to the generic job-type label.
+function pickAnchorProduct(ctx: PromptContext): string | null {
+  if (!ctx.lineItems || ctx.lineItems.length === 0) return null
+  const tier = ctx.quote?.selected_tier ?? 'better'
+  const count = ctx.intake.scope?.item_count ?? null
+  const materials = ctx.lineItems.filter(li =>
+    li.tier === tier &&
+    (li.source === 'material' || !li.source) &&
+    !/\b(sundr|fittings,|seal|tape|clip|terminal)\b/i.test(li.description)
+  )
+  if (materials.length === 0) return null
+  const matchByCount = count !== null
+    ? materials.find(m => m.quantity === count)
+    : null
+  const pick = matchByCount ?? materials[0]
+  return pick.description
+}
+
 // ─── The customer-prefs block ───
 function buildCustomerPrefsBlock(ctx: PromptContext): string {
   const { intake, quote, lineItems, corrections } = ctx
@@ -184,6 +217,27 @@ function buildCustomerPrefsBlock(ctx: PromptContext): string {
     lines.push(`  (no free-text description — see confirmed preferences below)`)
   }
   lines.push(``)
+
+  // ── ANCHOR PRODUCT — visual consistency across all 4 images ──
+  const anchor = pickAnchorProduct(ctx)
+  if (anchor) {
+    lines.push(`════════════════════════════════════════════════════════════════`)
+    lines.push(`ANCHOR PRODUCT — render THIS exact product in this image:`)
+    lines.push(``)
+    lines.push(`   ▶ ${anchor}`)
+    lines.push(``)
+    lines.push(`This is the SPECIFIC product ${callerName ?? 'the customer'} is being quoted for.`)
+    lines.push(`Every image in this 4-image quote set (Preview + Wide sample +`)
+    lines.push(`Close-up sample + In-use sample) MUST depict the SAME product —`)
+    lines.push(`the one named above. Do not substitute. Do not swap to a generic`)
+    lines.push(`alternative. Do not show a different style or model. If the`)
+    lines.push(`anchor is "Wall-faced toilet suite (Caroma Liano)", do NOT render`)
+    lines.push(`a close-coupled toilet. If the anchor is "Dimmable IP-rated`)
+    lines.push(`downlight", do NOT render a plain basic downlight. Match the`)
+    lines.push(`exact product name, brand, and style described above.`)
+    lines.push(`════════════════════════════════════════════════════════════════`)
+    lines.push(``)
+  }
 
   // ── Structured preferences ──
   if (prefLines.length > 0) {
@@ -271,15 +325,22 @@ export function buildPreviewPrompt(ctx: PromptContext): SystemUserPrompt {
   const callerName = ctx.intake.caller?.name?.trim() || null
   const callerLabel = callerName ?? 'the customer'
   const callerPossessive = callerName ? `${callerName}'s` : `the customer's`
+  const isReplacement = ctx.intake.scope?.is_new_install === false
+  const anchor = pickAnchorProduct(ctx)
 
   const shotContext = [
-    `  An EDIT of ${callerPossessive} OWN PHOTO of their ${room}. The user message includes ${callerLabel}'s actual photo — edit it to show their requested install. Keep the walls, floor, furniture, decor, perspective, and camera angle exactly as in the photo; only the relevant fixture area changes. If ${callerPossessive} photo already contains existing ${jobLabelPlural} of this job type, REPLACE them — do not keep them and add more on top.`,
+    `  An EDIT of ${callerPossessive} OWN PHOTO of their ${room}. The user message includes ${callerLabel}'s actual photo — edit it to show their requested install. Keep the walls, floor, furniture, decor, perspective, and camera angle exactly as in the photo; only the relevant fixture area changes. If ${callerPossessive} photo already contains existing ${jobLabelPlural} of this job type, REMOVE them and replace with the ANCHOR PRODUCT above — do not keep them and add more on top.`,
+    ``,
+    isReplacement
+      ? `  THIS IS A REPLACEMENT JOB. ${callerPossessive} photo shows their EXISTING fitting (the one being replaced). Your edited image MUST depict the NEW ANCHOR PRODUCT installed in place of the existing one. The output MUST look visibly DIFFERENT from the input photo${anchor ? ` — the new product (${anchor}) has a different style/finish/form from what is currently there, and that visual change MUST be apparent` : ''}. If your output looks IDENTICAL to the customer's input photo, you have failed the task — re-render and show the replacement.`
+      : `  This is a NEW INSTALL. ${callerPossessive} photo shows the surface BEFORE installation. Your edited image must depict the ANCHOR PRODUCT newly installed in the appropriate position.`,
+    ``,
     `  Watermark: a small "AI PREVIEW" mark in the bottom-right corner.`,
   ].join('\n')
 
   return {
     system: buildSystemInstruction(ctx, shotContext),
-    user: `Generate the AI Preview image now using the attached reference photo.`,
+    user: `Generate the AI Preview image now using the attached reference photo. Remember: the final image MUST show the ANCHOR PRODUCT, not just return the input photo unchanged.`,
   }
 }
 
@@ -305,39 +366,50 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
   const callerPossessive = callerName ? `${callerName}'s` : `the customer's`
   const usingPhoto = opts.usePhotoReference === true
 
+  // Cross-shot consistency directive — included verbatim in all 3
+  // sample contexts so each Gemini call understands it's part of a
+  // coordinated series and must depict the same product.
+  const crossShotConsistency = `  CROSS-IMAGE CONSISTENCY — this is ONE of THREE coordinated sample images for the same quote (WIDE, CLOSE-UP, IN-USE). All three sample images MUST depict the SAME anchor product (named in the ANCHOR PRODUCT block above). Customers view the three side by side; they MUST see ONE consistent product from three different angles, NOT three different products. If the anchor is a wall-faced toilet suite, render a wall-faced toilet suite in all three shots — not close-coupled in one and wall-faced in another. Same product, same style, same finish across the series.`
+
   // ─── WIDE ───
   const wideShot = [
-    `  A WIDE-ANGLE OVERVIEW of ${usingPhoto ? `${callerPossessive} ${room} (reference photo attached)` : `a contemporary Australian ${room}`}, showing the entire space and EVERY one of the requested ${jobLabelPlural} in a single frame.`,
+    `  Series role: WIDE-ANGLE OVERVIEW (image 1 of 3 in this sample series).`,
+    `  A wide-angle view of ${usingPhoto ? `${callerPossessive} ${room} (reference photo attached)` : `a contemporary Australian ${room}`}, showing the entire space and EVERY one of the requested ${jobLabelPlural} in a single frame. All depicted fittings must be the ANCHOR PRODUCT.`,
     `  Camera ~3-4 metres back, eye-level, daylight ambient lighting.`,
     usingPhoto
       ? `  Match ${callerPossessive} actual walls, flooring, decor, and palette from the attached photo. Pull back wider than the photo if needed so every fitting fits.`
       : `  Generic Aussie home aesthetic: neutral walls, blonde-oak flooring, minimal furniture.`,
+    crossShotConsistency,
     `  Watermark: a small "AI SAMPLE" mark in the bottom-right corner.`,
   ].join('\n')
 
   // ─── CLOSE-UP ───
   const detailShot = [
-    `  A MACRO PRODUCT-PHOTOGRAPHY CLOSE-UP of ONE single ${jobLabelSingular} matching ${callerPossessive} preferences. The fitting fills 60-80% of the frame. Camera ~30-50 cm from the fitting. Show face plate, trim, finish, surface texture in detail.`,
+    `  Series role: MACRO CLOSE-UP (image 2 of 3 in this sample series).`,
+    `  A macro product-photography close-up of ONE single instance of the ANCHOR PRODUCT. The fitting fills 60-80% of the frame. Camera ~30-50 cm from the fitting. Show face plate, trim, finish, surface texture in detail — exactly matching the anchor product's brand and style.`,
     usingPhoto
       ? `  Background: heavily-blurred bokeh sampled from ${callerPossessive} attached photo (their actual ${room}'s palette and materials). Background must NOT be in focus, and must NOT contain other ${jobLabelPlural}.`
       : `  Background: blurred ${room} surface, soft bokeh, no other ${jobLabelPlural} visible.`,
-    `  This is NOT a room shot. NOT a wide. ONE ${jobLabelSingular} only.`,
+    `  This is NOT a room shot. NOT a wide. ONE ${jobLabelSingular} only — and it MUST be the same product depicted in the WIDE and IN-USE shots.`,
+    crossShotConsistency,
     `  Watermark: a small "AI SAMPLE" mark in the bottom-right corner.`,
   ].join('\n')
 
   // ─── IN-USE / DUSK ───
   const litShot = [
-    `  ${usingPhoto ? `${callerPossessive.toUpperCase()} ${room.toUpperCase()} AT DUSK (reference photo attached)` : `A CONTEMPORARY AUSTRALIAN ${room.toUpperCase()} AT DUSK`} — the requested ${jobLabelPlural} are visibly in their operational state (illuminated if light fittings; clearly mounted and active otherwise). Windows show deep blue/purple twilight outside. Soft cosy interior atmosphere.`,
-    `  Camera ~3-4 metres back, similar framing to a wide shot. Every requested fitting visible in the frame.`,
+    `  Series role: IN-USE / EVENING (image 3 of 3 in this sample series).`,
+    `  ${usingPhoto ? `${callerPossessive.toUpperCase()} ${room.toUpperCase()} AT DUSK (reference photo attached)` : `A CONTEMPORARY AUSTRALIAN ${room.toUpperCase()} AT DUSK`} — the requested ${jobLabelPlural} (matching the ANCHOR PRODUCT) are visibly in their operational state (illuminated if light fittings; clearly mounted and active otherwise). Windows show deep blue/purple twilight outside. Soft cosy interior atmosphere.`,
+    `  Camera ~3-4 metres back, similar framing to a wide shot. Every requested fitting visible in the frame, and it MUST be the same anchor product depicted in the WIDE and CLOSE-UP shots.`,
     usingPhoto
       ? `  KEY: this is ${callerPossessive} actual ${room} at evening. Match the photo's walls, floor, furniture, layout, perspective — only the time of day and the new fittings change. ${callerLabel} should recognise their own space.`
       : `  Generic Aussie home aesthetic at dusk.`,
+    crossShotConsistency,
     `  Watermark: a small "AI SAMPLE" mark in the bottom-right corner.`,
   ].join('\n')
 
   const baseUser = usingPhoto
-    ? `Generate the AI Sample image now using the attached reference photo.`
-    : `Generate the AI Sample image now.`
+    ? `Generate the AI Sample image now using the attached reference photo. Remember: this image MUST depict the ANCHOR PRODUCT named in the system instruction, and it MUST match the product depicted in the other two sample shots (WIDE / CLOSE-UP / IN-USE).`
+    : `Generate the AI Sample image now. Remember: this image MUST depict the ANCHOR PRODUCT named in the system instruction, and it MUST match the product depicted in the other two sample shots (WIDE / CLOSE-UP / IN-USE).`
 
   return {
     wide:   { system: buildSystemInstruction(ctx, wideShot),   user: baseUser },
