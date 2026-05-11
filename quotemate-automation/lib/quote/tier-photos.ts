@@ -39,6 +39,7 @@ const TIER_FG: Record<TierKey, string> = {
 // Per-(job_type, tier) human-readable descriptions of what the photo
 // would represent. Customer-facing — keep these short and tradie-natural.
 const TIER_DESCRIPTIONS: Record<string, Record<TierKey, string>> = {
+  // ── Electrical (v3) ──────────────────────────
   downlights: {
     good:   'Standard 9W LED downlight',
     better: 'Tri-colour dimmable LED',
@@ -63,6 +64,37 @@ const TIER_DESCRIPTIONS: Record<string, Record<TierKey, string>> = {
     good:   'IP54 bulkhead light',
     better: 'PIR sensor floodlight',
     best:   'Smart RGBW deck/path lighting',
+  },
+  // ── Plumbing (v5) ────────────────────────────
+  blocked_drain: {
+    good:   'Hand-rod clearing of blocked drain',
+    better: 'High-pressure jet blast clear',
+    best:   'Jet blast + CCTV inspection with report',
+  },
+  hot_water: {
+    good:   'Electric storage 250L HWS (Rheem)',
+    better: 'Continuous-flow gas HWS (Rinnai)',
+    best:   'Heat pump HWS 270L (QLD rebate eligible)',
+  },
+  tap_repair: {
+    good:   'Tap washer replacement',
+    better: 'Full tap replacement, chrome',
+    best:   'Tap replace + new isolation valve',
+  },
+  tap_replace: {
+    good:   'Standard chrome basin tap (Caroma)',
+    better: 'Kitchen mixer tap (Methven)',
+    best:   'Premium wall-mounted mixer (Phoenix)',
+  },
+  toilet_repair: {
+    good:   'Cistern internals (fill + flush valve)',
+    better: 'Full close-coupled suite replace',
+    best:   'Wall-faced suite replace',
+  },
+  toilet_replace: {
+    good:   'Standard close-coupled suite (Caroma)',
+    better: 'Wall-faced suite (Caroma Liano)',
+    best:   'In-wall cistern suite (Caroma Cube)',
   },
 }
 

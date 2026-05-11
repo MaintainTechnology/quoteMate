@@ -83,7 +83,7 @@ export default async function UploadPage(props: { params: Promise<{ token: strin
           for your quote
         </h1>
         <p className="mt-5 max-w-xl text-base leading-relaxed text-text-sec sm:text-lg">
-          A photo or two of the area helps the sparky spot anything tricky and lock in the price.
+          A photo or two of the area helps your tradie spot anything tricky and lock in the price.
           Up to <span className="font-semibold text-text-pri">5 photos</span>, JPEG / PNG / WebP, max 5MB each.
         </p>
       </section>

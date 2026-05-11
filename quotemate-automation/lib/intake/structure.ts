@@ -2,13 +2,25 @@ import { anthropic } from '@ai-sdk/anthropic'
 import { generateObject } from 'ai'
 import { IntakeSchema, deriveTradeFromJobType } from './schema'
 
-export async function structureIntake(transcript: string, photoUrls: string[] = []) {
+// v5 multi-trade: caller passes the trade detected from earlier dialog
+// signals (SMS extract-slots job_type, or 'electrical' for the voice
+// receptionist which is electrical-only). The structurer prompt branches
+// on this hint so Opus is grounded in the right trade's vocabulary and
+// risk model. If unknown, defaults to electrical (the NSW/NECA pilot).
+export type TradeHint = 'electrical' | 'plumbing'
+
+export async function structureIntake(
+  transcript: string,
+  photoUrls: string[] = [],
+  tradeHint: TradeHint = 'electrical',
+) {
   // `trade` is required on the canonical IntakeSchema (v5 multi-trade) but
   // omitted from generateObject so Opus doesn't have to classify it. We
   // derive it from the emitted job_type below — see deriveTradeFromJobType.
   // The voice path will almost always resolve to 'electrical' (Vapi pilot
   // is electrical-only); the SMS path can resolve to either trade based on
   // the customer's described issue.
+  const isPlumbing = tradeHint === 'plumbing'
   const { object } = await generateObject({
     model: anthropic('claude-opus-4-7'),
     schema: IntakeSchema.omit({ trade: true }),
@@ -39,9 +51,50 @@ export async function structureIntake(transcript: string, photoUrls: string[] = 
 8. photo_urls is supplied as image attachments — never describe
    imagined photos in scope.description. If no images are attached,
    the photos contain nothing.
-9. scope.specs fields are PRICING-CRITICAL. Extract them when the
-   caller mentions them, leave them undefined otherwise. NEVER guess.
-   See "SPEC EXTRACTION" section below for explicit per-job_type rules.
+9. scope.specs fields are PRICING-CRITICAL for electrical jobs. Extract
+   them when the caller mentions them, leave them undefined otherwise.
+   ${isPlumbing ? 'For PLUMBING jobs, the scope.specs fields below are NOT applicable — SKIP this section entirely and leave specs undefined. Plumbing-specific detail goes into scope.description.' : 'See "SPEC EXTRACTION" section below for explicit per-job_type rules.'}
+
+${isPlumbing ? `TRADE: PLUMBING (QLD/QBCC pilot — v5)
+This is a plumbing intake. Auto-quoteable plumbing job_types:
+  blocked_drain     — kitchen/bathroom drain blocked, gurgling, slow
+  hot_water         — HWS replacement (electric/gas/heat-pump)
+  tap_repair        — dripping/leaking tap (washer)
+  tap_replace       — new tap or mixer install
+  toilet_repair     — running cistern, internals
+  toilet_replace    — new toilet suite install
+
+ALWAYS inspection_required=true for these plumbing job_types:
+  gas_fitting          — gas appliance connection or leak (gas-licence work)
+  burst_pipe           — burst/split pipe (access + make-good unknown)
+  bathroom_renovation  — rough-in + fit-off, multi-fixture, multi-visit
+  cctv_inspection      — standalone CCTV (often paired with drain repair)
+  prv_install          — pressure-reduction valve (mostly auto-quoteable, but
+                         escalate if intake mentions whole-house re-pipe)
+
+Map customer language to job_type:
+  "drain is blocked" / "slow drain" / "gurgling" / "water sitting in sink"
+    → blocked_drain
+  "no hot water" / "HWS died" / "hot water unit broken"
+    → hot_water
+  "dripping tap" / "leaking tap" / "tap washer"
+    → tap_repair
+  "new tap" / "replace tap" / "kitchen mixer"
+    → tap_replace
+  "toilet running" / "cistern leaking" / "won't stop filling"
+    → toilet_repair
+  "new toilet" / "replace toilet"
+    → toilet_replace
+  "smell gas" / "gas leak" / "smells like gas"
+    → gas_fitting + inspection_required=true + urgency=emergency
+  "burst pipe" / "pipe burst" / "water everywhere"
+    → burst_pipe + inspection_required=true + urgency=emergency
+  "bathroom reno" / "renovating bathroom" / "ensuite renovation"
+    → bathroom_renovation + inspection_required=true
+
+DO NOT populate scope.specs.* fields (color_temp, dimmable, smart,
+weatherproof, supplied_by) for plumbing intakes — those are electrical-only.
+` : `TRADE: ELECTRICAL (NSW/NECA pilot — v3)
 
 SPEC EXTRACTION — populate scope.specs.* from the caller's own words
 
@@ -83,7 +136,7 @@ hallucination class we are trying to eliminate.
   access notes go in scope.description verbatim — they're not separate
   structured fields but the estimation engine reads scope.description
   when narrowing the lookup.
-
+`}
 CONFIDENCE RUBRIC — apply uncompromisingly
   HIGH:    every required field captured, scope.item_count known,
            access fields populated when relevant, no ambiguity
@@ -91,12 +144,27 @@ CONFIDENCE RUBRIC — apply uncompromisingly
            or item_count is missing
   LOW:     any required field empty, OR job_type='other', OR
            scope.description shorter than ~10 chars, OR caller used
-           placeholder language ("just need an electrician")
+           placeholder language (${isPlumbing ? '"just need a plumber"' : '"just need an electrician"'})
 
-You extract structured intake data from electrical quoting calls.
+You extract structured intake data from ${isPlumbing ? 'plumbing' : 'electrical'} quoting calls.
 Be conservative — if unsure, leave fields blank and lower confidence.
 
-Surface real risks (only when the caller's own words trigger them):
+${isPlumbing ? `Surface real risks (only when the caller's own words trigger them):
+- "smell gas" / "gas leak" → inspection_required=true, urgency=emergency, risks=["suspected gas leak"]
+- "burst pipe" / "water everywhere" / "water through ceiling" → inspection_required=true, urgency=emergency
+- "sewage backing up" / "raw sewage" → inspection_required=true, urgency=emergency
+- water damage to walls/ceiling/floor → add to risks + inspection_required=true
+- pre-1970 properties → flag galvanised pipework / lead solder risk on supply lines
+- pipe under concrete slab / behind tile → inspection_required=true (access unknown)
+- whole-property re-pipe / bathroom rough-in / fit-off → inspection_required=true
+
+Auto-quote candidates (inspection_required=false) when scope is clear:
+blocked_drain, hot_water, tap_repair, tap_replace, toilet_repair, toilet_replace,
+cctv_inspection (standalone), prv_install (no whole-house re-pipe).
+
+Always inspection_required=true: gas_fitting (any), burst_pipe, bathroom_renovation,
+and any plumbing job that mentions hidden pipework, water damage, or access through
+concrete/tile.` : `Surface real risks (only when the caller's own words trigger them):
 - burning smell, buzzing, sparks → mark inspection_required=true, urgency=emergency
 - tripping breakers, recurring faults → mark inspection_required=true
 - water damage near electrical fixtures → add to risks + inspection_required=true
@@ -110,7 +178,7 @@ downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting.
 
 Always inspection_required=true: switchboard, ev_charger, fault_finding, renovation, and
 any oven_cooktop / power_points / outdoor_lighting job that mentions new circuits, mains,
-or switchboard work.`,
+or switchboard work.`}`,
     messages: [{
       role: 'user',
       content: [

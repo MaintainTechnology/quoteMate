@@ -166,7 +166,14 @@ function buildCustomerPrefsBlock(ctx: PromptContext): string {
   const tierLabel = quote?.selected_tier
     ? `, then accepted the tradie's "${quote.selected_tier}"-tier quote`
     : ''
-  lines.push(`You are rendering an image for ${callerLabel}, a real Australian customer who requested electrical work via an SMS conversation with the QuoteMate team${tierLabel}. ${callerName ?? 'They'} confirmed every preference below on SMS — your job is to render exactly what ${callerName ?? 'the customer'} asked for, nothing more.`)
+  // v5 multi-trade: derive trade-flavour from intake so the Gemini scene
+  // framing matches the right trade (electrical fitting render vs plumbing
+  // fixture render). Falls back to "trade" if intake.trade is unset.
+  const tradeFlavour =
+    (intake as { trade?: string }).trade === 'plumbing' ? 'plumbing'
+    : (intake as { trade?: string }).trade === 'electrical' ? 'electrical'
+    : 'trade'
+  lines.push(`You are rendering an image for ${callerLabel}, a real Australian customer who requested ${tradeFlavour} work via an SMS conversation with the QuoteMate team${tierLabel}. ${callerName ?? 'They'} confirmed every preference below on SMS — your job is to render exactly what ${callerName ?? 'the customer'} asked for, nothing more.`)
   lines.push(``)
 
   // ── Verbatim customer words ──

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
 import { structureIntake } from '@/lib/intake/structure'
+import { deriveTradeFromJobType } from '@/lib/intake/schema'
 import { embedIntake } from '@/lib/intake/embed'
 import { evaluateIntakeQuality } from '@/lib/intake/quality'
 import { pipelineLog } from '@/lib/log/pipeline'
@@ -50,6 +51,11 @@ export async function POST(req: Request) {
   // Permanent storage paths for the same photos. Persisted on intakes.photo_paths
   // so /q/[token] can re-sign on demand (signed URLs expire after 24h).
   let photoPaths: string[] = []
+  // v5 multi-trade: trade hint passed into structureIntake so Opus is
+  // grounded in the right trade's vocabulary. Derived from the dialog's
+  // detected job_type (SMS path) or pinned to 'electrical' (voice path
+  // since Vapi is electrical-only per v5 strategy doc).
+  let tradeHint: 'electrical' | 'plumbing' = 'electrical'
   let callId: string | null = null
   let conversationId: string | null = null
   // True when the in-call `send_sms_photo_link` Vapi tool already fired the
@@ -96,6 +102,14 @@ export async function POST(req: Request) {
     callerNumber = convo.from_number ?? null
     photoRequestToken = (convo.photo_request_token as string | null) ?? null
     photoRequestAlreadySent = !!convo.photo_request_sent_at
+
+    // v5: derive tradeHint from the SMS dialog's already-classified job_type.
+    // The extractor classifies plumbing job_types per v5; passing the hint
+    // forward grounds Opus in the right trade before structuring the intake.
+    const slotJobType = (convo.conversation_state as { slots?: { job_type?: string } } | null)?.slots?.job_type
+    if (slotJobType) {
+      tradeHint = deriveTradeFromJobType(slotJobType)
+    }
 
     // Photos arrive on the SMS path through TWO surfaces — both feed
     // structureIntake the same way:
@@ -159,9 +173,9 @@ export async function POST(req: Request) {
     photoRequestAlreadySent = !!call.photo_request_sent_at
   }
 
-  log.step('running Opus vision (Claude 4.7) — typically ~35s, up to 3 attempts')
+  log.step('running Opus vision (Claude 4.7) — typically ~35s, up to 3 attempts', { tradeHint })
   const intake = await withRetry(
-    () => structureIntake(transcript, photoUrls),
+    () => structureIntake(transcript, photoUrls, tradeHint),
     {
       maxAttempts: 3,
       baseDelayMs: 2000,

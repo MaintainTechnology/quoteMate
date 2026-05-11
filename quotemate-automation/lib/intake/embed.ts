@@ -34,7 +34,10 @@ const VOYAGE_API_KEY = process.env.VOYAGE_API_KEY
 const TARGET_DIM = 1536
 
 export async function embedIntake(intake: Intake) {
-  const summary = `${intake.job_type} count=${intake.scope.item_count ?? '?'} new=${intake.scope.is_new_install ?? '?'} ${intake.scope.indoor_outdoor ?? ''} ${intake.risks.join(' ')}`
+  // v5: include trade in the embed summary so cross-trade similarity is
+  // explicitly distinguished (the SQL match_intakes function also pre-
+  // filters by job_type, so this is belt-and-braces).
+  const summary = `trade=${intake.trade ?? 'electrical'} ${intake.job_type} count=${intake.scope.item_count ?? '?'} new=${intake.scope.is_new_install ?? '?'} ${intake.scope.indoor_outdoor ?? ''} ${intake.risks.join(' ')}`
 
   if (!VOYAGE_API_KEY) {
     return stubEmbedding(summary)

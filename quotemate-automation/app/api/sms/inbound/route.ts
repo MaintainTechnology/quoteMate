@@ -51,15 +51,24 @@ function ackTwiml() {
   })
 }
 
-// Easy-5 jobs benefit from a photo (visual ceiling/wall/access detail)
-// before Opus drafts the quote. Out-of-scope jobs go straight to
-// inspection so a photo prompt would be off-message.
+// SMS-auto-quoteable jobs benefit from a photo before Opus drafts the
+// quote. Out-of-scope jobs go straight to inspection so a photo prompt
+// would be off-message. v5 multi-trade: union of electrical easy-5 +
+// plumbing easy-5.
 const EASY_5_JOB_TYPES = new Set([
+  // electrical
   'downlights',
   'power_points',
   'ceiling_fans',
   'smoke_alarms',
   'outdoor_lighting',
+  // plumbing (v5)
+  'blocked_drain',
+  'hot_water',
+  'tap_repair',
+  'tap_replace',
+  'toilet_repair',
+  'toilet_replace',
 ])
 
 // Best-effort first-name guess from a customer's SMS turn. Used only
