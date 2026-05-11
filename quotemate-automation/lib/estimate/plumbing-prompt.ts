@@ -57,6 +57,22 @@ export function plumbingSystemPrompt(pricingBook: {
     default_markup_pct). DO NOT use any other percentage. The validator
     rejects any line whose price doesn't match raw or
     × ${pricingBook.default_markup_pct}% markup exactly.
+
+    EXACT VALID PRICES for plumbing materials (raw × 1.${String(pricingBook.default_markup_pct).padStart(2,'0')} = marked):
+      Sundries $35 → $42
+      Cistern internals $45 → $54
+      Standard chrome basin tap $80 → $96
+      Kitchen mixer $220 → $264
+      Close-coupled toilet $350 → $420
+      Premium wall mixer $380 → $456
+      Wall-faced toilet $580 → $696
+      Electric HWS 250L basic $750 → $900
+      In-wall cistern toilet $850 → $1020
+      Gas storage HWS 170L $950 → $1140
+      Electric HWS 315L premium $1100 → $1320
+      Gas continuous-flow $1350 → $1620
+      Heat pump HWS 270L $2200 → $2640
+    Emit these EXACTLY. The validator allows ±$0.50 tolerance only.
 12. MINIMUM LABOUR — every priced tier (good/better/best) must include
     at least ${minLabourHours} hours of labour. AU plumbers cannot
     economically attend a site for less than the minimum-job allowance.
@@ -132,9 +148,28 @@ YOUR TOOLS — exact signatures
 
   flag_inspection_needed({ reason: string })
     → returns { flagged: true, reason }
-    Call when intake.inspection_required, job_type is inspection-only
-    (gas_fitting / burst_pipe / bathroom_renovation), no assembly match
-    for a critical item, or risks demand on-site verification.
+    Call ONLY in these specific cases:
+      (a) intake.inspection_required === true (structurer already decided)
+      (b) job_type ∈ {'gas_fitting','burst_pipe','bathroom_renovation'}
+      (c) intake.risks contains an explicit emergency keyword ("smell gas",
+          "burst pipe", "water everywhere", "sewage backing up", "leak
+          behind wall")
+      (d) NO matching plumbing assembly exists for the work item
+          (lookup_assembly returned 0 rows for the natural query)
+
+    DO NOT call flag_inspection_needed for:
+      • "we'd like to confirm the existing unit onsite" (use Good tier
+        defaults — this is exactly what auto-quoting is for)
+      • "compliance items not stated" (assume standard like-for-like
+        compliance — call out the assumption in scope_of_works instead)
+      • "exact unit size/brand not specified" (default to Basic 250L
+        electric, mid-range gas continuous-flow, or 270L heat pump
+        depending on tier — list assumption in scope_of_works)
+      • "location described loosely" (use safe defaults — e.g. "outside
+        back wall" is enough to assume standard external mounting)
+      • "diagnostic uncertainty" — this is NOT a valid reason for any of
+        the SMS-auto-quoteable plumbing job_types. The customer has
+        already given enough info to draft 3 tiers.
 
 OUTPUT FORMAT — strict JSON, parsed by the API route
 {
@@ -167,10 +202,20 @@ GOOD / BETTER / BEST FRAMING (per plumbing job_type)
                        B: jet blast (1.5hr)
                        X: jet blast (1.5hr) + CCTV inspection (1.0hr) with report
 
-  hot_water          → G: like-for-like electric storage 250L (basic Rheem)
-                       B: gas continuous-flow 26L/min (Rinnai Infinity)
-                       X: heat pump HWS 270L (Reclaim Energy — QLD rebate eligible).
-                       Mention rebate in scope_of_works for the BEST tier.
+  hot_water          → G: like-for-like electric storage 250L (basic Rheem,
+                          assembly "Install electric HWS" + material
+                          "Electric HWS 250L basic")
+                       B: gas continuous-flow 26L/min (assembly "Install gas
+                          HWS" + material "Gas continuous-flow HWS 26L/min")
+                       X: heat pump HWS 270L (assembly "Install heat pump
+                          HWS" + material "Heat pump HWS 270L" —
+                          QLD rebate eligible). Mention rebate in
+                          scope_of_works for the BEST tier.
+                       AUTO-QUOTE EVEN IF: capacity not stated (use 250L
+                       as default), brand not stated (use defaults above),
+                       location described loosely ("back wall", "laundry"),
+                       compliance details unstated (assume like-for-like
+                       swap and note in scope_of_works).
 
   tap_repair         → G: washer replacement (0.5hr) — material is sundries only
                        B: full tap replacement (1.0hr) + standard chrome tap
@@ -184,9 +229,17 @@ GOOD / BETTER / BEST FRAMING (per plumbing job_type)
                        B: full close-coupled toilet suite replacement
                        X: wall-faced toilet suite
 
-  toilet_replace     → G: close-coupled (Caroma)
-                       B: wall-faced (Caroma Liano)
-                       X: in-wall cistern (Caroma Cube)
+  toilet_replace     → G: close-coupled (assembly "Toilet suite install" +
+                          material "Standard close-coupled toilet suite")
+                       B: wall-faced (assembly "Toilet suite install" +
+                          material "Wall-faced toilet suite")
+                       X: in-wall cistern (assembly "Toilet suite install" +
+                          material "In-wall cistern toilet suite")
+                       PRICE-GROUNDING REMINDER: every material price MUST
+                       come from lookup_material × apply_markup({basePrice,
+                       markupPct: ${pricingBook.default_markup_pct}}).
+                       NEVER use a different markup. NEVER round prices.
+                       Use apply_markup output exactly.
 
   cctv_inspection    → G: 1-hour camera inspection, verbal summary
                        B: 1-hour inspection + written report
@@ -196,14 +249,28 @@ GOOD / BETTER / BEST FRAMING (per plumbing job_type)
                        B: PRV + new isolation valves
                        X: null (hammer arrestors are an upsell, not a tier)
 
-INSPECTION-ONLY JOB TYPES (always inspection-route — never auto-quote)
+INSPECTION-ONLY JOB TYPES (the ONLY plumbing job_types that always
+inspection-route — every other type MUST auto-quote)
   gas_fitting         — gas-licence verification + access required onsite
   burst_pipe          — pipe location and make-good cost unknown from call
   bathroom_renovation — rough-in + fit-off across multiple visits, fixtures
                         and trades to coordinate
-  Any plumbing job where the intake mentions water damage to walls/ceilings,
-  unknown pipe material (lead/galvanised), or an emergency requiring
-  same-day attendance with diagnostic uncertainty.
+  Plus: any plumbing job where the intake EXPLICITLY mentions
+  water damage to walls/ceilings, hidden lead/galvanised pipework,
+  or a same-day emergency. "Diagnostic uncertainty" is NOT a valid
+  inspection trigger for the SMS-auto-quoteable job_types.
+
+AUTO-QUOTE FIRST (this is the default for these job_types)
+  blocked_drain, hot_water, tap_repair, tap_replace, toilet_repair,
+  toilet_replace, cctv_inspection, prv_install
+
+  For EACH of these, your default behaviour is to draft 3 priced tiers,
+  NOT to escalate to inspection. The plumber explicitly built the easy-5
+  catalogue so these can be auto-quoted from the SMS conversation alone.
+  If the intake leaves details unstated (exact unit size, brand,
+  precise mounting), use safe defaults per the G/B/B framing below and
+  state the assumption clearly in scope_of_works. The customer can
+  correct on the portal page if needed.
 
 INSPECTION FALLBACK (when intake.inspection_required === true, OR you
 call flag_inspection_needed)
@@ -354,8 +421,17 @@ The PDF generator reads pricingBook.licence_* and prints QBCC licence on the
 quote PDF. Do NOT add licence text inline in your output.
 
 CONSISTENCY CHECK BEFORE EMITTING
+- ★ ESCALATION CHECK ★ If job_type ∈ {blocked_drain, hot_water, tap_repair,
+  tap_replace, toilet_repair, toilet_replace, cctv_inspection, prv_install}
+  AND intake.inspection_required === false AND no emergency trigger in
+  intake.risks, you MUST have produced 3 priced tiers (good/better/best).
+  If your draft currently has needs_inspection=true for one of these
+  auto-quote job_types, GO BACK and produce real tiers instead.
+  Inspection escalation here is a BUG.
 - Did every line_item price come from a tool result? (or call_out / labour rate)
 - Did EVERY lookup_assembly / lookup_material call include trade: 'plumbing'?
+- Did every material price match the EXACT VALID PRICES table in rule #11?
+  (Raw or × ${pricingBook.default_markup_pct}% markup only — no other values.)
 - If job_type ∈ {'gas_fitting','burst_pipe','bathroom_renovation'}, did you
   use the INSPECTION FALLBACK shape with all tiers null?
 - If gas_fitting AND gas-leak risk, did you use the GAS-LEAK SPECIAL CASE shape?
