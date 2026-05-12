@@ -141,10 +141,24 @@ function pickAnchorProduct(ctx: PromptContext): string | null {
   if (!ctx.lineItems || ctx.lineItems.length === 0) return null
   const tier = ctx.quote?.selected_tier ?? 'better'
   const count = ctx.intake.scope?.item_count ?? null
+  // Sundries-detection: the previous regex used \bsundr\b which failed to
+  // match "sundries" because more word chars follow. Caught with Anna's
+  // toilet_replace test - the anchor picker grabbed "Plumbing sundries"
+  // instead of the Caroma Liano toilet suite she was being quoted for.
+  // The fixed pattern uses substring matching for the unambiguous sundries
+  // keywords and a careful word-boundary check for ambiguous ones.
+  const isSundries = (desc: string): boolean =>
+    /sundri/i.test(desc) ||                  // sundries / sundry
+    /\bseals?\b/i.test(desc) ||              // seal / seals
+    /\btape\b/i.test(desc) ||
+    /\bclip\b/i.test(desc) ||
+    /\bterminal\b/i.test(desc) ||
+    /^fittings,/i.test(desc)                 // generic "fittings, ..." line
+
   const materials = ctx.lineItems.filter(li =>
     li.tier === tier &&
     (li.source === 'material' || !li.source) &&
-    !/\b(sundr|fittings,|seal|tape|clip|terminal)\b/i.test(li.description)
+    !isSundries(li.description)
   )
   if (materials.length === 0) return null
   const matchByCount = count !== null
