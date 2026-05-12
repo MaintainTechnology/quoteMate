@@ -109,16 +109,68 @@ function OnboardWizardInner() {
     gst_registered: true,
   })
 
+  // Hydrate identity fields. Source priority:
+  //   1. URL params (carried over from /signup or /auth/callback)
+  //   2. Supabase session user + user_metadata (set by /api/auth/signup)
+  //
+  // The session fallback is critical — without it, returning users
+  // arriving from /signin (which only passes owner_user_id) would
+  // submit blank business_name/first_name/email and hit a Zod 400.
   useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      business_name: params.get('business_name') ?? prev.business_name,
-      owner_first_name: params.get('owner_first_name') ?? prev.owner_first_name,
-      owner_email: params.get('owner_email') ?? prev.owner_email,
-      owner_user_id: params.get('owner_user_id') ?? prev.owner_user_id,
-      // Pre-fill from SMS-initiated signup link (verified mobile)
-      owner_mobile: params.get('owner_mobile') ?? prev.owner_mobile,
-    }))
+    let cancelled = false
+    ;(async () => {
+      // Pass 1 — URL params (fast, no network)
+      const urlBn = params.get('business_name') ?? ''
+      const urlFn = params.get('owner_first_name') ?? ''
+      const urlEmail = params.get('owner_email') ?? ''
+      const urlUserId = params.get('owner_user_id') ?? ''
+      const urlMobile = params.get('owner_mobile') ?? ''
+
+      if (!cancelled) {
+        setForm((prev) => ({
+          ...prev,
+          business_name: urlBn || prev.business_name,
+          owner_first_name: urlFn || prev.owner_first_name,
+          owner_email: urlEmail || prev.owner_email,
+          owner_user_id: urlUserId || prev.owner_user_id,
+          owner_mobile: urlMobile || prev.owner_mobile,
+        }))
+      }
+
+      // Pass 2 — Supabase session backfill for anything still empty
+      if (urlBn && urlFn && urlEmail && urlUserId) {
+        return // everything came through the URL, no need to fetch
+      }
+      try {
+        const { getBrowserSupabase } = await import('@/lib/supabase/client')
+        const supabase = getBrowserSupabase()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (cancelled || !user) return
+
+        const meta = (user.user_metadata ?? {}) as {
+          business_name?: string
+          first_name?: string
+          owner_mobile?: string
+        }
+        setForm((prev) => ({
+          ...prev,
+          business_name: prev.business_name || meta.business_name || '',
+          owner_first_name: prev.owner_first_name || meta.first_name || '',
+          owner_email: prev.owner_email || user.email || '',
+          owner_user_id: prev.owner_user_id || user.id,
+          owner_mobile: prev.owner_mobile || meta.owner_mobile || '',
+        }))
+      } catch (e) {
+        // Non-fatal — wizard will show validation errors on submit if
+        // the user still has empty required identity fields.
+        console.warn('[onboard] session backfill failed', e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -151,6 +203,26 @@ function OnboardWizardInner() {
       const data = await res.json()
       if (!data.ok) {
         if (data.fieldErrors) setFieldErrors(data.fieldErrors)
+        // Build a human-readable message for validation_failed so the
+        // user sees WHICH fields broke without opening DevTools. For
+        // identity fields (business_name, first_name, email, mobile)
+        // we also suggest signing in again — the most common cause is
+        // missing URL carry-through.
+        if (data.error === 'validation_failed' && data.fieldErrors) {
+          const fields = Object.keys(data.fieldErrors)
+          const identityFields = ['business_name', 'owner_first_name', 'owner_email', 'owner_mobile', 'owner_user_id']
+          const missingIdentity = fields.filter((f) => identityFields.includes(f))
+          if (missingIdentity.length > 0) {
+            throw new Error(
+              `Your account details didn't carry over from signup (${missingIdentity.join(', ')}). ` +
+                `Try refreshing this page — we now pull them from your active session as a fallback.`,
+            )
+          }
+          const summary = fields
+            .map((f) => `${f}: ${data.fieldErrors[f]?.[0] ?? 'invalid'}`)
+            .join(' · ')
+          throw new Error(`Please fix: ${summary}`)
+        }
         throw new Error(data.error ?? 'Activation failed')
       }
       const sp = new URLSearchParams({
