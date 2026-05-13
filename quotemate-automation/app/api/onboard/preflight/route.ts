@@ -47,6 +47,7 @@ export async function GET(req: Request) {
     check('TWILIO_ACCOUNT_SID', 'Required when TWILIO_PROVISIONING_ENABLED=true'),
     check('TWILIO_AUTH_TOKEN', 'Required when TWILIO_PROVISIONING_ENABLED=true'),
     check('TWILIO_ADDRESS_SID', 'Required when TWILIO_PROVISIONING_ENABLED=true — AU numbers require an address bundle at purchase'),
+    check('TWILIO_BUNDLE_SID', 'Optional — Twilio Regulatory Bundle (BU…). Required for AU MOBILE inventory. When unset we fall back to AU Local automatically.'),
     check('VAPI_API_KEY', 'Required when VAPI_PROVISIONING_ENABLED=true'),
     check('APP_URL', 'Required so SMS webhook resolves to your deploy'),
     check('NEXT_PUBLIC_APP_URL', 'Alternate to APP_URL — at least one must be set'),

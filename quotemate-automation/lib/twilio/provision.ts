@@ -93,6 +93,13 @@ export async function provisionTwilioNumber(opts: {
   // to the SID shown under Twilio Console → Phone Numbers → Regulatory
   // Compliance → Addresses (starts with AD…).
   const addressSid = process.env.TWILIO_ADDRESS_SID
+  // AU MOBILE numbers (the 04xx kind) additionally require a Regulatory
+  // Compliance Bundle (a BU… SID) that proves the buying entity's
+  // identity. AU LOCAL numbers (landline-style 02/03/07/08) only need an
+  // Address. Setting TWILIO_BUNDLE_SID unlocks Mobile inventory; leaving
+  // it unset means we fall back to Local automatically when Twilio
+  // rejects the Mobile purchase for missing regulatory metadata.
+  const bundleSid = process.env.TWILIO_BUNDLE_SID
   if (!sid || !token) {
     return { ok: false, reason: 'TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN not set' }
   }
@@ -111,11 +118,15 @@ export async function provisionTwilioNumber(opts: {
 
   const auth = 'Basic ' + Buffer.from(sid + ':' + token).toString('base64')
 
-  // Step 1: walk the search order until we find an available number.
-  let picked: { number: string; numberType: 'Mobile' | 'Local'; requireFax: boolean } | null = null
-  const searchAttempts: string[] = []
+  // Walk SEARCH_ORDER; for each attempt: search for an available number,
+  // then immediately try to buy it. On a regulatory-rejection (bundle
+  // missing) we fall through to the next attempt rather than aborting —
+  // this lets us auto-degrade from Mobile to Local when the deployment
+  // doesn't have a regulatory bundle configured.
+  const attempts: string[] = []
 
   for (const attempt of SEARCH_ORDER) {
+    // ── 1. Search for an available number matching this attempt ───
     const sp = new URLSearchParams({
       VoiceEnabled: 'true',
       SmsEnabled: 'true',
@@ -126,6 +137,8 @@ export async function provisionTwilioNumber(opts: {
     if (opts.areaCode) sp.set('AreaCode', opts.areaCode)
 
     const path = `/AU/${attempt.numberType}.json`
+    const label = `${attempt.numberType}${attempt.requireFax ? '+fax' : ''}`
+    let candidate: string | null = null
     try {
       const res = await fetch(
         `${API_BASE}/Accounts/${sid}/AvailablePhoneNumbers${path}?${sp.toString()}`,
@@ -133,86 +146,91 @@ export async function provisionTwilioNumber(opts: {
       )
       if (!res.ok) {
         const errText = (await res.text()).slice(0, 200)
-        searchAttempts.push(`${attempt.numberType}${attempt.requireFax ? '+fax' : ''}: HTTP ${res.status} — ${errText}`)
+        attempts.push(`${label}: search HTTP ${res.status} — ${errText}`)
         continue
       }
       const json = (await res.json()) as {
         available_phone_numbers?: Array<{ phone_number: string }>
       }
-      const first = json.available_phone_numbers?.[0]?.phone_number
-      if (first) {
-        picked = { number: first, numberType: attempt.numberType, requireFax: attempt.requireFax }
-        break
+      candidate = json.available_phone_numbers?.[0]?.phone_number ?? null
+      if (!candidate) {
+        attempts.push(`${label}: 0 results`)
+        continue
       }
-      searchAttempts.push(`${attempt.numberType}${attempt.requireFax ? '+fax' : ''}: 0 results`)
-    } catch (e: any) {
-      searchAttempts.push(`${attempt.numberType}${attempt.requireFax ? '+fax' : ''}: threw — ${e?.message ?? String(e)}`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      attempts.push(`${label}: search threw — ${msg}`)
+      continue
     }
-  }
 
-  if (!picked) {
-    return {
-      ok: false,
-      reason:
-        `No AU number available with Voice+SMS+MMS (tried Mobile and Local, with and without Fax). ` +
-        `Search attempts: ${searchAttempts.join(' | ')}`,
+    // ── 2. Attempt to purchase the candidate ───────────────────────
+    //
+    //   SmsUrl   → our /api/sms/inbound (Twilio posts inbound SMS here;
+    //              handled in-process by the tenant lookup pipeline)
+    //   VoiceUrl → Vapi's hosted Twilio inbound endpoint; Vapi looks up
+    //              the assistant by destination number after we register
+    //              the number with Vapi (lib/vapi/register-number.ts).
+    //
+    // Bundle attachment: only Mobile needs it, and only when configured.
+    // Leaving it off for Local saves an unused field on every purchase.
+    const purchaseBody = new URLSearchParams()
+    purchaseBody.set('PhoneNumber', candidate)
+    purchaseBody.set('FriendlyName', opts.friendlyName)
+    purchaseBody.set('AddressSid', addressSid)
+    if (attempt.numberType === 'Mobile' && bundleSid) {
+      purchaseBody.set('BundleSid', bundleSid)
     }
-  }
+    purchaseBody.set('SmsUrl', `${appUrl}/api/sms/inbound`)
+    purchaseBody.set('SmsMethod', 'POST')
+    purchaseBody.set('VoiceUrl', VAPI_INBOUND_VOICE_URL)
+    purchaseBody.set('VoiceMethod', 'POST')
 
-  // Step 2: purchase + auto-configure webhooks.
-  //
-  //   SmsUrl   → our /api/sms/inbound (Twilio posts inbound SMS here;
-  //              we handle them in-process via the tenant lookup pipeline)
-  //   VoiceUrl → Vapi's hosted Twilio inbound endpoint. Vapi looks up
-  //              the assistant by the destination number after we register
-  //              the number with Vapi (lib/vapi/register-number.ts).
-  //
-  // Tradies never have to set any of this manually — the activate flow
-  // does it end-to-end.
-  //
-  // (Twilio also has a FaxUrl property; we leave it unset for now since
-  // fax routing isn't built. Numbers with Fax capability still work for
-  // Voice/SMS/MMS — fax just won't be answered by us.)
-  const purchaseBody = new URLSearchParams()
-  purchaseBody.set('PhoneNumber', picked.number)
-  purchaseBody.set('FriendlyName', opts.friendlyName)
-  // AddressSid is mandatory for AU number purchases — without it Twilio
-  // rejects with "Phone Number Requires an Address but the 'AddressSid'
-  // parameter was empty." See lib/twilio/provision.ts addressSid resolution.
-  purchaseBody.set('AddressSid', addressSid)
-  purchaseBody.set('SmsUrl', `${appUrl}/api/sms/inbound`)
-  purchaseBody.set('SmsMethod', 'POST')
-  purchaseBody.set('VoiceUrl', VAPI_INBOUND_VOICE_URL)
-  purchaseBody.set('VoiceMethod', 'POST')
-
-  try {
-    const buyRes = await fetch(
-      `${API_BASE}/Accounts/${sid}/IncomingPhoneNumbers.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: auth,
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
+    let purchaseResp: Response
+    try {
+      purchaseResp = await fetch(
+        `${API_BASE}/Accounts/${sid}/IncomingPhoneNumbers.json`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: auth,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: 'application/json',
+          },
+          body: purchaseBody.toString(),
         },
-        body: purchaseBody.toString(),
-      },
-    )
-    const text = await buyRes.text()
+      )
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      attempts.push(`${label}: purchase threw — ${msg}`)
+      continue
+    }
+
+    const text = await purchaseResp.text()
     const parsed = (() => { try { return JSON.parse(text) } catch { return null } })()
-    if (!buyRes.ok) {
+
+    if (!purchaseResp.ok) {
+      const reason = parsed?.message ?? `HTTP ${purchaseResp.status}`
+      const lowered = String(reason).toLowerCase()
+      // Regulatory rejection — keep walking SEARCH_ORDER. The Mobile→Local
+      // fallback is the explicit reason this loop exists.
+      const isRegulatoryMiss =
+        lowered.includes('bundle required') ||
+        lowered.includes('regulatory') ||
+        lowered.includes('compliance')
+      if (isRegulatoryMiss) {
+        attempts.push(`${label}: ${reason} (falling back)`)
+        continue
+      }
+      // Non-regulatory purchase failure — surface immediately so the
+      // tradie sees a real error rather than a "no inventory" mask.
       return {
         ok: false,
-        reason: parsed?.message ?? `purchase failed: HTTP ${buyRes.status}`,
+        reason,
         code: parsed?.code != null ? String(parsed.code) : undefined,
       }
     }
 
-    // Twilio returns capabilities on the purchased number. Surface them
-    // so the caller (and ultimately the tenant row) knows exactly what
-    // the new number can do.
-    // Twilio's REST API has returned capability keys in both lowercase
-    // (current) and uppercase (older accounts) forms — accept either.
+    // ── 3. Purchase succeeded — return the result ──────────────────
     const caps = parsed.capabilities ?? {}
     const capabilities: NumberCapabilities = {
       voice: !!(caps.voice ?? caps.VOICE),
@@ -220,18 +238,26 @@ export async function provisionTwilioNumber(opts: {
       mms:   !!(caps.mms   ?? caps.MMS),
       fax:   !!(caps.fax   ?? caps.FAX),
     }
-
     return {
       ok: true,
       stubbed: false,
       phoneNumber: parsed.phone_number,
       twilioSid: parsed.sid,
-      numberType: picked.numberType,
+      numberType: attempt.numberType,
       capabilities,
       faxAvailable: capabilities.fax,
     }
-  } catch (e: any) {
-    return { ok: false, reason: `purchase threw: ${e?.message ?? String(e)}` }
+  }
+
+  // Every attempt fell through. Most common cause: AU Mobile inventory
+  // needs a Bundle that isn't configured AND AU Local inventory was empty.
+  return {
+    ok: false,
+    reason:
+      `Could not provision an AU number. Attempts: ${attempts.join(' | ')}. ` +
+      (bundleSid
+        ? 'Bundle is configured — check Twilio inventory or contact support.'
+        : 'Tip: AU Mobile needs a Regulatory Compliance Bundle. Set TWILIO_BUNDLE_SID, or rely on Local fallback (which means AU Local must have available inventory).'),
   }
 }
 
