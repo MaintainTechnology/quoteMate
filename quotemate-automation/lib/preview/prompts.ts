@@ -251,6 +251,89 @@ function pickAnchorProduct(ctx: PromptContext): string | null {
   return pick.description
 }
 
+// ─── RENDER DIRECTIVE — declarative key/value block ───
+// Sits between MASTER RULES and the narrative context. The whole point
+// is to expose every customer-specific JSON value Gemini needs as a
+// flat, unambiguous list — no prose to parse, no narrative for the
+// model to drift in. Empirically this dramatically reduces "the model
+// missed the count / wrong room / picked the wrong product" failures.
+//
+// Every value below is interpolated from the database row for THIS
+// customer's quote. The KEYS are scaffolding (fixed); the VALUES are
+// 100% dynamic.
+function buildRenderDirective(ctx: PromptContext, shotRole: string): string {
+  const { intake, quote } = ctx
+  const desc = (intake.scope?.description ?? '').trim()
+  const callerName = intake.caller?.name?.trim() || null
+  const room = detectRoom(desc)
+  const { plural: jobLabelPlural } = humaniseJobType(intake.job_type)
+  const count = (intake.scope?.item_count && intake.scope.item_count > 0)
+    ? intake.scope.item_count
+    : null
+  const specs = intake.scope?.specs ?? {}
+  const access = intake.access ?? {}
+  const trade = (intake as { trade?: string }).trade ?? null
+  const anchor = pickAnchorProduct(ctx)
+  const tier = quote?.selected_tier ?? null
+
+  // Helper: emit a "key: value" line only when value is meaningful.
+  const kv = (key: string, value: unknown): string | null => {
+    if (value === null || value === undefined || value === '' || value === 'unknown') return null
+    if (typeof value === 'boolean') return `  ${key.padEnd(22)} ${value ? 'yes' : 'no'}`
+    return `  ${key.padEnd(22)} ${value}`
+  }
+
+  // Map the booleans into plain-English values so Gemini doesn't
+  // misinterpret "true" as a string token.
+  const installType =
+    intake.scope?.is_new_install === true ? 'new install'
+    : intake.scope?.is_new_install === false ? 'replacing existing'
+    : null
+
+  const directiveLines = [
+    kv('customer_name:',       callerName),
+    kv('trade:',               trade),
+    kv('job_type:',            intake.job_type),
+    kv('quantity:',            count),
+    kv('room:',                room),
+    kv('product_to_render:',   anchor),
+    kv('selected_tier:',       tier),
+    kv('view_type:',           shotRole),
+    kv('install_type:',        installType),
+    kv('existing_wiring:',     intake.scope?.existing_wiring),
+    kv('indoor_outdoor:',      intake.scope?.indoor_outdoor),
+    kv('colour_temp:',         colorTempHuman(specs.color_temp)),
+    kv('dimmable:',            specs.dimmable),
+    kv('smart_wifi:',          specs.smart),
+    kv('weatherproof:',        specs.weatherproof),
+    kv('supplied_by:',         specs.supplied_by),
+    kv('ceiling_type:',        access.ceiling_type),
+    kv('wall_type:',           access.wall_type),
+    kv('verbatim_customer:',   desc ? `"${desc.slice(0, 300)}"` : null),
+  ].filter((l): l is string => l !== null)
+
+  const lines: string[] = []
+  lines.push(`════════════════════════════════════════════════════════════════`)
+  lines.push(`RENDER DIRECTIVE — these are the EXACT values from this customer's quote.`)
+  lines.push(`Read each line as "this image MUST honour this value". No interpretation,`)
+  lines.push(`no approximation, no substitution.`)
+  lines.push(`════════════════════════════════════════════════════════════════`)
+  lines.push(``)
+  for (const l of directiveLines) lines.push(l)
+  lines.push(``)
+  lines.push(`HOW TO USE THIS BLOCK:`)
+  lines.push(`  · "quantity" — render EXACTLY this many. No more, no fewer.`)
+  lines.push(`  · "product_to_render" — render THIS specific product, brand and style.`)
+  lines.push(`  · "room" — set the scene in THIS room type.`)
+  lines.push(`  · "view_type" — frame the shot for THIS view.`)
+  lines.push(`  · "verbatim_customer" — what the customer literally typed. Match it.`)
+  lines.push(`  · Any value listed as "yes" / "no" — depict that state in the image.`)
+  lines.push(`  · Any field NOT in this directive was NOT specified by the customer.`)
+  lines.push(`    Use neutral defaults for those — do NOT invent features.`)
+  lines.push(`════════════════════════════════════════════════════════════════`)
+  return lines.join('\n')
+}
+
 // ─── The customer-prefs block ───
 function buildCustomerPrefsBlock(ctx: PromptContext): string {
   const { intake, quote, lineItems, corrections } = ctx
@@ -502,10 +585,19 @@ function finalChecklist(ctx: PromptContext): string {
 // the prompt at the top so Gemini sees the imperatives before it sees
 // the data, and the CHECKLIST sits at the bottom so it's the last
 // thing the model reads before emitting.
-function buildSystemInstruction(ctx: PromptContext, shotContext: string): string {
+function buildSystemInstruction(ctx: PromptContext, shotContext: string, shotRole: string): string {
   return [
     masterRules(),
     ``,
+    // NEW: declarative key/value directive — every customer value at a glance,
+    // unambiguous, no narrative to misparse. Sits right under MASTER RULES so
+    // Gemini sees the imperatives, then the exact values, then the context.
+    buildRenderDirective(ctx, shotRole),
+    ``,
+    // Narrative customer context block (verbatim words, anchor product
+    // explanation, structured prefs, line items, assumptions, count anchor).
+    // Kept as supporting context — the RENDER DIRECTIVE above is the
+    // authoritative spec.
     buildCustomerPrefsBlock(ctx),
     ``,
     `THIS IMAGE:`,
@@ -555,7 +647,7 @@ export function buildPreviewPrompt(ctx: PromptContext): SystemUserPrompt {
   ].join('\n')
 
   return {
-    system: buildSystemInstruction(ctx, shotContext),
+    system: buildSystemInstruction(ctx, shotContext, 'PREVIEW edit (in customer\'s own room)'),
     user: previewUser,
   }
 }
@@ -643,8 +735,8 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
   ].join('\n')
 
   return {
-    wide:   { system: buildSystemInstruction(ctx, wideShot),   user: baseUser },
-    detail: { system: buildSystemInstruction(ctx, detailShot), user: baseUser },
-    lit:    { system: buildSystemInstruction(ctx, litShot),    user: baseUser },
+    wide:   { system: buildSystemInstruction(ctx, wideShot,   'WIDE-ANGLE OVERVIEW'), user: baseUser },
+    detail: { system: buildSystemInstruction(ctx, detailShot, 'MACRO CLOSE-UP'),       user: baseUser },
+    lit:    { system: buildSystemInstruction(ctx, litShot,    'IN-USE / DUSK'),        user: baseUser },
   }
 }
