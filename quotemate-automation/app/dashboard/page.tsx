@@ -73,7 +73,13 @@ type ServiceOffering = {
 
 type TierJson = {
   subtotal_ex_gst?: number | string
+  /** total_inc_gst is computed dashboard-side from subtotal_ex_gst and
+   *  the quote's headline GST ratio — see deriveTierTotal in QuoteCard.
+   *  The estimator currently only stores subtotal_ex_gst on the tier
+   *  JSONB; GST is applied at the quote level (quotes.total_inc_gst). */
   total_inc_gst?: number | string
+  label?: string
+  timeframe?: string
 } | null
 
 type Quote = {
@@ -1691,13 +1697,28 @@ function QuoteCard({ q, isMultiTrade }: { q: Quote; isMultiTrade: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const url = q.share_token ? `/q/${q.share_token}` : null
 
-  // Tier prices from the stored JSONBs. Each tier object has both
-  // subtotal_ex_gst and total_inc_gst — we display the inc-GST headline
-  // that matches what the customer sees on the public quote page.
-  const goodTotal = toNum(q.good?.total_inc_gst)
-  const betterTotal = toNum(q.better?.total_inc_gst)
-  const bestTotal = toNum(q.best?.total_inc_gst)
+  // Tier prices. Each tier JSONB stores `subtotal_ex_gst` but NOT
+  // total_inc_gst (the estimator applies GST at the quote level on
+  // `quotes.total_inc_gst`). Derive each tier's inc-GST figure by
+  // multiplying its subtotal by the actual GST ratio used on this
+  // quote (headline total / selected-tier subtotal). That way the
+  // ladder matches the customer-facing page exactly whether or not the
+  // tradie is GST-registered, without needing to look up tenant flags.
   const selectedTotal = toNum(q.total_inc_gst)
+  const selectedTier = q.selected_tier as 'good' | 'better' | 'best' | null
+  const selectedSubtotal = selectedTier
+    ? toNum(q[selectedTier]?.subtotal_ex_gst)
+    : null
+  const gstRatio =
+    selectedTotal !== null && selectedSubtotal !== null && selectedSubtotal > 0
+      ? selectedTotal / selectedSubtotal
+      : 1
+  const goodSub = toNum(q.good?.subtotal_ex_gst)
+  const betterSub = toNum(q.better?.subtotal_ex_gst)
+  const bestSub = toNum(q.best?.subtotal_ex_gst)
+  const goodTotal = goodSub !== null ? +(goodSub * gstRatio).toFixed(2) : null
+  const betterTotal = betterSub !== null ? +(betterSub * gstRatio).toFixed(2) : null
+  const bestTotal = bestSub !== null ? +(bestSub * gstRatio).toFixed(2) : null
   const customerLabel = q.customer_full_name || q.customer_first_name || '—'
   const trade = q.trade as 'electrical' | 'plumbing' | null
   const isInspection = !!(q.needs_inspection || q.inspection_required)
