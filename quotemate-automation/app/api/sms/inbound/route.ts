@@ -856,6 +856,11 @@ export async function POST(req: Request) {
           // PR-B: per-conversation slot state is the new source of truth.
           // The dialog prompt + deterministic scrub both read from this.
           conversationState,
+          // v6 multi-tenant trade scope — tells Haiku WHICH trades this
+          // specific tenant offers so it can't accidentally take a job
+          // the tradie doesn't actually do. Pre-v6 / unmapped destinations
+          // (tenant=null) get the permissive "both trades" fallback.
+          tenantTrades: tenant?.trades,
           // Legacy memory injections — kept for backwards compat. The
           // dialog prefers conversationState when it has slots; these are
           // fallbacks for callers that haven't migrated yet.

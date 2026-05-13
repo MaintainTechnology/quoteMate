@@ -101,10 +101,14 @@ const ALL_RULES_TEXT = (
 ).map(rulesAsText).join('\n\n')
 
 const SYSTEM_PROMPT = `ROLE
-You are the SMS intake agent for an Australian trade contractor that
-covers BOTH electrical work AND plumbing work. Your ONE job is to
-gather the specific fields the Estimation Engine needs to draft a
-quote — nothing more. You do NOT chat, banter, give opinions, or
+You are the SMS intake agent for an Australian trade contractor.
+The CURRENT tenant's trade scope is provided in the user prompt under
+the "TENANT TRADE SCOPE:" block — that block is authoritative and
+overrides any default assumption in this system prompt. Some tenants
+cover electrical only, some plumbing only, some both. You MUST read
+the TENANT TRADE SCOPE block before deciding which trades to offer or
+take. Your ONE job is to gather the specific fields the Estimation
+Engine needs to draft a quote — nothing more. You do NOT chat, banter, give opinions, or
 answer off-topic questions. If the customer messages anything
 unrelated to a job they need quoted, acknowledge in one short
 phrase and immediately steer them back to the next missing required
@@ -802,6 +806,69 @@ function customerHistoryDirective(hint: CustomerHistoryHint): string {
   }
 }
 
+/**
+ * Trade-scope directive for Haiku — tells the dialog which trades the
+ * tenant actually offers, so it never invents the wrong service or
+ * offers plumbing to an electrical-only tradie's customer (or vice
+ * versa). The directive overrides the system prompt's default "we
+ * cover both" stance.
+ *
+ * Empty/undefined trades → fall back to permissive "both" (legacy
+ * pre-v6 single-pilot behaviour) so older traffic isn't accidentally
+ * blocked.
+ */
+function tradeScopeDirective(trades: ReadonlyArray<'electrical' | 'plumbing'> | undefined): string {
+  const set = new Set(trades ?? ['electrical', 'plumbing'])
+  const both = set.has('electrical') && set.has('plumbing')
+  if (both) {
+    return [
+      'TENANT TRADE SCOPE: this tradie covers BOTH electrical AND plumbing jobs.',
+      '  - All easy-5 job_types from both trades are valid:',
+      '      ELECTRICAL: downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting',
+      '      PLUMBING  : blocked_drain, hot_water, tap_repair, tap_replace, toilet_repair, toilet_replace',
+      '  - Pick the right tradie noun ("sparky" for electrical jobs,',
+      '    "plumber" for plumbing jobs, generic "tradie" until job_type clear).',
+      '  - In the opener invite, mention BOTH trades:',
+      '      "We do electrical (downlights, GPOs, fans, smoke alarms, outdoor lights)',
+      '       AND plumbing (blocked drains, hot water, taps, toilets)."',
+    ].join('\n')
+  }
+  if (set.has('electrical')) {
+    return [
+      'TENANT TRADE SCOPE: this tradie covers ELECTRICAL jobs ONLY. They do NOT do plumbing.',
+      '  - Valid easy-5 job_types: downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting.',
+      '  - Always use "sparky" / "the sparkies" as the tradie noun. Never "plumber".',
+      '  - In the opener invite, mention ONLY electrical:',
+      '      "We do downlights, GPOs (power points), ceiling fans, smoke alarms, and outdoor lights."',
+      '  - If the customer mentions a PLUMBING job (blocked drain, hot water, tap, toilet, leak, pipe,',
+      '    gas, bathroom reno, drain camera): set action=\'end_conversation\' with a polite redirect',
+      '    that makes it clear we only do electrical. Example:',
+      '      "Apologies <name>, we\'re sparkies - we don\'t do plumbing work.',
+      '       You\'ll need a plumber for that one. All the best!"',
+      '  - DO NOT escalate plumbing jobs to a $199 inspection. That\'s for out-of-scope ELECTRICAL',
+      '    work (switchboards, EV chargers, etc.), not for the wrong trade entirely.',
+    ].join('\n')
+  }
+  if (set.has('plumbing')) {
+    return [
+      'TENANT TRADE SCOPE: this tradie covers PLUMBING jobs ONLY. They do NOT do electrical.',
+      '  - Valid easy-5 job_types: blocked_drain, hot_water, tap_repair, tap_replace, toilet_repair, toilet_replace.',
+      '  - Always use "plumber" / "the plumbers" as the tradie noun. Never "sparky".',
+      '  - In the opener invite, mention ONLY plumbing:',
+      '      "We do blocked drains, hot water systems, tap repairs/replacements, and toilet repairs/replacements."',
+      '  - If the customer mentions an ELECTRICAL job (downlights, GPO, power point, ceiling fan, smoke alarm,',
+      '    outdoor light, switchboard, EV charger): set action=\'end_conversation\' with a polite redirect',
+      '    that makes it clear we only do plumbing. Example:',
+      '      "Apologies <name>, we\'re plumbers - we don\'t do electrical work.',
+      '       You\'ll need a sparky for that one. All the best!"',
+      '  - DO NOT escalate electrical jobs to a $199 inspection. That\'s for out-of-scope PLUMBING',
+      '    work (gas fitting, bathroom reno, etc.), not for the wrong trade entirely.',
+    ].join('\n')
+  }
+  // No trades at all — degenerate state, log via comment in prompt
+  return 'TENANT TRADE SCOPE: unknown — proceed as if both trades are supported. (Audit: tenant.trades was empty.)'
+}
+
 // Maps the PhotoLinkHint to a directive for Haiku (Rule 10).
 function photoLinkDirective(hint: PhotoLinkHint): string {
   switch (hint) {
@@ -848,6 +915,14 @@ export async function decideNextTurn(args: {
    * conversation and acknowledges them in the reply.
    */
   conversationState?: ConversationState
+  /**
+   * Trades the tenant who owns the destination number actually offers
+   * (v6 multi-tenant). Drives the TENANT TRADE SCOPE block in the
+   * prompt so Haiku never offers plumbing to an electrical-only tradie's
+   * customer (or vice versa). Empty / undefined falls back to "both"
+   * for legacy pre-v6 traffic.
+   */
+  tenantTrades?: ReadonlyArray<'electrical' | 'plumbing'>
 }): Promise<TurnDecision> {
   // Build the memory block for the prompt. Prefer the state-based block
   // (PR-B) when state has slots; fall back to the legacy customerContext
@@ -868,6 +943,10 @@ export async function decideNextTurn(args: {
         `INBOUND TURN COUNT (customer messages so far, including latest): ${args.inboundCount}`,
         `CUSTOMER HISTORY: ${args.customerHistory ?? (args.inboundCount === 1 ? 'first_time' : 'continuing')}`,
         customerHistoryDirective(args.customerHistory ?? (args.inboundCount === 1 ? 'first_time' : 'continuing')),
+        // Trade-scope directive must land BEFORE photo-link / memory /
+        // conversation history so it anchors every downstream decision
+        // (opener wording, job_type acceptance, off-trade redirect).
+        tradeScopeDirective(args.tenantTrades),
         `PHOTO LINK STATE: ${args.photoLink ?? 'not_applicable'}`,
         photoLinkDirective(args.photoLink ?? 'not_applicable'),
         // Memory injection — state-based when PR-B's conversation_state
@@ -876,7 +955,10 @@ export async function decideNextTurn(args: {
         `CONVERSATION HISTORY (oldest first):`,
         formatHistory(args.history),
         ``,
-        `Decide the next action and produce the SMS reply.`,
+        `Decide the next action and produce the SMS reply. The TENANT TRADE`,
+        `SCOPE block above is authoritative — if it limits the tenant to one`,
+        `trade, you MUST refuse jobs from the other trade with a polite`,
+        `end_conversation redirect, not an inspection escalation.`,
       ].filter(Boolean).join('\n'),
     }),
     {
