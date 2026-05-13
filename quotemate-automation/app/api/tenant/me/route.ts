@@ -133,12 +133,14 @@ export async function GET(req: Request) {
         .select('assembly_id, enabled')
         .eq('tenant_id', tenant.id),
       // Quotes table has total_inc_gst (single computed column) + the
-      // tier-specific JSONB objects (good/better/best). For the dashboard
-      // list we only need the totals + a few identifiers.
+      // tier-specific JSONB objects (good/better/best). The dashboard
+      // surfaces the headline figure (selected tier total) AND each
+      // tier's subtotal so the tradie can see the price range at a
+      // glance.
       supabase
         .from('quotes')
         .select(
-          'id, created_at, status, selected_tier, total_inc_gst, scope_of_works, share_token, intake_id, needs_inspection, routing_decision',
+          'id, created_at, status, selected_tier, total_inc_gst, scope_of_works, share_token, intake_id, needs_inspection, routing_decision, good, better, best, estimated_timeframe',
         )
         .eq('tenant_id', tenant.id)
         .order('created_at', { ascending: false })
@@ -175,9 +177,11 @@ export async function GET(req: Request) {
       : true,
   }))
 
-  // Resolve customer names by joining quotes → intakes → customers.
-  // Intakes carry the customer_id and the human-readable caller name;
-  // quotes themselves don't (they're scoped to the work, not the person).
+  // Resolve job context by joining quotes → intakes. The intake holds
+  // the customer-facing details the dashboard wants to surface for each
+  // quote row: caller name + phone (JSONB), suburb, job_type, trade,
+  // inspection flag. Note the caller fields live inside a JSONB column
+  // (`intakes.caller = { name, phone, email }`) — NOT flat columns.
   const intakeIds = Array.from(
     new Set(
       (quotesRes.data ?? [])
@@ -185,33 +189,65 @@ export async function GET(req: Request) {
         .filter((id): id is string => !!id),
     ),
   )
-  let intakeMap: Record<
-    string,
-    { caller_name: string | null; caller_phone: string | null; customer_id: string | null }
-  > = {}
+  type IntakeJoin = {
+    caller: { name?: string; phone?: string; email?: string } | null
+    suburb: string | null
+    job_type: string | null
+    trade: string | null
+    customer_id: string | null
+    inspection_required: boolean | null
+  }
+  let intakeMap: Record<string, IntakeJoin> = {}
   if (intakeIds.length > 0) {
     const { data: intakes } = await supabase
       .from('intakes')
-      .select('id, caller_name, caller_phone, customer_id')
+      .select('id, caller, suburb, job_type, trade, customer_id, inspection_required')
       .in('id', intakeIds)
     intakeMap = Object.fromEntries(
       (intakes ?? []).map((i) => [
         i.id,
         {
-          caller_name: i.caller_name ?? null,
-          caller_phone: i.caller_phone ?? null,
-          customer_id: i.customer_id ?? null,
+          caller: (i.caller as IntakeJoin['caller']) ?? null,
+          suburb: (i.suburb as string | null) ?? null,
+          job_type: (i.job_type as string | null) ?? null,
+          trade: (i.trade as string | null) ?? null,
+          customer_id: (i.customer_id as string | null) ?? null,
+          inspection_required: (i.inspection_required as boolean | null) ?? null,
         },
       ]),
     )
   }
 
+  // Payments — surface whether the customer has paid a deposit /
+  // inspection fee on each quote. We pull only succeeded rows so
+  // partial/refunded payments don't flip the badge to paid.
+  const quoteIds = (quotesRes.data ?? []).map((q) => q.id)
+  const paidQuoteIds = new Set<string>()
+  if (quoteIds.length > 0) {
+    const { data: paid } = await supabase
+      .from('payments')
+      .select('quote_id')
+      .in('quote_id', quoteIds)
+      .eq('status', 'succeeded')
+    for (const p of paid ?? []) {
+      if (p.quote_id) paidQuoteIds.add(p.quote_id as string)
+    }
+  }
+
   const quotes = (quotesRes.data ?? []).map((q) => {
     const intake = q.intake_id ? intakeMap[q.intake_id] : null
+    const callerName = intake?.caller?.name?.trim() || null
+    const callerPhone = intake?.caller?.phone?.trim() || null
     return {
       ...q,
-      customer_first_name: intake?.caller_name?.split(' ')[0] ?? null,
-      customer_phone: intake?.caller_phone ?? null,
+      customer_first_name: callerName?.split(' ')[0] ?? null,
+      customer_full_name: callerName,
+      customer_phone: callerPhone,
+      suburb: intake?.suburb ?? null,
+      job_type: intake?.job_type ?? null,
+      trade: intake?.trade ?? null,
+      inspection_required: intake?.inspection_required ?? null,
+      deposit_paid: paidQuoteIds.has(q.id as string),
     }
   })
 

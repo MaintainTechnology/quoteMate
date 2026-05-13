@@ -71,6 +71,11 @@ type ServiceOffering = {
   default_exclusions: string | null
 }
 
+type TierJson = {
+  subtotal_ex_gst?: number | string
+  total_inc_gst?: number | string
+} | null
+
 type Quote = {
   id: string
   created_at: string
@@ -81,8 +86,19 @@ type Quote = {
   share_token: string | null
   needs_inspection: boolean | null
   routing_decision: string | null
+  estimated_timeframe: string | null
+  good: TierJson
+  better: TierJson
+  best: TierJson
+  // Joined from intakes/payments
   customer_first_name: string | null
+  customer_full_name: string | null
   customer_phone: string | null
+  suburb: string | null
+  job_type: string | null
+  trade: string | null
+  inspection_required: boolean | null
+  deposit_paid: boolean
 }
 
 type PricingBook = NonNullable<Pricing> & { trade: 'electrical' | 'plumbing' }
@@ -1644,74 +1660,220 @@ function toNum(v: number | string | null | undefined): number | null {
 // ─── Quotes tab ───────────────────────────────────────────────────
 
 function QuotesTab({ data }: { data: DashboardData }) {
+  const isMultiTrade =
+    Array.isArray(data.tenant.trades) && data.tenant.trades.length > 1
+
   if (data.quotes.length === 0) {
     return (
       <Card title="Quotes">
         <p className="text-sm text-text-dim">
-          No quotes drafted yet. Customers texting your QuoteMate number will appear here once their first quote is drafted.
+          No quotes drafted yet. Customers texting your QuoteMate number will
+          appear here once their first quote is drafted.
         </p>
       </Card>
     )
   }
   return (
-    <Card title="Quotes" subtitle="Last 20 drafted by your AI. Tap to view the full customer page.">
-      <div className="overflow-x-auto -mx-6">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-ink-line text-left font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
-              <th className="px-6 py-3">Drafted</th>
-              <th className="px-6 py-3">Customer</th>
-              <th className="px-6 py-3">Status</th>
-              <th className="px-6 py-3 text-right">Total</th>
-              <th className="px-6 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.quotes.map((q) => {
-              const total = pickTierTotal(q)
-              const url = q.share_token ? `/q/${q.share_token}` : null
-              return (
-                <tr key={q.id} className="border-b border-ink-line/60">
-                  <td className="px-6 py-3 font-mono text-xs text-text-sec whitespace-nowrap">
-                    {formatDate(q.created_at)}
-                  </td>
-                  <td className="px-6 py-3">
-                    {q.customer_first_name ?? '—'}
-                    {q.customer_phone && (
-                      <span className="block font-mono text-[0.65rem] text-text-dim">
-                        {q.customer_phone}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-3">
-                    <span className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-sec">
-                      {q.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 text-right font-mono text-text-pri">
-                    {total !== null ? `$${formatMoney(total)}` : '—'}
-                  </td>
-                  <td className="px-6 py-3 text-right">
-                    {url ? (
-                      <Link
-                        href={url}
-                        className="text-accent hover:text-accent-press font-semibold text-xs uppercase tracking-wider"
-                        target="_blank"
-                      >
-                        View
-                      </Link>
-                    ) : (
-                      <span className="text-text-dim">—</span>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+    <Card
+      title="Quotes"
+      subtitle="Last 20 drafted by your AI. Click a row to expand the scope, tier breakdown, and customer-facing link."
+    >
+      <div className="space-y-4">
+        {data.quotes.map((q) => (
+          <QuoteCard key={q.id} q={q} isMultiTrade={isMultiTrade} />
+        ))}
       </div>
     </Card>
   )
+}
+
+function QuoteCard({ q, isMultiTrade }: { q: Quote; isMultiTrade: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const url = q.share_token ? `/q/${q.share_token}` : null
+
+  // Tier prices from the stored JSONBs. Each tier object has both
+  // subtotal_ex_gst and total_inc_gst — we display the inc-GST headline
+  // that matches what the customer sees on the public quote page.
+  const goodTotal = toNum(q.good?.total_inc_gst)
+  const betterTotal = toNum(q.better?.total_inc_gst)
+  const bestTotal = toNum(q.best?.total_inc_gst)
+  const selectedTotal = toNum(q.total_inc_gst)
+  const customerLabel = q.customer_full_name || q.customer_first_name || '—'
+  const trade = q.trade as 'electrical' | 'plumbing' | null
+
+  // Badge composition:
+  //   • deposit_paid takes priority — it's the most actionable signal
+  //   • inspection_required tags an inspection-route quote
+  //   • otherwise show the raw quote status
+  type Badge = {
+    label: string
+    tone: 'paid' | 'inspect' | 'draft' | 'sent' | 'accepted'
+  }
+  const badges: Badge[] = []
+  if (q.deposit_paid) badges.push({ label: 'Deposit paid', tone: 'paid' })
+  if (q.needs_inspection || q.inspection_required)
+    badges.push({ label: 'Inspection required', tone: 'inspect' })
+  if (!q.deposit_paid) {
+    const raw = (q.status ?? 'draft').toLowerCase()
+    const tone: Badge['tone'] =
+      raw === 'accepted' ? 'accepted' : raw === 'sent' ? 'sent' : 'draft'
+    badges.push({ label: raw, tone })
+  }
+
+  return (
+    <div className="border border-ink-line bg-ink-card">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-start justify-between gap-4 px-5 py-4 text-left hover:bg-ink-deep/40 transition-colors"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-semibold text-text-pri">{customerLabel}</span>
+            {q.suburb && (
+              <span className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+                · {q.suburb}
+              </span>
+            )}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="font-mono uppercase tracking-[0.12em] text-text-sec">
+              {formatJobType(q.job_type)}
+              {isMultiTrade && trade ? ` · ${trade}` : ''}
+            </span>
+            <span className="text-text-dim">·</span>
+            <span className="font-mono text-text-dim whitespace-nowrap">
+              {formatDate(q.created_at)}
+            </span>
+            {q.customer_phone && (
+              <>
+                <span className="text-text-dim">·</span>
+                <span className="font-mono text-text-dim">{q.customer_phone}</span>
+              </>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {badges.map((b, i) => (
+              <span
+                key={i}
+                className={`inline-flex items-center font-mono text-[0.6rem] uppercase tracking-[0.14em] font-bold px-2 py-0.5 border ${
+                  b.tone === 'paid'
+                    ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300'
+                    : b.tone === 'inspect'
+                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                      : b.tone === 'accepted'
+                        ? 'border-accent/60 bg-accent/10 text-accent'
+                        : b.tone === 'sent'
+                          ? 'border-text-sec/40 bg-text-sec/5 text-text-sec'
+                          : 'border-ink-line bg-ink-deep text-text-dim'
+                }`}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-mono text-lg font-bold text-text-pri">
+            {selectedTotal !== null ? `$${formatMoney(selectedTotal)}` : '—'}
+          </div>
+          {q.selected_tier && (
+            <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+              {q.selected_tier} tier
+            </div>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-ink-line px-5 py-4 space-y-4 bg-ink-deep/30">
+          {(goodTotal !== null || betterTotal !== null || bestTotal !== null) && (
+            <div>
+              <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim font-bold mb-2">
+                Tier breakdown (inc. GST)
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <TierCell label="Good" amount={goodTotal} selected={q.selected_tier === 'good'} />
+                <TierCell label="Better" amount={betterTotal} selected={q.selected_tier === 'better'} />
+                <TierCell label="Best" amount={bestTotal} selected={q.selected_tier === 'best'} />
+              </div>
+            </div>
+          )}
+
+          {q.scope_of_works && (
+            <div>
+              <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim font-bold mb-2">
+                Scope
+              </div>
+              <p className="text-sm text-text-sec leading-relaxed">
+                {q.scope_of_works}
+              </p>
+            </div>
+          )}
+
+          {q.estimated_timeframe && (
+            <div>
+              <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim font-bold mb-1">
+                Timeframe
+              </div>
+              <p className="text-sm text-text-sec">{q.estimated_timeframe}</p>
+            </div>
+          )}
+
+          {q.routing_decision && (
+            <div className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+              Routing: {q.routing_decision}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-ink-line">
+            {url && (
+              <Link
+                href={url}
+                target="_blank"
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-5 py-2.5 text-xs uppercase tracking-wider transition-colors"
+              >
+                View customer page →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TierCell({
+  label,
+  amount,
+  selected,
+}: {
+  label: string
+  amount: number | null
+  selected: boolean
+}) {
+  return (
+    <div
+      className={`px-3 py-2 border ${
+        selected
+          ? 'border-accent bg-accent/10 text-text-pri'
+          : 'border-ink-line bg-ink-card text-text-sec'
+      }`}
+    >
+      <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+        {label}
+      </div>
+      <div className="mt-1 font-mono font-bold text-sm">
+        {amount !== null ? `$${formatMoney(amount)}` : '—'}
+      </div>
+    </div>
+  )
+}
+
+/** Render a snake_case job_type as title case ("blocked_drain" → "Blocked drain"). */
+function formatJobType(j: string | null): string {
+  if (!j) return '—'
+  return j.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
 // ─── Shared UI primitives ─────────────────────────────────────────
