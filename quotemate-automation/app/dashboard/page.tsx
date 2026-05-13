@@ -170,6 +170,36 @@ export default function DashboardPage() {
     await refresh(accessToken)
   }
 
+  /**
+   * Reconcile the tenant's trades[] via POST /api/tenant/trades.
+   * Triggers the pricing_book + service_offerings + Vapi prompt update
+   * server-side and reloads the dashboard. Returns the response body so
+   * the caller can show e.g. "AI receptionist updated".
+   */
+  async function saveTrades(trades: Array<'electrical' | 'plumbing'>) {
+    if (!accessToken) throw new Error('not signed in')
+    const res = await fetch('/api/tenant/trades', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ trades }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || body?.ok === false) {
+      throw new Error(body?.error ?? `Trade update failed (HTTP ${res.status})`)
+    }
+    await refresh(accessToken)
+    return body as {
+      ok: true
+      added: Array<'electrical' | 'plumbing'>
+      removed: Array<'electrical' | 'plumbing'>
+      warning?: string
+      noop?: boolean
+    }
+  }
+
   async function signOut() {
     const supabase = getBrowserSupabase()
     await supabase.auth.signOut()
@@ -250,7 +280,9 @@ export default function DashboardPage() {
       {/* Tab content */}
       <section className="mt-8 pb-20">
         {tab === 'overview' && <OverviewTab data={data} />}
-        {tab === 'account' && <AccountTab data={data} onSave={patch} />}
+        {tab === 'account' && (
+          <AccountTab data={data} onSave={patch} onSaveTrades={saveTrades} />
+        )}
         {tab === 'pricing' && <PricingTab data={data} onSave={patch} />}
         {tab === 'services' && <ServicesTab data={data} onSave={patch} />}
         {tab === 'quotes' && <QuotesTab data={data} />}
@@ -637,38 +669,30 @@ function Tick({ on, children }: { on: boolean; children: ReactNode }) {
 function AccountTab({
   data,
   onSave,
+  onSaveTrades,
 }: {
   data: DashboardData
   onSave: (payload: Record<string, unknown>) => Promise<void>
+  onSaveTrades: (
+    trades: Array<'electrical' | 'plumbing'>,
+  ) => Promise<{
+    added: Array<'electrical' | 'plumbing'>
+    removed: Array<'electrical' | 'plumbing'>
+    warning?: string
+    noop?: boolean
+  }>
 }) {
-  const initialTrades: Array<'electrical' | 'plumbing'> =
-    Array.isArray(data.tenant.trades) && data.tenant.trades.length > 0
-      ? data.tenant.trades
-      : data.tenant.trade
-        ? [data.tenant.trade]
-        : []
   const [form, setForm] = useState({
     business_name: data.tenant.business_name ?? '',
     owner_first_name: data.tenant.owner_first_name ?? '',
     owner_email: data.tenant.owner_email ?? '',
     owner_mobile: data.tenant.owner_mobile ?? '',
-    trades: initialTrades,
     state: data.tenant.state ?? '',
     abn: data.tenant.abn ?? '',
     licence_type: data.tenant.licence_type ?? '',
     licence_number: data.tenant.licence_number ?? '',
     licence_expiry: data.tenant.licence_expiry ?? '',
   })
-
-  function toggleAccountTrade(value: 'electrical' | 'plumbing') {
-    setForm((f) => {
-      const has = f.trades.includes(value)
-      const next = has ? f.trades.filter((t) => t !== value) : [...f.trades, value]
-      // Don't allow zero-trade state — the wizard guarantees min(1).
-      if (next.length === 0) return f
-      return { ...f, trades: next }
-    })
-  }
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -678,17 +702,10 @@ function AccountTab({
     setError(null)
     setSubmitting(true)
     try {
-      // Send `trades` (the new multi-trade array) AND `trade` (legacy
-      // scalar kept in sync with trades[0]) so back-compat reads of
-      // tenant.trade in other code paths continue to work.
-      const { trades, ...rest } = form
-      await onSave({
-        tenant: {
-          ...rest,
-          trades,
-          trade: trades[0],
-        },
-      })
+      // Note: trades are managed by <TradesCard> (separate POST endpoint
+      // that reconciles pricing_book + service offerings + Vapi prompt).
+      // This form only handles identity / regulatory fields.
+      await onSave({ tenant: form })
       setSavedAt(Date.now())
     } catch (err: any) {
       setError(err?.message ?? 'Save failed')
@@ -698,10 +715,13 @@ function AccountTab({
   }
 
   return (
-    <Card
-      title="Account details"
-      subtitle="What customers see on quotes, where the regulator finds you."
-    >
+    <div className="space-y-6">
+      <TradesCard tenant={data.tenant} onSaveTrades={onSaveTrades} />
+
+      <Card
+        title="Account details"
+        subtitle="What customers see on quotes, where the regulator finds you."
+      >
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="grid md:grid-cols-2 gap-5">
           <Field label="Business name">
@@ -736,27 +756,6 @@ function AccountTab({
               onChange={(e) => setForm({ ...form, owner_mobile: e.target.value })}
               className={INPUT}
             />
-          </Field>
-          <Field label="Trades" hint="Pick one or both — both expand your catalogue + AI greeting.">
-            <div className="grid grid-cols-2 gap-2">
-              {(['electrical', 'plumbing'] as const).map((t) => {
-                const selected = form.trades.includes(t)
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleAccountTrade(t)}
-                    className={`px-4 py-3 text-sm font-semibold uppercase tracking-wider transition-colors border ${
-                      selected
-                        ? 'border-accent bg-accent text-white'
-                        : 'border-ink-line bg-ink-deep text-text-sec hover:border-accent-soft hover:text-text-pri'
-                    }`}
-                  >
-                    {tradeLabel(t)}
-                  </button>
-                )
-              })}
-            </div>
           </Field>
           <Field label="State">
             <select
@@ -823,7 +822,216 @@ function AccountTab({
           </button>
         </div>
       </form>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Trades card (sits at the top of the Account tab) ────────────
+
+function TradesCard({
+  tenant,
+  onSaveTrades,
+}: {
+  tenant: Tenant
+  onSaveTrades: (
+    trades: Array<'electrical' | 'plumbing'>,
+  ) => Promise<{
+    added: Array<'electrical' | 'plumbing'>
+    removed: Array<'electrical' | 'plumbing'>
+    warning?: string
+    noop?: boolean
+  }>
+}) {
+  // The card is its own little state machine because the user can stage
+  // changes locally (toggle pills), but we only fire the API on Save.
+  // A confirm prompt fires when the staged set REMOVES a trade — that's
+  // a destructive change worth pausing on.
+  const initialTrades: Array<'electrical' | 'plumbing'> =
+    Array.isArray(tenant.trades) && tenant.trades.length > 0
+      ? tenant.trades
+      : tenant.trade
+        ? [tenant.trade]
+        : []
+  const [staged, setStaged] = useState(initialTrades)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState<
+    null | { trades: Array<'electrical' | 'plumbing'>; removed: Array<'electrical' | 'plumbing'> }
+  >(null)
+
+  // Keep `staged` aligned with the latest server state when the tenant
+  // refetches (e.g. after a successful save).
+  useEffect(() => {
+    setStaged(initialTrades)
+    setSuccess(null)
+    setError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.trades?.join(','), tenant.trade])
+
+  const dirty =
+    staged.length !== initialTrades.length ||
+    staged.some((t) => !initialTrades.includes(t)) ||
+    initialTrades.some((t) => !staged.includes(t))
+
+  function toggle(t: 'electrical' | 'plumbing') {
+    setError(null)
+    setSuccess(null)
+    setStaged((cur) => {
+      const has = cur.includes(t)
+      const next = has ? cur.filter((x) => x !== t) : [...cur, t]
+      // Enforce min 1 — refuse the toggle rather than going to empty.
+      if (next.length === 0) return cur
+      return next
+    })
+  }
+
+  async function commit(trades: Array<'electrical' | 'plumbing'>) {
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    setConfirmRemove(null)
+    try {
+      const res = await onSaveTrades(trades)
+      const parts: string[] = []
+      if (res.added.length > 0) parts.push(`Added ${res.added.join(', ')}`)
+      if (res.removed.length > 0) parts.push(`Removed ${res.removed.join(', ')}`)
+      if (res.warning) parts.push(res.warning)
+      setSuccess(parts.join(' · ') || 'Saved')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSave() {
+    // Anything being removed is destructive — confirm first.
+    const removed = initialTrades.filter((t) => !staged.includes(t))
+    if (removed.length > 0) {
+      setConfirmRemove({ trades: staged, removed })
+      return
+    }
+    await commit(staged)
+  }
+
+  return (
+    <Card
+      title="Trades"
+      subtitle="Add a second trade to your account, or drop one. Adding seeds the easy-5 catalogue and refreshes your AI receptionist."
+    >
+      <div className="grid grid-cols-2 gap-2 max-w-md">
+        {(['electrical', 'plumbing'] as const).map((t) => {
+          const selected = staged.includes(t)
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => toggle(t)}
+              disabled={busy}
+              className={`px-4 py-3.5 text-sm font-semibold uppercase tracking-wider transition-colors border ${
+                selected
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-ink-line bg-ink-deep text-text-sec hover:border-accent-soft hover:text-text-pri'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {tradeLabel(t)}
+            </button>
+          )
+        })}
+      </div>
+
+      {error && (
+        <div className="mt-4">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
+      {success && !error && (
+        <div className="mt-4 border border-accent/40 bg-accent/5 px-4 py-3 text-sm text-text-pri">
+          {success}
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center justify-between">
+        <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+          Current: {initialTrades.join(' + ') || '—'}
+        </p>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || busy}
+          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-5 py-2.5 text-xs uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Saving…' : 'Save trades'}
+        </button>
+      </div>
+
+      {confirmRemove && (
+        <ConfirmRemoveTrade
+          removed={confirmRemove.removed}
+          busy={busy}
+          onCancel={() => setConfirmRemove(null)}
+          onConfirm={() => commit(confirmRemove.trades)}
+        />
+      )}
     </Card>
+  )
+}
+
+function ConfirmRemoveTrade({
+  removed,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  removed: Array<'electrical' | 'plumbing'>
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const list = removed.map((t) => tradeLabel(t)).join(' and ')
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-deep/80 backdrop-blur-sm px-4"
+    >
+      <div className="w-full max-w-md bg-ink-card border border-ink-line p-6 space-y-4">
+        <h3 className="font-extrabold uppercase text-lg tracking-[-0.02em]">
+          Remove {list}?
+        </h3>
+        <p className="text-sm text-text-sec leading-relaxed">
+          We&rsquo;ll delete the {list.toLowerCase()} pricing book and disable
+          those catalogue items. Quotes you&rsquo;ve already drafted are
+          unaffected. Your AI receptionist will stop greeting callers about{' '}
+          {list.toLowerCase()} work.
+        </p>
+        <p className="text-xs text-text-dim">
+          You can re-add the trade any time — your pricing rates will reset to
+          the defaults though.
+        </p>
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="text-sm font-semibold uppercase tracking-wider text-text-sec hover:text-text-pri px-4 py-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-5 py-2.5 text-xs uppercase tracking-wider transition-colors disabled:opacity-50"
+          >
+            {busy ? 'Removing…' : `Remove ${list}`}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
