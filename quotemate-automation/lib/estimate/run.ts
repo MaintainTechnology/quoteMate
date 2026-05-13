@@ -114,6 +114,21 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
     return { draft }
   }
 
+  // Log every failure so the next-time diagnosis is one log query away.
+  // Without this the only signal we have is the count, which masks
+  // whether the failures are price-band, semantic-category, or labour-rate.
+  cacheLog.err('grounding validation failed — per-line failures follow', null, {
+    failure_count: check.failures.length,
+    failures: check.failures.map((f) => ({
+      tier: f.tier,
+      lineIndex: f.lineIndex,
+      description: f.description?.slice(0, 80),
+      unit: f.unit,
+      price: f.unit_price_ex_gst,
+      expected: f.expected,
+    })),
+  })
+
   const reason = `Pricing not yet available — ${check.failures.length} line item(s) failed grounding check against the database. A site visit is needed before we can quote accurately.`
 
   const downgraded = {

@@ -24,6 +24,10 @@
 export type PricingBookForValidation = {
   hourly_rate: number | string
   apprentice_rate: number | string
+  /** Optional senior tradie rate — when set, the validator accepts it as
+   *  a valid labour price alongside hourly_rate + apprentice_rate. Without
+   *  this, Opus-picked senior-tier labour silently fails grounding. */
+  senior_rate?: number | string | null
   call_out_minimum: number | string
   default_markup_pct: number | string
   /** Minimum labour hours per priced tier — enforces "small job allowance".
@@ -170,6 +174,10 @@ export function validateQuoteGrounding(
 
   const hourly = n(pricingBook.hourly_rate)
   const apprentice = n(pricingBook.apprentice_rate)
+  const senior =
+    pricingBook.senior_rate != null && pricingBook.senior_rate !== ''
+      ? n(pricingBook.senior_rate)
+      : null
   const callOut = n(pricingBook.call_out_minimum)
   const markupPct = n(pricingBook.default_markup_pct)
   const minLabourHours = pricingBook.min_labour_hours != null
@@ -226,10 +234,18 @@ export function validateQuoteGrounding(
       let expected = ''
 
       if (unit === 'hr') {
-        // Labour rates: hourly_rate or apprentice_rate exactly. No semantic
-        // category check — labour lines are intrinsically generic.
-        valid = within(price, hourly) || within(price, apprentice)
-        expected = `pricing_book.hourly_rate ($${hourly}) or apprentice_rate ($${apprentice})`
+        // Labour rates: hourly_rate, apprentice_rate, OR senior_rate when
+        // configured. No semantic category check — labour lines are
+        // intrinsically generic. Adding senior_rate fixes the case where
+        // Opus picks the senior tier for the "Best" option and the
+        // entire quote was being downgraded for what is the right call.
+        valid =
+          within(price, hourly) ||
+          within(price, apprentice) ||
+          (senior !== null && within(price, senior))
+        expected = senior !== null
+          ? `pricing_book.hourly_rate ($${hourly}), apprentice_rate ($${apprentice}), or senior_rate ($${senior})`
+          : `pricing_book.hourly_rate ($${hourly}) or apprentice_rate ($${apprentice})`
       } else if (li?.source === 'callout' || (unit === 'each' && within(price, callOut))) {
         // Call-out — unit is 'each' but price matches call_out_minimum.
         valid = within(price, callOut)
@@ -290,22 +306,30 @@ export function buildCandidatePrices(
   rawAssemblyRows: Array<{ name: string; price: number | string | null | undefined }>,
   pricingBook: PricingBookForValidation,
 ): CandidatePrices {
-  // STRICT MARKUP POLICY: only the tradie's configured default_markup_pct
-  // is permitted (plus 0% raw, used when Opus quotes a base material as
-  // a customer-supply line or when the assembly bakes the markup in).
+  // MARKUP POLICY (relaxed 2026-05-13):
+  // Accept the tradie's configured default_markup_pct PLUS a ±5pp band
+  // PLUS 0% raw (used when Opus quotes a base material as a customer-
+  // supply line or when the assembly already bakes the markup in).
   //
-  // Rationale: previously we allowed [0, 10, 15, 20, 25, 28, 30, 35, 40]%
-  // which gave Opus 9 valid prices per row — too much slack. With multiple
-  // valid prices per row, the same intake on two calls could produce
-  // different but still-valid quotes (e.g. $48 raw vs $48 × 1.30 = $62.40
-  // vs $48 × 1.28 = $61.44). Tightening to exactly two values per row
-  // forces convergence: same input → same output.
+  // History: an earlier version allowed [0, 10, 15, 20, 25, 28, 30, 35, 40]%
+  // — too much slack. Then it was tightened to exactly [0, default] which
+  // killed clean plumbing quotes when Opus rounded its way to 20% on a
+  // 15%-configured book (Wall-faced toilet at $580: 15% = $667 vs 20% =
+  // $696, $29 over the $0.50 PRICE_TOLERANCE → every material line fails
+  // → entire quote downgraded to inspection).
   //
-  // To soften this and prevent edge-case rejections, also allow:
-  //   - +5% drift on default markup (rounding tolerance)
-  // The validator's $0.50 PRICE_TOLERANCE absorbs the rest.
+  // ±5pp drift is the sweet spot: forgiving enough that Opus rounding /
+  // anchor bias on the AU plumbing 20% standard still validates against
+  // a 15%-configured book, strict enough that 30%-tradie prices can't
+  // sneak through on a 15%-tradie's book (those differ by 15pp).
   const defaultMarkup = n(pricingBook.default_markup_pct)
-  const standardMarkups = new Set<number>([0, defaultMarkup])
+  const MARKUP_DRIFT_PP = 5
+  const standardMarkups = new Set<number>([
+    0,
+    Math.max(0, defaultMarkup - MARKUP_DRIFT_PP),
+    defaultMarkup,
+    defaultMarkup + MARKUP_DRIFT_PP,
+  ])
 
   const multipliers = Array.from(standardMarkups).map((pct) => 1 + pct / 100)
 
