@@ -15,7 +15,7 @@ const baseValidPayload = {
   owner_first_name: 'Jane',
   owner_email: 'jane@example.com',
   owner_mobile: '0412345678',
-  trade: 'electrical' as const,
+  trades: ['electrical'] as const,
   state: 'NSW' as const,
   hourly_rate: '100',
   call_out_minimum: '150',
@@ -248,7 +248,7 @@ describe('defaultsForTrade — values must satisfy the schema', () => {
     const defaults = defaultsForTrade('plumbing')
     const result = OnboardActivateSchema.safeParse({
       ...baseValidPayload,
-      trade: 'plumbing',
+      trades: ['plumbing'] as const,
       ...defaults,
     })
     expect(result.success).toBe(true)
@@ -326,7 +326,7 @@ describe('OnboardActivateSchema — blank-wizard → defaults round-trip', () =>
   it('plumbing: blank payload + defaults still validates as a complete payload', () => {
     const blank = OnboardActivateSchema.safeParse({
       ...baseValidPayload,
-      trade: 'plumbing',
+      trades: ['plumbing'] as const,
       apprentice_rate: '',
       senior_rate: '',
       after_hours_multiplier: '',

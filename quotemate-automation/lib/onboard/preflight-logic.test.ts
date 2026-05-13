@@ -45,9 +45,21 @@ describe('computePreflight — Twilio real mode', () => {
       ...base,
       TWILIO_ACCOUNT_SID: 'ACtest',
       TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_ADDRESS_SID: 'ADtest',
     })
     expect(r.ok).toBe(false)
     expect(r.summary.missing_for_activation).toContain('APP_URL (or NEXT_PUBLIC_APP_URL)')
+  })
+
+  it('flags missing TWILIO_ADDRESS_SID — required for AU number purchase', () => {
+    const r = computePreflight({
+      ...base,
+      TWILIO_ACCOUNT_SID: 'ACtest',
+      TWILIO_AUTH_TOKEN: 'tok',
+      APP_URL: 'https://quote-mate-rho.vercel.app',
+    })
+    expect(r.ok).toBe(false)
+    expect(r.summary.missing_for_activation).toContain('TWILIO_ADDRESS_SID')
   })
 
   it('accepts NEXT_PUBLIC_APP_URL as a stand-in for APP_URL', () => {
@@ -55,6 +67,7 @@ describe('computePreflight — Twilio real mode', () => {
       ...base,
       TWILIO_ACCOUNT_SID: 'ACtest',
       TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_ADDRESS_SID: 'ADtest',
       NEXT_PUBLIC_APP_URL: 'https://quote-mate-rho.vercel.app',
     })
     expect(r.ok).toBe(true)
@@ -66,6 +79,7 @@ describe('computePreflight — Twilio real mode', () => {
       ...base,
       TWILIO_ACCOUNT_SID: 'ACtest',
       TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_ADDRESS_SID: 'ADtest',
       APP_URL: 'https://quote-mate-rho.vercel.app',
     })
     expect(r.ok).toBe(true)
@@ -101,6 +115,7 @@ describe('computePreflight — both real modes together', () => {
       VAPI_PROVISIONING_ENABLED: 'true',
       TWILIO_ACCOUNT_SID: 'ACtest',
       TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_ADDRESS_SID: 'ADtest',
       APP_URL: 'https://quote-mate-rho.vercel.app',
       VAPI_API_KEY: 'vapi_x',
     })

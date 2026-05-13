@@ -26,6 +26,8 @@ beforeEach(() => {
   delete process.env.TWILIO_PROVISIONING_ENABLED
   delete process.env.TWILIO_ACCOUNT_SID
   delete process.env.TWILIO_AUTH_TOKEN
+  delete process.env.TWILIO_ADDRESS_SID
+  delete process.env.TWILIO_BUNDLE_SID
   delete process.env.APP_URL
   delete process.env.NEXT_PUBLIC_APP_URL
 })
@@ -106,6 +108,17 @@ describe('provisionTwilioNumber — real-API mode preconditions', () => {
       expect(result.reason).toMatch(/APP_URL|NEXT_PUBLIC_APP_URL/)
     }
   })
+
+  it('returns ok=false when TWILIO_ADDRESS_SID is missing (AU numbers need an address)', async () => {
+    process.env.TWILIO_ACCOUNT_SID = 'ACtest'
+    process.env.TWILIO_AUTH_TOKEN = 'tokentest'
+    process.env.APP_URL = 'https://quote-mate-rho.vercel.app'
+    const result = await provisionTwilioNumber({ tenantId: SAMPLE_TENANT, friendlyName: 'X' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.reason).toMatch(/TWILIO_ADDRESS_SID/)
+    }
+  })
 })
 
 describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', () => {
@@ -113,6 +126,7 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
     process.env.TWILIO_PROVISIONING_ENABLED = 'true'
     process.env.TWILIO_ACCOUNT_SID = 'ACtest'
     process.env.TWILIO_AUTH_TOKEN = 'tokentest'
+    process.env.TWILIO_ADDRESS_SID = 'ADtest'
     process.env.APP_URL = 'https://quote-mate-rho.vercel.app'
   })
 
@@ -126,21 +140,21 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
         method: (init?.method as string) ?? 'GET',
         body: typeof init?.body === 'string' ? init.body : undefined,
       })
-      // First call: mobile + fax search → no inventory
+      // First attempt: Mobile + fax search → 0 results → continue
       if (url.includes('AvailablePhoneNumbers/AU/Mobile') && url.includes('FaxEnabled=true')) {
         return makeFetchResponse(200, { available_phone_numbers: [] })
       }
-      // Second call: local + fax → no inventory
+      // Second attempt: Local + fax search → 0 results → continue
       if (url.includes('AvailablePhoneNumbers/AU/Local') && url.includes('FaxEnabled=true')) {
         return makeFetchResponse(200, { available_phone_numbers: [] })
       }
-      // Third call: mobile without fax → finds a number
+      // Third attempt: Mobile (no fax) search → number found
       if (url.includes('AvailablePhoneNumbers/AU/Mobile')) {
         return makeFetchResponse(200, {
           available_phone_numbers: [{ phone_number: purchasedNumber }],
         })
       }
-      // Purchase call
+      // Purchase call after the third search succeeds
       if (url.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
         return makeFetchResponse(201, {
           sid: 'PN-test-sid',
@@ -168,9 +182,10 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
       expect(result.faxAvailable).toBe(false)
     }
 
-    // Confirm the purchase call wired both webhooks
+    // Confirm the purchase call attached the AddressSid + wired both webhooks
     const purchase = callLog.find((c) => c.method === 'POST')
     expect(purchase).toBeTruthy()
+    expect(purchase!.body).toContain('AddressSid=ADtest')
     expect(purchase!.body).toContain('SmsUrl=')
     expect(purchase!.body).toContain('VoiceUrl=')
     expect(purchase!.body).toContain('api.vapi.ai%2Ftwilio%2Finbound_call')
@@ -190,13 +205,14 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
     })
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.reason).toMatch(/No AU number available/i)
+      expect(result.reason).toMatch(/Could not provision an AU number/i)
+      expect(result.reason).toMatch(/0 results/)
     }
     // Four search attempts: Mobile+fax, Local+fax, Mobile, Local
     expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
-  it('returns ok=false with Twilio error message when purchase fails', async () => {
+  it('returns ok=false with Twilio error message when purchase fails (non-regulatory)', async () => {
     const purchasedNumber = '+61412345678'
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes('AvailablePhoneNumbers')) {

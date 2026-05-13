@@ -168,9 +168,11 @@ describe('UpdateSchema — combined payloads', () => {
           licence_expiry: '2029-05-13',
         },
       },
+      // Valid UUIDv4 fixtures — Zod 4's z.string().uuid() enforces the
+      // RFC 4122 variant bits, so we can't use 1111…1111.
       services: {
-        '11111111-1111-1111-1111-111111111111': true,
-        '22222222-2222-2222-2222-222222222222': false,
+        'a1b2c3d4-e5f6-4789-8abc-def012345678': true,
+        'b2c3d4e5-f6a7-4890-9bcd-ef0123456789': false,
       },
     }
     const result = UpdateSchema.safeParse(payload)
