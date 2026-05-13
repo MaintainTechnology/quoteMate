@@ -345,6 +345,7 @@ function OverviewTab({ data }: { data: DashboardData }) {
   // whether a real Twilio purchase happened.
   const isStubTwilio = !!smsNumber && /^\+614820\d{5}$/.test(smsNumber)
   const isStubVapi = !!assistantId && assistantId.startsWith('vapi-stub-')
+  const needsProvisioning = !smsNumber || !assistantId
 
   return (
     <div className="space-y-8">
@@ -361,24 +362,26 @@ function OverviewTab({ data }: { data: DashboardData }) {
               </div>
             ) : (
               <div className="mt-3 text-amber-300">
-                No number assigned yet — finish onboarding from{' '}
-                <Link href="/onboard" className="text-accent hover:text-accent-press underline">
-                  /onboard
-                </Link>
+                Provisioning didn&rsquo;t finish on activate. Hit retry — your
+                account + pricing book are already saved, only the Twilio +
+                Vapi half needs to re-run.
               </div>
             )}
             <p className="mt-3 text-sm text-text-sec max-w-md">
               Customer SMS lands at <span className="font-mono">/api/sms/inbound</span> →
               your pricing book. Customer calls land at Vapi → your AI assistant.
             </p>
+            {needsProvisioning && <RetryProvisionButton />}
           </div>
           <div className="flex flex-col items-end gap-2">
             <Pill
-              tone={isStubTwilio ? 'warn' : 'ok'}
+              tone={needsProvisioning ? 'warn' : isStubTwilio ? 'warn' : 'ok'}
               label={
-                isStubTwilio
-                  ? 'STUB · Twilio provisioning OFF'
-                  : 'LIVE · Real Twilio number'
+                needsProvisioning
+                  ? 'PENDING · Provisioning incomplete'
+                  : isStubTwilio
+                    ? 'STUB · Twilio provisioning OFF'
+                    : 'LIVE · Real Twilio number'
               }
             />
             {tenant.activated_at && (
@@ -474,6 +477,51 @@ function OverviewTab({ data }: { data: DashboardData }) {
           </Tick>
         </ul>
       </Card>
+    </div>
+  )
+}
+
+function RetryProvisionButton() {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function handleClick() {
+    setBusy(true)
+    setErr(null)
+    try {
+      const supabase = getBrowserSupabase()
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) throw new Error('not signed in')
+      const res = await fetch('/api/onboard/retry-provision', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!body.ok) {
+        throw new Error(body.error ?? `retry failed (HTTP ${res.status})`)
+      }
+      // Number assigned — reload so the dashboard reflects the new state.
+      window.location.reload()
+    } catch (e: any) {
+      setErr(e?.message ?? 'Retry failed')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-5 py-2.5 text-xs uppercase tracking-wider transition-colors disabled:opacity-50"
+      >
+        {busy ? 'Retrying…' : 'Retry provisioning'}
+      </button>
+      {err && (
+        <p className="mt-2 text-xs text-amber-300 max-w-md">{err}</p>
+      )}
     </div>
   )
 }
