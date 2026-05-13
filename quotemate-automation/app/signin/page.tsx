@@ -39,9 +39,15 @@ export default function SignInPage() {
       })
 
       // Routing rules:
-      //   • 404 (no tenant row yet)   → start onboarding wizard
-      //   • tenant.status === active  → dashboard
-      //   • tenant exists but not active → resume wizard
+      //   • 404 (no tenant row yet) → start onboarding wizard.
+      //   • Tenant exists           → dashboard, regardless of status.
+      //
+      // We deliberately do NOT route status='onboarding' back to the
+      // wizard. A tenant in that state means activation persisted the
+      // form data but provisioning (Twilio/Vapi) failed mid-chain. The
+      // tradie should NOT be asked to refill the wizard — their data is
+      // safe in the DB. The dashboard surfaces a "retry provisioning"
+      // affordance for stuck tenants.
       if (meRes.status === 404) {
         router.push(`/onboard?owner_user_id=${authData.user.id}`)
         return
@@ -50,14 +56,7 @@ export default function SignInPage() {
         const body = await meRes.json().catch(() => ({}))
         throw new Error(body?.error ?? `Tenant lookup failed (HTTP ${meRes.status})`)
       }
-      const { tenant } = (await meRes.json()) as {
-        tenant: { id: string; status: 'onboarding' | 'active' | 'suspended' }
-      }
-      if (tenant.status === 'active') {
-        router.push(`/dashboard`)
-      } else {
-        router.push(`/onboard?tenant=${tenant.id}`)
-      }
+      router.push('/dashboard')
     } catch (err: any) {
       setError(err?.message ?? 'Sign in failed')
       setSubmitting(false)
