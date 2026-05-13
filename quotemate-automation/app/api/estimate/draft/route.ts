@@ -35,14 +35,50 @@ export async function POST(req: Request) {
     // Legacy intake rows pre-dating v5 have no trade field — fall back to
     // 'electrical' for them (the existing NSW/NECA pilot tenant).
     const intakeTrade = (intake?.trade as 'electrical' | 'plumbing' | undefined) ?? 'electrical'
-    const { data: pricingBook } = await supabase
-      .from('pricing_book')
-      .select('*')
-      .eq('trade', intakeTrade)
-      .single()
+    // v6 multi-tenant: prefer the pricing_book row owned by THIS tenant.
+    // Falls back to a trade-only lookup (legacy pilot rows) when tenant_id
+    // is null or no per-tenant row exists yet.
+    const intakeTenantId = (intake?.tenant_id as string | null) ?? null
+    let pricingBook: Record<string, unknown> | null = null
+    if (intakeTenantId) {
+      const { data: tenantBook } = await supabase
+        .from('pricing_book')
+        .select('*')
+        .eq('tenant_id', intakeTenantId)
+        .eq('trade', intakeTrade)
+        .maybeSingle()
+      pricingBook = tenantBook ?? null
+    }
     if (!pricingBook) {
-      log.err('no pricing_book row for trade — aborting', null, { trade: intakeTrade })
-      return Response.json({ ok: false, error: `No pricing_book row for trade=${intakeTrade}` }, { status: 500 })
+      // Fallback: any pricing_book row for this trade. Used when the
+      // intake has no tenant_id (legacy pre-v6 traffic) or when the
+      // tenant's own row hasn't been inserted yet. `.limit(1)` to keep
+      // the result deterministic regardless of how many tenants exist.
+      const { data: anyBook } = await supabase
+        .from('pricing_book')
+        .select('*')
+        .eq('trade', intakeTrade)
+        .limit(1)
+        .maybeSingle()
+      pricingBook = anyBook ?? null
+      if (pricingBook) {
+        log.ok('using fallback pricing_book row', {
+          trade: intakeTrade,
+          reason: intakeTenantId
+            ? 'no pricing_book row for this tenant + trade — falling back'
+            : 'intake has no tenant_id',
+        })
+      }
+    }
+    if (!pricingBook) {
+      log.err('no pricing_book row for trade — aborting', null, {
+        trade: intakeTrade,
+        tenant_id: intakeTenantId,
+      })
+      return Response.json(
+        { ok: false, error: `No pricing_book row for trade=${intakeTrade}` },
+        { status: 500 },
+      )
     }
 
     // Channel-aware customer lookup. Voice path: intake.call_id is set -> read
@@ -182,10 +218,14 @@ export async function POST(req: Request) {
     })
     log.ok('routing decided', { routing_decision })
 
-    log.step('inserting quotes row')
+    log.step('inserting quotes row', { tenant_id: intakeTenantId })
     const shareToken = generateShareToken()
     const { data: quote } = await supabase.from('quotes').insert({
       intake_id: intakeId,
+      // v6 multi-tenant: propagate the tenant from the intake so the
+      // dashboard's Quotes tab (which filters quotes by tenant_id) picks
+      // up every quote drafted from that tradie's inbound traffic.
+      tenant_id: intakeTenantId,
       status: 'draft',
       scope_of_works:      draft.scope_of_works,
       assumptions:         draft.assumptions      ?? [],

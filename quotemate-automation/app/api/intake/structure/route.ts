@@ -64,6 +64,13 @@ export async function POST(req: Request) {
   let photoRequestAlreadySent = false
   let callerNumber: string | null = null
   let photoRequestToken: string | null = null
+  // v6 multi-tenant: stamp the intake (and downstream quote) with the
+  // tenant who owns the destination number the customer contacted.
+  // Comes from sms_conversations.tenant_id (SMS path) or calls.tenant_id
+  // (voice path). Null for legacy pre-v6 traffic that hit the pilot
+  // single-pricing-book pipeline — that branch keeps working since
+  // /api/estimate/draft falls back when tenant_id is null.
+  let tenantId: string | null = null
 
   if (sourceChannel === 'sms') {
     // ─────────────── SMS PATH ───────────────
@@ -102,6 +109,7 @@ export async function POST(req: Request) {
     callerNumber = convo.from_number ?? null
     photoRequestToken = (convo.photo_request_token as string | null) ?? null
     photoRequestAlreadySent = !!convo.photo_request_sent_at
+    tenantId = (convo.tenant_id as string | null) ?? null
 
     // v5: derive tradeHint from the SMS dialog's already-classified job_type.
     // The extractor classifies plumbing job_types per v5; passing the hint
@@ -171,6 +179,7 @@ export async function POST(req: Request) {
     callerNumber = call.caller_number ?? null
     photoRequestToken = call.photo_request_token ?? null
     photoRequestAlreadySent = !!call.photo_request_sent_at
+    tenantId = (call.tenant_id as string | null) ?? null
   }
 
   log.step('running Opus vision (Claude 4.7) — typically ~35s, up to 3 attempts', { tradeHint })
@@ -283,10 +292,18 @@ export async function POST(req: Request) {
     has_scope: !!(intake.scope?.description && intake.scope.description.length >= 10),
   })
 
-  log.step('inserting intakes row', { photo_paths_count: photoPaths.length, trade: intake.trade })
+  log.step('inserting intakes row', {
+    photo_paths_count: photoPaths.length,
+    trade: intake.trade,
+    tenant_id: tenantId,
+  })
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK
     customer_id: customer?.id ?? null,
+    // v6 multi-tenant: stamp the tradie who owns the destination number
+    // the customer contacted. Drives pricing_book scoping in
+    // /api/estimate/draft AND the dashboard's quotes filter.
+    tenant_id: tenantId,
     // v5 multi-trade: derived from job_type by structureIntake. Drives the
     // pricing_book row + prompt routing downstream in /api/estimate/draft.
     trade: intake.trade,
