@@ -293,13 +293,30 @@ export async function POST(req: Request) {
   const REUSE_DONE_GRACE_MS         = 5 * 60 * 1000  // 5min after done = add-on grace
   const REUSE_OPEN_WINDOW_MS        = 4 * 60 * 60 * 1000  // 4h on open = pause-and-resume
 
-  const { data: prior, error: lookupErr } = await supabase
+  // Prior-conversation lookup is scoped by BOTH from_number AND the
+  // tenant (or to_number when no tenant resolved). This prevents
+  // cross-tenant bleed: a customer who texts Peppers Plumbing for a
+  // hot-water job and later texts Sparky for downlights must NOT reuse
+  // the plumbing conversation — that would drag job_type='hot_water',
+  // location slots, etc. across tenants and the AI would reply with
+  // wildly mixed context ("downlights not hot water — six in the
+  // garage" instead of fresh dialog).
+  //
+  // Pre-v6 conversations have tenant_id=NULL; for the rare case where
+  // the destination resolves to no tenant (e.g. the admin number), we
+  // scope by to_number instead so threads on the admin number don't
+  // bleed into per-tradie conversations either.
+  const priorQuery = supabase
     .from('sms_conversations')
     .select('*')
     .eq('from_number', fromNumber)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(1)
-    .maybeSingle()
+  const { data: prior, error: lookupErr } = await (
+    tenant
+      ? priorQuery.eq('tenant_id', tenant.id)
+      : priorQuery.eq('to_number', toNumber)
+  ).maybeSingle()
 
   if (lookupErr) {
     console.error('[sms/inbound] conversation lookup failed', lookupErr)
