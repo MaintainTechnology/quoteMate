@@ -803,9 +803,27 @@ export async function POST(req: Request) {
           })
         }
       } catch (e: any) {
-        console.warn('[sms/inbound:after] slot extraction failed - continuing with stale state', {
-          message: e?.message,
-          name: e?.name,
+        // Surface ENOUGH context to diagnose the failure without re-running:
+        //   - which conversation (so we can correlate with stored state)
+        //   - which inbound message triggered it (the customer text)
+        //   - what slots were ALREADY in conversationState (so we know
+        //     what stale data Haiku is about to see)
+        //   - the actual error class + first stack frame
+        // Without this the only signal was "slot extraction failed" with
+        // no way to tell if it was a 5s Haiku timeout, a Zod parse error
+        // on a malformed extraction response, or a Supabase write failure.
+        const lastInbound = turns.filter(t => t.direction === 'inbound').at(-1)?.body ?? ''
+        console.error('[sms/inbound:after] slot extraction FAILED - continuing with stale state', {
+          conversationId,
+          fromNumber,
+          tenantId: tenant?.id ?? null,
+          inboundChars: lastInbound.length,
+          inboundPreview: lastInbound.slice(0, 80),
+          staleStateSlots: Object.keys(conversationState.slots ?? {}),
+          staleStateSources: conversationState.sources ?? {},
+          error_message: e?.message,
+          error_name: e?.name,
+          first_stack_frame: e?.stack?.split('\n')[1]?.trim(),
         })
       }
 

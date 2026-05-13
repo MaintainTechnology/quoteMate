@@ -440,8 +440,18 @@ export async function POST(req: Request) {
         // SMS source: focused recovery question (the conversation has
         // already been reopened synchronously above, so the customer's
         // reply will be processed normally by the inbound webhook).
+        //
+        // Pass tradeHint so the job_type recovery prompt lists the
+        // RIGHT options for this tradie's trade — plumbing customers
+        // must NEVER see "downlights / GPOs / ceiling fans" as the
+        // example options. tradeHint was set above from the SMS
+        // conversation's stored job_type slot (lib/sms/extract-slots).
         const text = sourceChannel === 'sms'
-          ? buildIntakeRecoverySms({ firstName: callerFirstName, missing })
+          ? buildIntakeRecoverySms({
+              firstName: callerFirstName,
+              missing,
+              trade: tradeHint,
+            })
           : buildIncompleteCallSms({ firstName: callerFirstName, source: sourceChannel })
 
         // v6 multi-tenant: send the recovery SMS from the same tenant

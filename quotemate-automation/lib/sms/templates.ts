@@ -8,6 +8,11 @@ function pickVariant<T>(variants: readonly T[]): T {
   return variants[Math.floor(Math.random() * variants.length)]
 }
 
+/** Capitalise the first character of a string for use mid-sentence. */
+function capitaliseFirst(s: string): string {
+  return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 // ════════════════════════════════════════════════════════════════════
 // SMS-initiated tradie onboarding templates.
 // ════════════════════════════════════════════════════════════════════
@@ -114,8 +119,13 @@ export type MissingIntakeField = 'name' | 'suburb' | 'scope' | 'job_type'
 export function buildIntakeRecoverySms(opts: {
   firstName?: string
   missing: MissingIntakeField[]
+  /** Trade of the tenant the customer texted. Drives the job_type recovery
+   *  prompt so plumbing customers see plumbing options, not electrical
+   *  ones. Defaults to electrical for legacy single-trade pilots. */
+  trade?: 'electrical' | 'plumbing' | null
 }): string {
   const first = (opts.firstName ?? '').split(' ')[0] || ''
+  const trade = opts.trade ?? 'electrical'
   // No "Hi <name>" greeting when the missing field IS the name — would
   // be weird to address them by name and then ask for it.
   const named = first && !opts.missing.includes('name')
@@ -149,10 +159,17 @@ export function buildIntakeRecoverySms(opts: {
     ]
   } else if (opts.missing.includes('job_type')) {
     const lead = named ? `${first}, ` : ''
+    // Trade-aware option list: plumbing customers must NEVER see
+    // "downlights / GPOs" — and electrical customers must NEVER see
+    // "blocked drain / tap repair". Pre-trade-aware versions of this
+    // template were hardcoded to the electrical easy-5.
+    const optionsList = trade === 'plumbing'
+      ? 'blocked drain, hot water, tap repair, tap replacement, toilet repair, or toilet replacement'
+      : 'downlights, GPOs, ceiling fans, smoke alarms, or outdoor lighting'
     variants = [
-      `${lead}what kind of work did you need? Downlights, GPOs, ceiling fans, smoke alarms, or outdoor lighting?`,
-      `${named ? `Cheers ${first}, ` : 'Cheers, '}which one are we quoting - downlights, GPOs, ceiling fans, smoke alarms, or outdoor lighting?`,
-      `${named ? `Hi ${first}, ` : 'Hi, '}can I check what type of work? Downlights, GPOs, ceiling fans, smoke alarms, or outdoor lighting.`,
+      `${lead}what kind of work did you need? ${capitaliseFirst(optionsList)}?`,
+      `${named ? `Cheers ${first}, ` : 'Cheers, '}which one are we quoting - ${optionsList}?`,
+      `${named ? `Hi ${first}, ` : 'Hi, '}can I check what type of work? ${capitaliseFirst(optionsList)}.`,
     ]
   } else {
     variants = [

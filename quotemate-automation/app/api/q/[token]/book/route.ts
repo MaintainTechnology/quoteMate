@@ -56,7 +56,7 @@ export async function POST(
 
   const { data: quote, error: quoteErr } = await supabase
     .from('quotes')
-    .select('id, paid_at, scheduled_at, share_token, intake_id')
+    .select('id, paid_at, scheduled_at, share_token, intake_id, tenant_id')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -163,19 +163,46 @@ export async function POST(
         callerNumber = callRow?.caller_number ?? null
       }
 
+      // v6 multi-tenant: resolve the tenant who owns this quote so the
+      // booking confirmation SMS goes FROM their provisioned number
+      // (not the shared dev line) and the tradie-notify goes TO their
+      // personal mobile (not a shared TRADIE_NOTIFY_NUMBER env var).
+      let tenantSmsNumber: string | null = null
+      let tenantOwnerMobile: string | null = null
+      if (quote.tenant_id) {
+        const { data: tenantRow } = await supabase
+          .from('tenants')
+          .select('twilio_sms_number, owner_mobile')
+          .eq('id', quote.tenant_id)
+          .maybeSingle()
+        tenantSmsNumber = (tenantRow?.twilio_sms_number as string | null) ?? null
+        tenantOwnerMobile = (tenantRow?.owner_mobile as string | null) ?? null
+      }
+
       const firstName = (intake?.caller as { name?: string } | null)?.name
       const bookingUrl = `${appUrl}/q/${token}/book`
       const quoteUrl = `${appUrl}/q/${token}`
 
-      // ── Customer SMS ──
+      // ── Customer SMS — from the tenant's provisioned number so the
+      //    booking confirmation lands in the SAME thread as the original
+      //    quote (not the shared dev line). Falls back to env for legacy
+      //    pre-v6 quotes that have no tenant_id.
       if (callerNumber) {
         const body = buildBookingConfirmationSms({
           firstName,
           scheduledAt: slot,
           bookingUrl,
         })
-        sms.step('sending booking confirmation to customer', { to: callerNumber })
-        const r = await dispatchQuoteMessage({ to: callerNumber, text: body })
+        const customerFrom = tenantSmsNumber ?? process.env.TWILIO_SMS_NUMBER
+        sms.step('sending booking confirmation to customer', {
+          to: callerNumber,
+          from: customerFrom ?? '(default TWILIO_PHONE_NUMBER)',
+        })
+        const r = await dispatchQuoteMessage({
+          to: callerNumber,
+          text: body,
+          from: customerFrom ?? undefined,
+        })
         if (r.ok) {
           sms.ok('customer booking confirmation sent', { channel: r.channel, sid: r.sid })
         } else {
@@ -190,8 +217,11 @@ export async function POST(
         sms.ok('customer SMS skipped — no callerNumber resolvable', { quote_id: quote.id })
       }
 
-      // ── Tradie SMS ──
-      const notifyMobile = process.env.TRADIE_NOTIFY_NUMBER
+      // ── Tradie SMS — go to tenant.owner_mobile, from the tenant's
+      //    own number so the booking notification lands in the SAME
+      //    thread as the tradie's welcome SMS. Falls back to
+      //    TRADIE_NOTIFY_NUMBER env for legacy pre-v6 pilot data.
+      const notifyMobile = tenantOwnerMobile ?? process.env.TRADIE_NOTIFY_NUMBER
       if (notifyMobile) {
         const tradieBody = buildTradieBookingNotification({
           customerName: firstName,
@@ -201,8 +231,15 @@ export async function POST(
           scheduledAt: slot,
           quoteUrl,
         })
-        sms.step('notifying tradie of booking', { to: notifyMobile })
-        const r = await dispatchQuoteMessage({ to: notifyMobile, text: tradieBody })
+        sms.step('notifying tradie of booking', {
+          to: notifyMobile,
+          from: tenantSmsNumber ?? '(default TWILIO_PHONE_NUMBER)',
+        })
+        const r = await dispatchQuoteMessage({
+          to: notifyMobile,
+          text: tradieBody,
+          from: tenantSmsNumber ?? undefined,
+        })
         if (r.ok) {
           sms.ok('tradie booking notification sent', { channel: r.channel, sid: r.sid })
         } else {
@@ -214,7 +251,7 @@ export async function POST(
           })
         }
       } else {
-        sms.ok('tradie notify skipped — no TRADIE_NOTIFY_NUMBER env')
+        sms.ok('tradie notify skipped — no tenant.owner_mobile and no env fallback')
       }
     } catch (e) {
       sms.err('booking SMS dispatch threw — booking IS persisted, only SMS failed', e)
