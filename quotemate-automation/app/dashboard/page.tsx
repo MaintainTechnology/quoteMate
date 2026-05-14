@@ -303,14 +303,14 @@ export default function DashboardPage() {
   }
 
   return (
-    <Shell businessName={data.tenant.business_name} onSignOut={signOut}>
-      {/* Hero / status row */}
-      <header className="flex flex-wrap items-end justify-between gap-4 pb-8 border-b border-ink-line">
+    <Shell businessName={data.tenant.business_name} onSignOut={signOut} wide>
+      {/* Greeting header — full-width across the grid */}
+      <header className="flex flex-wrap items-end justify-between gap-4 pb-6 border-b border-ink-line">
         <div>
           <span className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-text-dim">
             QuoteMate · Portal
           </span>
-          <h1 className="mt-2 font-extrabold uppercase text-[clamp(1.75rem,4vw,2.5rem)] leading-[1] tracking-[-0.03em]">
+          <h1 className="mt-2 font-extrabold uppercase text-[clamp(1.5rem,3.5vw,2.25rem)] leading-[1] tracking-[-0.03em]">
             G&rsquo;day{' '}
             <span className="text-accent">
               {data.tenant.owner_first_name || 'tradie'}
@@ -325,43 +325,33 @@ export default function DashboardPage() {
         <StatusBadge status={data.tenant.status} />
       </header>
 
-      {/* Tab nav */}
-      <nav className="mt-8 flex flex-wrap gap-1 border-b border-ink-line">
-        {(['overview', 'account', 'pricing', 'services', 'quotes', 'chats'] as const).map(
-          (t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-3 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors ${
-                tab === t
-                  ? 'text-accent border-b-2 border-accent -mb-px'
-                  : 'text-text-dim hover:text-text-pri'
-              }`}
-            >
-              {tabLabel(t)}
-              {t === 'quotes' && data.quotes.length > 0 && (
-                <span className="ml-2 text-text-sec">({data.quotes.length})</span>
-              )}
-            </button>
-          ),
-        )}
-      </nav>
+      {/* Mobile tab strip (< lg). Hidden on desktop — sidebar takes over. */}
+      <div className="mt-6 lg:mt-0">
+        <MobileTabBar tab={tab} setTab={setTab} quoteCount={data.quotes.length} />
+      </div>
 
-      {/* Tab content */}
-      <section className="mt-8 pb-20">
-        {tab === 'overview' && <OverviewTab data={data} />}
-        {tab === 'account' && (
-          <AccountTab data={data} onSave={patch} onSaveTrades={saveTrades} />
-        )}
-        {tab === 'pricing' && <PricingTab data={data} onSave={patch} />}
-        {tab === 'services' && <ServicesTab data={data} onSave={patch} />}
-        {tab === 'quotes' && <QuotesTab data={data} />}
-        {tab === 'chats' && (
-          <ChatsTab accessToken={accessToken} isMultiTrade={
-            Array.isArray(data.tenant.trades) && data.tenant.trades.length > 1
-          } />
-        )}
-      </section>
+      {/* Desktop two-column grid: sidebar | content. On mobile this
+          collapses to single-column with MobileTabBar handling section
+          switching above. */}
+      <div className="mt-6 lg:mt-8 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8">
+        <Sidebar tab={tab} setTab={setTab} quoteCount={data.quotes.length} />
+        <section className="mt-6 lg:mt-0 pb-20 min-w-0">
+          {tab === 'overview' && (
+            <OverviewTab data={data} accessToken={accessToken} setTab={setTab} />
+          )}
+          {tab === 'account' && (
+            <AccountTab data={data} onSave={patch} onSaveTrades={saveTrades} />
+          )}
+          {tab === 'pricing' && <PricingTab data={data} onSave={patch} />}
+          {tab === 'services' && <ServicesTab data={data} onSave={patch} />}
+          {tab === 'quotes' && <QuotesTab data={data} />}
+          {tab === 'chats' && (
+            <ChatsTab accessToken={accessToken} isMultiTrade={
+              Array.isArray(data.tenant.trades) && data.tenant.trades.length > 1
+            } />
+          )}
+        </section>
+      </div>
     </Shell>
   )
 }
@@ -372,15 +362,24 @@ function Shell({
   businessName,
   onSignOut,
   children,
+  wide,
 }: {
   businessName: string | null
   onSignOut: () => void
   children: ReactNode
+  /** When true, expands the inner container to 7xl so the authenticated
+   *  dashboard has room for the sidebar+content grid. Loading + error
+   *  states omit this flag and keep the narrower 5xl frame. */
+  wide?: boolean
 }) {
   return (
     <main className="min-h-screen bg-ink-deep text-text-pri flex flex-col">
-      <nav className="border-b border-ink-line bg-ink-deep sticky top-0 z-10">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <nav className="border-b border-ink-line bg-ink-deep sticky top-0 z-20">
+        <div
+          className={`mx-auto flex items-center justify-between px-6 py-4 ${
+            wide ? 'max-w-[88rem]' : 'max-w-7xl'
+          }`}
+        >
           <Link href="/dashboard" className="flex items-center gap-3">
             <span className="grid h-7 w-7 place-items-center bg-accent font-black text-white text-xs">
               Q
@@ -405,10 +404,136 @@ function Shell({
           </button>
         </div>
       </nav>
-      <div className="flex-1 mx-auto w-full max-w-5xl px-6 py-10">
+      <div
+        className={`flex-1 mx-auto w-full px-6 py-8 ${
+          wide ? 'max-w-[88rem]' : 'max-w-5xl py-10'
+        }`}
+      >
         {children}
       </div>
     </main>
+  )
+}
+
+// ─── Sidebar + nav config ─────────────────────────────────────────
+//
+// CRM-style left rail for desktop (>= lg). Replaces the original
+// horizontal tab strip. On smaller viewports we render `MobileTabBar`
+// instead — same Tab state, just laid out as wrap-friendly chips.
+
+type NavItem = {
+  tab: Tab
+  label: string
+  /** Optional badge count rendered next to the label (e.g. quote count). */
+  count?: number | null
+}
+
+function buildNav(quoteCount: number): NavItem[] {
+  return [
+    { tab: 'overview', label: 'Overview' },
+    { tab: 'quotes', label: 'Quotes', count: quoteCount },
+    { tab: 'chats', label: 'Chats' },
+    { tab: 'account', label: 'Account' },
+    { tab: 'pricing', label: 'Pricing' },
+    { tab: 'services', label: 'Services' },
+  ]
+}
+
+function Sidebar({
+  tab,
+  setTab,
+  quoteCount,
+}: {
+  tab: Tab
+  setTab: (t: Tab) => void
+  quoteCount: number
+}) {
+  const items = buildNav(quoteCount)
+  return (
+    <aside className="hidden lg:block">
+      <nav
+        className="sticky top-20 bg-ink border border-ink-line"
+        aria-label="Dashboard sections"
+      >
+        <div className="px-4 py-3 border-b border-ink-line">
+          <span className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim">
+            Sections
+          </span>
+        </div>
+        <ul className="py-2">
+          {items.map((item) => {
+            const active = item.tab === tab
+            return (
+              <li key={item.tab}>
+                <button
+                  type="button"
+                  onClick={() => setTab(item.tab)}
+                  className={`w-full text-left flex items-center justify-between gap-3 pl-4 pr-3 py-2.5 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors border-l-2 cursor-pointer ${
+                    active
+                      ? 'border-accent text-accent bg-ink-card'
+                      : 'border-transparent text-text-dim hover:text-text-pri hover:bg-ink-card/60'
+                  }`}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <span>{item.label}</span>
+                  {typeof item.count === 'number' && item.count > 0 && (
+                    <span
+                      className={`font-mono text-[0.6rem] px-1.5 py-0.5 border ${
+                        active
+                          ? 'border-accent/60 text-accent'
+                          : 'border-ink-line text-text-sec'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+    </aside>
+  )
+}
+
+function MobileTabBar({
+  tab,
+  setTab,
+  quoteCount,
+}: {
+  tab: Tab
+  setTab: (t: Tab) => void
+  quoteCount: number
+}) {
+  const items = buildNav(quoteCount)
+  return (
+    <nav
+      className="lg:hidden flex flex-wrap gap-1 border-b border-ink-line"
+      aria-label="Dashboard sections"
+    >
+      {items.map((item) => {
+        const active = item.tab === tab
+        return (
+          <button
+            key={item.tab}
+            type="button"
+            onClick={() => setTab(item.tab)}
+            className={`px-4 py-3 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors cursor-pointer ${
+              active
+                ? 'text-accent border-b-2 border-accent -mb-px'
+                : 'text-text-dim hover:text-text-pri'
+            }`}
+            aria-current={active ? 'page' : undefined}
+          >
+            {item.label}
+            {typeof item.count === 'number' && item.count > 0 && (
+              <span className="ml-2 text-text-sec">({item.count})</span>
+            )}
+          </button>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -434,7 +559,15 @@ function StatusBadge({ status }: { status: 'onboarding' | 'active' }) {
 
 // ─── Overview tab ─────────────────────────────────────────────────
 
-function OverviewTab({ data }: { data: DashboardData }) {
+function OverviewTab({
+  data,
+  accessToken,
+  setTab,
+}: {
+  data: DashboardData
+  accessToken: string | null
+  setTab: (t: Tab) => void
+}) {
   const enabledServices = data.services.filter((s) => s.enabled).length
   const totalServices = data.services.length
   const activeQuotes = data.quotes.length
@@ -454,6 +587,51 @@ function OverviewTab({ data }: { data: DashboardData }) {
   const isStubTwilio = !!smsNumber && /^\+614820\d{5}$/.test(smsNumber)
   const isStubVapi = !!assistantId && assistantId.startsWith('vapi-stub-')
   const needsProvisioning = !smsNumber || !assistantId
+
+  // Recent quotes preview — top 5 by created_at desc. data.quotes is
+  // already ordered desc by the /api/tenant/me endpoint, so this is a
+  // pure client-side slice.
+  const latestQuotes = data.quotes.slice(0, 5)
+
+  // Recent chats — fetched lazily on Overview mount so the Chats tab can
+  // keep doing its own larger fetch independently. 5-row preview only;
+  // clicking a row jumps to the Chats tab where the full list lives.
+  const [latestChats, setLatestChats] = useState<ChatRow[]>([])
+  const [chatsLoading, setChatsLoading] = useState(true)
+  useEffect(() => {
+    if (!accessToken) return
+    let cancelled = false
+    setChatsLoading(true)
+    fetch('/api/tenant/chats', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    })
+      .then((r) => r.json().catch(() => ({ chats: [] })))
+      .then((j) => {
+        if (cancelled) return
+        const rows = (j?.chats ?? []) as ChatRow[]
+        setLatestChats(rows.slice(0, 5))
+      })
+      .catch(() => {
+        if (!cancelled) setLatestChats([])
+      })
+      .finally(() => {
+        if (!cancelled) setChatsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
+
+  // KPI tone for the AI receptionist tile — green when fully live,
+  // amber for stub/missing, so the tradie's eye lands on the right
+  // thing when something needs attention.
+  const aiTone: 'ok' | 'warn' = !assistantId || isStubVapi ? 'warn' : 'ok'
+  const aiValue = !assistantId
+    ? 'Not yet'
+    : isStubVapi
+      ? 'Stub'
+      : 'Live'
 
   return (
     <div className="space-y-8">
@@ -501,90 +679,148 @@ function OverviewTab({ data }: { data: DashboardData }) {
         </div>
       </div>
 
-      {/* Channel breakdown */}
-      <Grid cols={3}>
-        <Kpi
-          label="SMS inbound"
-          value={smsNumber ? formatAuMobile(smsNumber) : '—'}
-          mono
+      {/* KPI ROW — at-a-glance triage state. Numbered-card pattern (big
+          orange mono value, uppercase label). */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-ink-line border border-ink-line">
+        <KpiTile
+          label="Quotes total"
+          value={activeQuotes}
+          hint={activeQuotes === 0 ? 'No quotes yet' : 'All time'}
         />
-        <Kpi
-          label="Voice inbound"
-          value={voiceNumber ? formatAuMobile(voiceNumber) : '—'}
-          mono
+        <KpiTile
+          label="In review"
+          value={draftQuotes}
+          hint="Awaiting your send"
+          tone={draftQuotes > 0 ? 'warn' : 'default'}
         />
-        <Kpi
-          label="AI assistant"
-          value={
-            assistantId
-              ? isStubVapi
-                ? 'Stub'
-                : 'Live'
-              : 'Not yet'
-          }
+        <KpiTile
+          label="Services on"
+          value={`${enabledServices}/${totalServices}`}
+          hint="Auto-quote enabled"
         />
-      </Grid>
+        <KpiTile
+          label="AI receptionist"
+          value={aiValue}
+          hint={tenant.status === 'active' ? 'Account active' : 'Onboarding'}
+          tone={aiTone}
+        />
+      </div>
 
-      {/* Quotes / services KPIs */}
-      <Grid cols={3}>
-        <Kpi label="Auto-quote services" value={`${enabledServices} / ${totalServices}`} />
-        <Kpi label="Quotes recorded" value={String(activeQuotes)} />
-        <Kpi label="In review" value={String(draftQuotes)} />
-      </Grid>
+      {/* TWO-COLUMN GRID — latest quotes hero + latest chats sidebar */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Latest quotes — primary scan target, takes 2/3 of the row */}
+        <section className="lg:col-span-2 bg-ink-card border border-ink-line">
+          <header className="flex items-center justify-between px-5 py-3 border-b border-ink-line">
+            <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold text-text-pri">
+              Latest quotes
+            </h2>
+            <button
+              type="button"
+              onClick={() => setTab('quotes')}
+              className="font-mono text-[0.65rem] uppercase tracking-[0.14em] font-bold text-accent hover:text-accent-press cursor-pointer"
+            >
+              See all →
+            </button>
+          </header>
+          {latestQuotes.length === 0 ? (
+            <div className="px-5 py-8 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+              No quotes drafted yet. Customer SMS or calls will land here.
+            </div>
+          ) : (
+            <div>
+              {latestQuotes.map((q) => (
+                <LatestQuoteRow key={q.id} q={q} onOpen={() => setTab('quotes')} />
+              ))}
+            </div>
+          )}
+        </section>
 
-      {/* AI Receptionist — detailed setup card */}
-      <Card title="AI receptionist setup" subtitle="The technical bits Vapi + Twilio need to route real customers.">
-        <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
-          <Row label="Twilio SMS number" value={smsNumber ?? null} mono />
-          <Row label="Twilio Voice number" value={voiceNumber ?? null} mono />
-          <Row label="Vapi assistant ID" value={assistantId ?? null} mono breakAll />
-          <Row label="Voice persona" value={tenant.vapi_voice_persona ?? 'Default'} />
-          <Row label="SMS webhook" value={`${appUrl()}/api/sms/inbound`} mono />
-          <Row label="Voice webhook" value="api.vapi.ai/twilio/inbound_call" mono />
-          <Row label="Status" value={tenant.status === 'active' ? 'Active' : 'Onboarding'} />
-          <Row
-            label="Provisioning mode"
-            value={
-              isStubTwilio && isStubVapi
-                ? 'Stub (test mode)'
-                : isStubTwilio
-                  ? 'Twilio stub · Vapi real'
-                  : isStubVapi
-                    ? 'Twilio real · Vapi stub'
-                    : 'Real (live)'
-            }
-          />
-        </dl>
-        {(isStubTwilio || isStubVapi) && (
-          <div className="mt-6 bg-amber-950/30 border border-amber-700/50 px-4 py-3">
-            <p className="text-sm text-amber-200">
-              <strong>Test mode active.</strong> Fund your Twilio account and flip{' '}
-              <span className="font-mono">TWILIO_PROVISIONING_ENABLED=true</span> +{' '}
-              <span className="font-mono">VAPI_PROVISIONING_ENABLED=true</span> on Vercel,
-              then re-activate to swap in real Twilio + Vapi resources.
-            </p>
-          </div>
-        )}
-      </Card>
+        {/* Latest chats — secondary scan target */}
+        <section className="bg-ink-card border border-ink-line">
+          <header className="flex items-center justify-between px-5 py-3 border-b border-ink-line">
+            <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold text-text-pri">
+              Latest chats
+            </h2>
+            <button
+              type="button"
+              onClick={() => setTab('chats')}
+              className="font-mono text-[0.65rem] uppercase tracking-[0.14em] font-bold text-accent hover:text-accent-press cursor-pointer"
+            >
+              See all →
+            </button>
+          </header>
+          {chatsLoading ? (
+            <div className="px-5 py-8 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+              Loading…
+            </div>
+          ) : latestChats.length === 0 ? (
+            <div className="px-5 py-8 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+              No conversations yet.
+            </div>
+          ) : (
+            <div>
+              {latestChats.map((c) => (
+                <LatestChatRow key={c.id} chat={c} onOpen={() => setTab('chats')} />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
 
-      {/* Wired-up checklist (existing) */}
-      <Card title="What's wired up">
-        <ul className="space-y-2 text-sm text-text-sec">
-          <Tick on={!!tenant.business_name}>Business identity saved</Tick>
-          <Tick on={!!data.pricing?.hourly_rate}>Pricing book in place</Tick>
-          <Tick on={enabledServices > 0}>
-            {enabledServices} of {totalServices} auto-quote services enabled
-          </Tick>
-          <Tick on={!!smsNumber}>
-            QuoteMate phone number assigned
-            {isStubTwilio && <span className="text-amber-300"> (stub)</span>}
-          </Tick>
-          <Tick on={!!assistantId}>
-            AI receptionist active
-            {isStubVapi && <span className="text-amber-300"> (stub)</span>}
-          </Tick>
-        </ul>
-      </Card>
+      {/* LOWER GRID — AI receptionist setup + wired-up checklist */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card title="AI receptionist setup" subtitle="The technical bits Vapi + Twilio need to route real customers.">
+          <dl className="grid gap-x-8 gap-y-4 text-sm">
+            <Row label="Twilio SMS number" value={smsNumber ?? null} mono />
+            <Row label="Twilio Voice number" value={voiceNumber ?? null} mono />
+            <Row label="Vapi assistant ID" value={assistantId ?? null} mono breakAll />
+            <Row label="Voice persona" value={tenant.vapi_voice_persona ?? 'Default'} />
+            <Row label="SMS webhook" value={`${appUrl()}/api/sms/inbound`} mono />
+            <Row label="Voice webhook" value="api.vapi.ai/twilio/inbound_call" mono />
+            <Row label="Status" value={tenant.status === 'active' ? 'Active' : 'Onboarding'} />
+            <Row
+              label="Provisioning mode"
+              value={
+                isStubTwilio && isStubVapi
+                  ? 'Stub (test mode)'
+                  : isStubTwilio
+                    ? 'Twilio stub · Vapi real'
+                    : isStubVapi
+                      ? 'Twilio real · Vapi stub'
+                      : 'Real (live)'
+              }
+            />
+          </dl>
+          {(isStubTwilio || isStubVapi) && (
+            <div className="mt-6 bg-amber-950/30 border border-amber-700/50 px-4 py-3">
+              <p className="text-sm text-amber-200">
+                <strong>Test mode active.</strong> Fund your Twilio account and flip{' '}
+                <span className="font-mono">TWILIO_PROVISIONING_ENABLED=true</span> +{' '}
+                <span className="font-mono">VAPI_PROVISIONING_ENABLED=true</span> on Vercel,
+                then re-activate to swap in real Twilio + Vapi resources.
+              </p>
+            </div>
+          )}
+        </Card>
+
+        <Card title="What's wired up">
+          <ul className="space-y-2 text-sm text-text-sec">
+            <Tick on={!!tenant.business_name}>Business identity saved</Tick>
+            <Tick on={!!data.pricing?.hourly_rate}>Pricing book in place</Tick>
+            <Tick on={enabledServices > 0}>
+              {enabledServices} of {totalServices} auto-quote services enabled
+            </Tick>
+            <Tick on={!!smsNumber}>
+              QuoteMate phone number assigned
+              {isStubTwilio && <span className="text-amber-300"> (stub)</span>}
+            </Tick>
+            <Tick on={!!assistantId}>
+              AI receptionist active
+              {isStubVapi && <span className="text-amber-300"> (stub)</span>}
+            </Tick>
+          </ul>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -721,6 +957,145 @@ function Kpi({
         {value}
       </div>
     </div>
+  )
+}
+
+/** Hero KPI tile — uses the brand's numbered-card pattern (big orange
+ *  mono number, white uppercase label, ink-card panel). Used in the
+ *  Overview KPI row. The compact `Kpi` above is still used elsewhere
+ *  for label/value pairs inside section cards. */
+function KpiTile({
+  label,
+  value,
+  hint,
+  tone = 'default',
+}: {
+  label: string
+  value: string | number
+  hint?: string
+  tone?: 'default' | 'warn' | 'ok'
+}) {
+  const valueTone =
+    tone === 'warn'
+      ? 'text-amber-300'
+      : tone === 'ok'
+        ? 'text-emerald-300'
+        : 'text-accent'
+  return (
+    <div className="bg-ink-card border border-ink-line p-5 md:p-6">
+      <div className="font-mono text-[0.6rem] uppercase tracking-[0.18em] text-text-dim">
+        {label}
+      </div>
+      <div
+        className={`mt-2 font-mono font-extrabold leading-none text-[clamp(1.75rem,3vw,2.5rem)] ${valueTone}`}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div className="mt-2 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-sec">
+          {hint}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Compact one-line preview of a Quote, rendered in the Overview's
+ *  "Latest quotes" panel. Clicking jumps to the Quotes tab so the full
+ *  QuoteCard layout is the canonical viewer. */
+function LatestQuoteRow({
+  q,
+  onOpen,
+}: {
+  q: Quote
+  onOpen: () => void
+}) {
+  const customer = q.customer_full_name || q.customer_first_name || '—'
+  const total = toNum(q.total_inc_gst)
+  const status = (q.status ?? 'draft').toLowerCase()
+  const isPaid = !!q.deposit_paid
+  const isInspect = !!(q.needs_inspection || q.inspection_required)
+  const tone = isPaid
+    ? 'border-emerald-500/60 text-emerald-300'
+    : isInspect
+      ? 'border-amber-500/60 text-amber-300'
+      : status === 'accepted'
+        ? 'border-accent/60 text-accent'
+        : 'border-ink-line text-text-sec'
+  const badge = isPaid
+    ? 'Paid'
+    : isInspect
+      ? 'Inspect'
+      : status
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left flex items-center justify-between gap-3 px-4 py-3 border-b border-ink-line last:border-b-0 hover:bg-ink-deep/40 transition-colors cursor-pointer"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-text-pri truncate">
+            {customer}
+          </span>
+          {q.channel && <ChannelBadge channel={q.channel} />}
+        </div>
+        <div className="mt-1 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-text-dim">
+          {q.job_type ? formatJobType(q.job_type) : 'Unclassified'}
+          {q.suburb ? ` · ${q.suburb}` : ''}
+        </div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="font-mono text-sm font-bold text-text-pri">
+          {total !== null ? `$${formatMoney(total)}` : '—'}
+        </div>
+        <span
+          className={`mt-1 inline-flex items-center font-mono text-[0.55rem] uppercase tracking-[0.14em] font-bold px-1.5 py-0.5 border ${tone}`}
+        >
+          {badge}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+/** Compact one-line preview of a recent conversation. Renders the
+ *  customer's first name + channel pill + last-activity time. Click
+ *  jumps to the Chats tab. */
+function LatestChatRow({
+  chat,
+  onOpen,
+}: {
+  chat: ChatRow
+  onOpen: () => void
+}) {
+  const who = chat.first_name || chat.from_number || 'Unknown'
+  const when = chat.last_message_at ?? chat.created_at
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left flex items-center justify-between gap-3 px-4 py-3 border-b border-ink-line last:border-b-0 hover:bg-ink-deep/40 transition-colors cursor-pointer"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-text-pri truncate">{who}</span>
+          <ChannelBadge channel={chat.channel} />
+        </div>
+        <div className="mt-1 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-text-dim">
+          {chat.job_type ? formatJobType(chat.job_type) : 'Unclassified'}
+          {chat.suburb ? ` · ${chat.suburb}` : ''}
+        </div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+          {formatDate(when)}
+        </div>
+        <div className="mt-0.5 font-mono text-[0.6rem] text-text-sec">
+          {formatTime(when)}
+        </div>
+      </div>
+    </button>
   )
 }
 
