@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
 // AI sample-gallery generation — 3 coherent Gemini renders of the
-// proposed install, framed as wide / close-up / in-use.
+// FULLY COMPLETED install (the after state, day-of-handover), framed
+// as wide / close-up / in-use. See MASTER RULE 7 (FINAL OUTCOME) in
+// lib/preview/prompts.ts — every shot must show the finished result,
+// not a "proposed install" or work-in-progress concept render.
 //
 // PHOTO-TAILORED MODE (default when customer uploaded photos):
 // The customer's first uploaded photo is attached to ALL 3 calls as

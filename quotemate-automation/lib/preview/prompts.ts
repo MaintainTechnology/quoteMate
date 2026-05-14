@@ -595,7 +595,21 @@ function masterRules(): string {
     `     3D-render-looking, NOT staged-stock-photo.`,
     `     FAILURE: cartoonish, plastic-looking, or unrealistic.`,
     ``,
-    `  7. SELF-VERIFY BEFORE EMITTING.`,
+    `  7. FINAL OUTCOME — render the JOB COMPLETED.`,
+    `     The image MUST depict the install or repair FULLY`,
+    `     APPLIED — the after state, day-of-handover, ready`,
+    `     for the customer to walk into and use. Show the`,
+    `     finished result, NOT work-in-progress, NOT a concept`,
+    `     mock-up, NOT a "during install" scene. No tools, no`,
+    `     ladders, no exposed wiring or pipes mid-fit, no open`,
+    `     packaging or product boxes, no tradies in frame. The`,
+    `     room should look like the install was completed`,
+    `     yesterday and tidied up.`,
+    `     FAILURE: tools in frame, mid-install state, packaging`,
+    `     visible, exposed connections still being made, a`,
+    `     tradesperson working on the install.`,
+    ``,
+    `  8. SELF-VERIFY BEFORE EMITTING.`,
     `     Before committing the image, mentally run through every`,
     `     rule above and the FINAL CHECKLIST at the bottom of`,
     `     this prompt. If any single check fails, redraft.`,
@@ -628,6 +642,7 @@ function finalChecklist(ctx: PromptContext): string {
     `  [ ] No people: no humans, hands, pets, body parts anywhere in frame.`,
     `  [ ] No text: no captions, annotations, brand logos, or text — only the approved small watermark.`,
     `  [ ] Photorealism: magazine-quality Australian interior, not cartoon or 3D render.`,
+    `  [ ] Final outcome: image shows the install FULLY COMPLETED — day-of-handover state, no tools, no packaging, no mid-install work, no tradies in frame.`,
     ``,
     `If ANY box is unchecked, DO NOT emit. Redraft until all pass.`,
     `════════════════════════════════════════════════════════════════`,
@@ -740,10 +755,13 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
   const crossShotConsistency = `  CROSS-IMAGE CONSISTENCY — this is ONE of THREE coordinated sample images for the same quote (WIDE, CLOSE-UP, IN-USE). All three sample images MUST depict the SAME anchor product (named in the ANCHOR PRODUCT block above). Customers view the three side by side; they MUST see ONE consistent product from three different angles, NOT three different products. If the anchor is a wall-faced toilet suite, render a wall-faced toilet suite in all three shots — not close-coupled in one and wall-faced in another. Same product, same style, same finish across the series.`
 
   // ─── WIDE ───
+  // All three sample shots depict the AFTER state — the job COMPLETED,
+  // fully installed and tidied. See MASTER RULE 7 (FINAL OUTCOME).
   const wideShot = [
     `  Series role: WIDE-ANGLE OVERVIEW (image 1 of 3 in this sample series).`,
-    `  A wide-angle view of ${usingPhoto ? `${callerPossessive} ${room} (reference photo attached)` : `a contemporary Australian ${room}`}, showing the entire space and EVERY one of the requested ${jobLabelPlural} in a single frame. All depicted fittings must be the ANCHOR PRODUCT.`,
+    `  A wide-angle view of ${usingPhoto ? `${callerPossessive} ${room} (reference photo attached)` : `a contemporary Australian ${room}`} AFTER the install is FULLY COMPLETED. The entire space is visible and EVERY one of the requested ${jobLabelPlural} is mounted, finished, and ready for use — day-of-handover state. All depicted fittings must be the ANCHOR PRODUCT.`,
     `  Camera ~3-4 metres back, eye-level, daylight ambient lighting.`,
+    `  No tools, no ladders, no packaging, no exposed wiring or pipes, no tradies in frame — the room looks tidied up after the job is done.`,
     usingPhoto
       ? `  Match ${callerPossessive} actual walls, flooring, decor, and palette from the attached photo. Pull back wider than the photo if needed so every fitting fits.`
       : `  Generic Aussie home aesthetic: neutral walls, blonde-oak flooring, minimal furniture.`,
@@ -754,7 +772,8 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
   // ─── CLOSE-UP ───
   const detailShot = [
     `  Series role: MACRO CLOSE-UP (image 2 of 3 in this sample series).`,
-    `  A macro product-photography close-up of ONE single instance of the ANCHOR PRODUCT. The fitting fills 60-80% of the frame. Camera ~30-50 cm from the fitting. Show face plate, trim, finish, surface texture in detail — exactly matching the anchor product's brand and style.`,
+    `  A macro product-photography close-up of ONE single instance of the ANCHOR PRODUCT — FULLY INSTALLED and finished, exactly as it would look the day after handover. The fitting fills 60-80% of the frame. Camera ~30-50 cm from the fitting. Show face plate, trim, finish, surface texture in detail — exactly matching the anchor product's brand and style.`,
+    `  No tools, no tradie hands, no exposed connections still being made — show the clean, completed install.`,
     usingPhoto
       ? `  Background: heavily-blurred bokeh sampled from ${callerPossessive} attached photo (their actual ${room}'s palette and materials). Background must NOT be in focus, and must NOT contain other ${jobLabelPlural}.`
       : `  Background: blurred ${room} surface, soft bokeh, no other ${jobLabelPlural} visible.`,
@@ -766,7 +785,7 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
   // ─── IN-USE / DUSK ───
   const litShot = [
     `  Series role: IN-USE / EVENING (image 3 of 3 in this sample series).`,
-    `  ${usingPhoto ? `${callerPossessive.toUpperCase()} ${room.toUpperCase()} AT DUSK (reference photo attached)` : `A CONTEMPORARY AUSTRALIAN ${room.toUpperCase()} AT DUSK`} — the requested ${jobLabelPlural} (matching the ANCHOR PRODUCT) are visibly in their operational state (illuminated if light fittings; clearly mounted and active otherwise). Windows show deep blue/purple twilight outside. Soft cosy interior atmosphere.`,
+    `  ${usingPhoto ? `${callerPossessive.toUpperCase()} ${room.toUpperCase()} AT DUSK (reference photo attached)` : `A CONTEMPORARY AUSTRALIAN ${room.toUpperCase()} AT DUSK`} — the requested ${jobLabelPlural} (matching the ANCHOR PRODUCT) are FULLY INSTALLED and visibly DOING THEIR JOB (illuminated if light fittings; clearly mounted, operational, and being used as intended otherwise). The install is COMPLETED — no tools, no packaging, no tradies. Windows show deep blue/purple twilight outside. Soft cosy interior atmosphere — the room feels lived-in after the install.`,
     `  Camera ~3-4 metres back, similar framing to a wide shot. Every requested fitting visible in the frame, and it MUST be the same anchor product depicted in the WIDE and CLOSE-UP shots.`,
     usingPhoto
       ? `  KEY: this is ${callerPossessive} actual ${room} at evening. Match the photo's walls, floor, furniture, layout, perspective — only the time of day and the new fittings change. ${callerLabel} should recognise their own space.`
@@ -789,6 +808,7 @@ export function buildSamplePrompts(ctx: PromptContext, opts: SamplePromptOpts = 
     `  · no extra features the customer did not request`,
     `  · no people, no text, no logos`,
     `  · photorealistic Australian residential aesthetic`,
+    `  · final outcome — install FULLY COMPLETED, no tools / packaging / mid-install`,
     `  · same product as the other two shots in this series`,
     ``,
     `If any check fails, redraft. Do not emit a flawed image.`,
