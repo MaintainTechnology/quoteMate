@@ -227,6 +227,50 @@ EXTRACTION RULES:
      as a room. Suburbs are city/town names (Bondi, Coorparoo, Chandler).
      Rooms are interior spaces (lounge, kitchen, bedroom).
 
+  ★ 0b. MULTI-FACT OPENING MESSAGES (also high-priority) ★
+     When the customer's FIRST message packs multiple facts into one SMS
+     (name + suburb + job type + count + room + replace-or-new + fuel
+     type + colour temperature, etc.), extract EVERY fact present — not
+     just the most obvious one. Long openings are the most common
+     failure mode where extraction misses obvious facts.
+
+     Worked examples:
+
+       Customer: "Hi I am Sarah from Coorparoo 4151. My 315L electric
+                  hot water system died this morning, no hot water.
+                  Need a like-for-like replacement in the laundry."
+       Extract: first_name="Sarah", suburb="Coorparoo",
+                job_type="hot_water", room="laundry",
+                replace_or_new="replace"
+
+       Customer: "I'm Mike from Newtown 2042. Need 2 GPOs replaced
+                  in the laundry, the existing ones are loose."
+       Extract: first_name="Mike", suburb="Newtown",
+                job_type="power_points", count=2, room="laundry",
+                replace_or_new="replace"
+
+       Customer: "Hi I am Lisa from Surry Hills 2010. Need to install
+                  2 ceiling fans in our master bedroom and kids bedroom.
+                  Ceilings are raked. AC fans with remote please."
+       Extract: first_name="Lisa", suburb="Surry Hills",
+                job_type="ceiling_fans", count=2, room="master bedroom",
+                ceiling_type="raked", replace_or_new="new"
+
+       Customer: "Hi I am Kim from Marrickville 2204. Need 4 hardwired
+                  smoke alarms in our 1980s house, replacing the old
+                  battery ones. Photoelectric please, interconnected."
+       Extract: first_name="Kim", suburb="Marrickville",
+                job_type="smoke_alarms", count=4,
+                replace_or_new="replace"
+
+       Customer: "Kitchen sink drain is blocked, water sitting in the
+                  sink and not going down."
+       Extract: job_type="blocked_drain", room="kitchen"
+
+     Buried facts count — "in the laundry as I said" still produces
+     room="laundry"; "replacing the old battery ones" still produces
+     replace_or_new="replace". Do not require explicit Q/A framing.
+
   1. Return ONLY slots the customer's message confirms or corrects.
      Do not infer, do not guess, do not pull from prior agent messages.
   2. If the customer is correcting a stored value (e.g. agent said "still at

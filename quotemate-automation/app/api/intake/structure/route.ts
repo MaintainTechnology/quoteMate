@@ -278,6 +278,45 @@ export async function POST(req: Request) {
     }
   }
 
+  // ─── Regulatory override: gas HWS must be inspection-routed ─────────
+  //
+  // Bug #5 (2026-05-14 stress test): Opus's structurer non-deterministically
+  // set `inspection_required = false` on gas hot-water replacements,
+  // letting the estimator auto-quote 3 tiers. The locked v1 policy
+  // (per docs/strategy.md + memory project_plumbing_routing_rules) is
+  // that gas HWS ALWAYS routes to the $199 onsite scope by a licensed
+  // gas fitter — AS/NZS 5601 requires verification of gas-line size,
+  // flue clearances and compliance before any swap.
+  //
+  // We trust Opus on most fields, but for this one regulatory
+  // boundary the override is hard-coded. Same pattern as Rule 6 in
+  // plumbing-prompt.ts which always-inspections gas_fitting / burst_pipe
+  // / bathroom_renovation, but those are job_types in their own right;
+  // gas HWS is detected via the scope text on a hot_water intake.
+  if (intake.job_type === 'hot_water' && intake.inspection_required !== true) {
+    const haystack = [
+      intake.scope?.description ?? '',
+      Array.isArray(intake.risks) ? intake.risks.join(' ') : '',
+    ].join(' ').toLowerCase()
+    const gasKeywords = /\b(gas\s*(?:storage|continuous[-\s]?flow|hws|hot\s*water|fitter|line|supply)|natural\s*gas|lpg\s*(?:bottle|hws|hot\s*water)?|propane)\b/
+    if (gasKeywords.test(haystack)) {
+      log.ok('regulatory override — gas HWS forced to inspection per AS/NZS 5601', {
+        original_inspection_required: intake.inspection_required,
+        matched_keywords: (haystack.match(gasKeywords) ?? [])[0],
+      })
+      intake.inspection_required = true
+      const existingRisks = Array.isArray(intake.risks) ? intake.risks : []
+      if (!existingRisks.some((r: string) => /gas\s+fitter|licensed\s+gas/i.test(r))) {
+        intake.risks = [
+          ...existingRisks,
+          'gas appliance work — licensed gas fitter required for AS/NZS 5601 compliance',
+        ]
+      }
+      intake.confidence_reason = (intake.confidence_reason ?? '') +
+        ' [Forced inspection: gas HWS replacement requires licensed gas fitter onsite per AS/NZS 5601.]'
+    }
+  }
+
   // Audit log — exact credentials about to be submitted to the intake row.
   // Lets you verify in production logs that customer details are bundled
   // with the request before insert, not just spliced in mid-pipeline.

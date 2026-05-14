@@ -50,23 +50,35 @@ export async function POST(req: Request) {
       pricingBook = tenantBook ?? null
     }
     if (!pricingBook) {
-      // Fallback: any pricing_book row for this trade. Used when the
-      // intake has no tenant_id (legacy pre-v6 traffic) or when the
-      // tenant's own row hasn't been inserted yet. `.limit(1)` to keep
-      // the result deterministic regardless of how many tenants exist.
+      // Fallback: pick the OLDEST pricing_book row for this trade.
+      // Bug #10 fix (2026-05-14): the previous `.limit(1)` had no
+      // ORDER BY, so Postgres returned whichever row happened to be
+      // physically first. With multiple plumbing tenants, this could
+      // silently switch books between deploys, producing inconsistent
+      // call-out fees and markups for intakes without a tenant_id.
+      // `order by created_at asc` gives a stable, auditable choice:
+      // the first-registered tenant for the trade wins. Used when the
+      // intake has no tenant_id (dev line / legacy) or when the
+      // tenant's own row hasn't been inserted yet.
       const { data: anyBook } = await supabase
         .from('pricing_book')
         .select('*')
         .eq('trade', intakeTrade)
+        .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle()
       pricingBook = anyBook ?? null
       if (pricingBook) {
         log.ok('using fallback pricing_book row', {
           trade: intakeTrade,
+          pricing_book_id: pricingBook.id,
+          pricing_book_tenant: pricingBook.tenant_id,
+          hourly_rate: pricingBook.hourly_rate,
+          call_out_minimum: pricingBook.call_out_minimum,
+          default_markup_pct: pricingBook.default_markup_pct,
           reason: intakeTenantId
-            ? 'no pricing_book row for this tenant + trade — falling back'
-            : 'intake has no tenant_id',
+            ? 'no pricing_book row for this tenant + trade — falling back to oldest row for the trade'
+            : 'intake has no tenant_id — falling back to oldest row for the trade',
         })
       }
     }
