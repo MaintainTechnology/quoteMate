@@ -1003,6 +1003,92 @@ export async function POST(req: Request) {
         }
       }
 
+      // ─── PROGRAMMATIC RULE 5/6 GUARD (belt-and-braces) ────────────────
+      // Even with strict EXCEPTION wording in the system prompt, Haiku
+      // will occasionally skip the name / suburb questions for returning
+      // customers with empty profiles — the "welcome back" context biases
+      // the model toward "we already know them". This deterministic
+      // guard catches that and overrides the reply to FORCE the missing
+      // universal must-ask question.
+      //
+      // The downstream intake quality gate already safety-nets this via
+      // the recovery flow, but that adds an extra round-trip after
+      // 'finish'. Catching it earlier in the dialog turn keeps the
+      // conversation tight and means the customer never reaches finish
+      // with a degenerate intake in the first place.
+      //
+      // Trigger conditions (all must hold):
+      //   - Haiku isn't escalating or ending the conversation
+      //   - We have a job_type identified (we're past Rule 4)
+      //   - The required field isn't already known (transcript slots OR
+      //     customer record)
+      //   - We haven't asked this question yet (no loop)
+      const slotFirstName = (conversationState.slots.first_name as string | undefined) ?? undefined
+      const slotSuburb = (conversationState.slots.suburb as string | undefined) ?? undefined
+      const slotJobType = (conversationState.slots.job_type as string | undefined) ?? undefined
+
+      const haveNameSignal = !!slotFirstName || !!customer?.first_name
+      const haveSuburbSignal = !!slotSuburb || !!customer?.suburb
+      const jobTypeIdentified =
+        decision.job_type_guess !== 'unknown' || !!slotJobType
+
+      const agentAlreadyAskedName = turns.some(
+        (t) => t.direction === 'outbound' &&
+          /(first name|what'?s your name|grab your (first )?name|your name\?)/i.test(t.body),
+      )
+      const agentAlreadyAskedSuburb = turns.some(
+        (t) => t.direction === 'outbound' &&
+          /(what suburb|suburb is the job|suburb'?s the job|what suburb's)/i.test(t.body),
+      )
+
+      const isDialogSteering =
+        decision.action !== 'escalate_inspection' &&
+        decision.action !== 'end_conversation'
+
+      const shouldForceName =
+        isDialogSteering &&
+        jobTypeIdentified &&
+        !haveNameSignal &&
+        !agentAlreadyAskedName
+
+      const shouldForceSuburb =
+        isDialogSteering &&
+        jobTypeIdentified &&
+        haveNameSignal &&        // Rule 5 → Rule 6 ordering
+        !haveSuburbSignal &&
+        !agentAlreadyAskedSuburb
+
+      if (shouldForceName) {
+        console.warn('[sms/inbound:after] RULE 5 GUARD — Haiku skipped name question; overriding', {
+          conversationId,
+          originalAction: decision.action,
+          originalReplyPreview: decision.reply_to_send.slice(0, 80),
+        })
+        decision = {
+          ...decision,
+          action: 'ask',
+          ready_for_intake: false,
+          request_photo_link: false,
+          reply_to_send: "No worries - quick one, what's your first name?",
+        }
+      } else if (shouldForceSuburb) {
+        console.warn('[sms/inbound:after] RULE 6 GUARD — Haiku skipped suburb question; overriding', {
+          conversationId,
+          originalAction: decision.action,
+          originalReplyPreview: decision.reply_to_send.slice(0, 80),
+        })
+        const nameForAck = slotFirstName ?? customer?.first_name ?? ''
+        decision = {
+          ...decision,
+          action: 'ask',
+          ready_for_intake: false,
+          request_photo_link: false,
+          reply_to_send: nameForAck
+            ? `Cheers ${nameForAck} - and what suburb's the job in?`
+            : "Cheers - and what suburb's the job in?",
+        }
+      }
+
       console.log('[sms/inbound:after] step 7 — dispatching reply (SMS-first, WhatsApp fallback)')
       const dispatch = await dispatchQuoteMessage({
         to: fromNumber,
