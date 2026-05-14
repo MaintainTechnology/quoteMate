@@ -9,68 +9,81 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./_shared.css">
   <style>
-    .arch-grid {
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: 1fr;
-    }
-    .layer {
+    /* ─── SVG FLOW DIAGRAM ─────────────────────────────────────── */
+    .diagram-wrap {
       background: var(--ink-card);
       border: 1px solid var(--ink-line);
-      padding: 1.1rem 1.25rem;
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      gap: 1rem;
-      align-items: stretch;
+      padding: 2rem 1rem;
+      overflow-x: auto;
     }
-    .layer-label {
-      border-left: 3px solid var(--accent);
-      padding-left: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
+    .diagram-wrap svg {
+      display: block;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 980px;
+      height: auto;
     }
-    .layer-label .title {
-      font-weight: 800;
-      text-transform: uppercase;
-      font-size: 0.9rem;
-      letter-spacing: 0.01em;
+
+    /* SVG box styling — rx is set as an attribute on each <rect> for Safari */
+    .box rect.body {
+      fill: var(--ink-deep);
+      stroke: var(--ink-line);
+      stroke-width: 1;
     }
-    .layer-label .sub {
-      color: var(--text-dim);
-      font-size: 0.72rem;
-      margin-top: 0.2rem;
-    }
-    .modules {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 0.5rem;
-    }
-    .module {
-      background: var(--ink-deep);
-      border: 1px solid var(--ink-line);
-      padding: 0.7rem 0.75rem;
-      font-size: 0.78rem;
-    }
-    .module .label {
+    .box.built   rect.stripe { fill: var(--success); }
+    .box.partial rect.stripe { fill: var(--warning); }
+    .box.planned rect.stripe { fill: var(--planned); }
+    .box.built   rect.body   { stroke: rgba(22, 163, 74, 0.35); }
+    .box.partial rect.body   { stroke: rgba(217, 119, 6, 0.4); }
+
+    .box .title {
+      fill: var(--text-pri);
+      font-family: 'Manrope', sans-serif;
       font-weight: 700;
-      font-size: 0.82rem;
-      margin-bottom: 0.2rem;
+      font-size: 13px;
+      letter-spacing: 0.01em;
+      text-transform: uppercase;
     }
-    .module .what { color: var(--text-dim); font-size: 0.7rem; line-height: 1.3; }
-    .module.built   { border-color: rgba(22, 163, 74, 0.45); }
-    .module.partial { border-color: rgba(217, 119, 6, 0.45); }
-    .module.planned { border-color: var(--ink-line); opacity: 0.55; }
-    .arrow {
-      text-align: center;
-      color: var(--text-dim);
+    .box .sub {
+      fill: var(--text-dim);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.9rem;
-      padding: 0.15rem 0;
+      font-size: 10px;
+      letter-spacing: 0.04em;
     }
-    @media (max-width: 720px) {
-      .layer { grid-template-columns: 1fr; }
+    .stage-label {
+      fill: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
     }
+    .flow-line {
+      stroke: var(--text-dim);
+      stroke-width: 1.4;
+      fill: none;
+    }
+    .flow-bus {
+      stroke: var(--text-dim);
+      stroke-width: 1.4;
+      fill: none;
+    }
+    .data-line {
+      stroke: var(--accent);
+      stroke-width: 1.2;
+      stroke-dasharray: 4 3;
+      fill: none;
+      opacity: 0.7;
+    }
+
+    /* status legend overlay */
+    .stage-bar {
+      stroke: var(--ink-line);
+      stroke-width: 1;
+    }
+    .legend-mark { font-weight: 700; }
+    .legend-mark.solid  { fill: var(--text-pri); }
+    .legend-mark.dashed { fill: var(--accent); }
+    .legend strong { color: var(--text-pri); }
   </style>
 </head>
 <body>
@@ -81,10 +94,11 @@
         <span class="brand-name">QuoteMate</span>
         <span class="brand-meta">Architecture · May 2026</span>
       </div>
-      <h1>How The System Is Wired</h1>
+      <h1>System Flow<br>Top to Bottom</h1>
       <p class="subtitle">
-        Every module that makes up QuoteMate, what it does in one line, and which ones are
-        live today versus in the pipeline.
+        How a single customer text becomes a paid booking. Every box is a real module
+        running in production today. Solid lines are conversation flow. Dashed orange
+        lines are data lookups (pricing, catalogue, past quotes).
       </p>
       <nav class="nav-pills">
         <a href="./index.html">Overview</a>
@@ -94,223 +108,324 @@
       </nav>
     </header>
 
+    <!-- ─── SECTION 01 — FLOW DIAGRAM ─────────────────────────── -->
     <section>
       <div class="section-head">
         <span class="num">01</span>
-        <h2>Five Layers, Top to Bottom</h2>
+        <h2>Data Flow Map</h2>
       </div>
 
-      <div class="arch-grid">
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 960 1820" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="QuoteMate system architecture flow diagram">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A8699"/>
+            </marker>
+            <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF5A1F"/>
+            </marker>
+          </defs>
 
-        <!-- INBOUND -->
-        <div class="layer">
-          <div class="layer-label">
-            <div class="title">Inbound</div>
-            <div class="sub">How the customer reaches us</div>
-          </div>
-          <div class="modules">
-            <div class="module built">
-              <div class="label">SMS Inbox</div>
-              <div class="what">Twilio AU numbers, every tradie gets their own</div>
-            </div>
-            <div class="module partial">
-              <div class="label">Voice Calls</div>
-              <div class="what">Same number, Vapi answers — parked behind env flag</div>
-            </div>
-            <div class="module built">
-              <div class="label">MMS Photos</div>
-              <div class="what">Customer can text photos straight into the thread</div>
-            </div>
-            <div class="module built">
-              <div class="label">Web Signup</div>
-              <div class="what">Tradie sign-up form on quotemate.com.au</div>
-            </div>
-          </div>
-        </div>
+          <!-- ═════════════ STAGE 1 · INBOUND ═════════════ -->
+          <text class="stage-label" x="40" y="32">Stage 01 · Customer Reaches In</text>
+          <line class="stage-bar" x1="40" y1="42" x2="920" y2="42"/>
 
-        <div class="arrow">▼</div>
+          <!-- CUSTOMER box (centered) -->
+          <g class="box built" transform="translate(380, 60)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Customer</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">phone in hand</text>
+          </g>
 
-        <!-- AI BRAIN -->
-        <div class="layer">
-          <div class="layer-label">
-            <div class="title">AI Brain</div>
-            <div class="sub">Decides what to do next</div>
-          </div>
-          <div class="modules">
-            <div class="module built">
-              <div class="label">Intent Detection</div>
-              <div class="what">Is this a customer or a tradie signing up? Regex first, Haiku if unclear</div>
-            </div>
-            <div class="module built">
-              <div class="label">SMS Dialog Agent</div>
-              <div class="what">One Haiku call per turn. Asks the next question or finishes.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Intake Structuring</div>
-              <div class="what">Opus reads the transcript + photos, produces a clean job brief</div>
-            </div>
-            <div class="module built">
-              <div class="label">Quote Drafter</div>
-              <div class="what">Opus + tool-calling. Builds Good / Better / Best with real prices.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Image Generator</div>
-              <div class="what">Gemini renders a preview of what each tier looks like installed</div>
-            </div>
-            <div class="module built">
-              <div class="label">Slot Extractor</div>
-              <div class="what">Pulls name, suburb, item count, specs from natural-language replies</div>
-            </div>
-          </div>
-        </div>
+          <!-- arrow down from CUSTOMER to bus -->
+          <path class="flow-line" d="M 480 120 L 480 150" marker-end="url(#arrow)"/>
 
-        <div class="arrow">▼</div>
+          <!-- 3-way branch bus -->
+          <line class="flow-bus" x1="170" y1="160" x2="790" y2="160"/>
+          <path class="flow-line" d="M 480 150 L 480 160"/>
+          <path class="flow-line" d="M 170 160 L 170 200" marker-end="url(#arrow)"/>
+          <path class="flow-line" d="M 480 160 L 480 200" marker-end="url(#arrow)"/>
+          <path class="flow-line" d="M 790 160 L 790 200" marker-end="url(#arrow)"/>
 
-        <!-- DATA -->
-        <div class="layer">
-          <div class="layer-label">
-            <div class="title">Data</div>
-            <div class="sub">Source of truth</div>
-          </div>
-          <div class="modules">
-            <div class="module built">
-              <div class="label">Tenants</div>
-              <div class="what">One row per tradie. Owns trades, licences, numbers, status.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Pricing Books</div>
-              <div class="what">Per-tradie, per-trade rates and markup. Quotes only use these.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Shared Catalogue</div>
-              <div class="what">Assemblies + materials for each trade (electrical, plumbing)</div>
-            </div>
-            <div class="module built">
-              <div class="label">Conversations</div>
-              <div class="what">Every SMS exchange, with photos, turn count, state</div>
-            </div>
-            <div class="module built">
-              <div class="label">Intakes</div>
-              <div class="what">Structured job briefs. Vector-embedded for similar-quote lookup.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Quotes</div>
-              <div class="what">Three tiers, scope, deposit links, status (draft → sent → paid)</div>
-            </div>
-            <div class="module built">
-              <div class="label">Customers</div>
-              <div class="what">Persistent memory by phone. Returning customers skip questions.</div>
-            </div>
-          </div>
-        </div>
+          <!-- 3 input channels -->
+          <g class="box built" transform="translate(70, 210)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">SMS</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">Twilio AU mobile</text>
+          </g>
 
-        <div class="arrow">▼</div>
+          <g class="box partial" transform="translate(380, 210)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Voice Call</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">same number · parked</text>
+          </g>
 
-        <!-- DELIVERY -->
-        <div class="layer">
-          <div class="layer-label">
-            <div class="title">Delivery</div>
-            <div class="sub">What the customer + tradie see</div>
-          </div>
-          <div class="modules">
-            <div class="module built">
-              <div class="label">Quote SMS</div>
-              <div class="what">Three tier prices + link. Sent from the tradie's own number.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Mobile Quote Page</div>
-              <div class="what">/q/&lt;token&gt; — scope, photos, tiers, deposit buttons</div>
-            </div>
-            <div class="module built">
-              <div class="label">Photo Upload</div>
-              <div class="what">/upload/&lt;token&gt; — camera or gallery, one tap</div>
-            </div>
-            <div class="module built">
-              <div class="label">Tradie Dashboard</div>
-              <div class="what">Inbox, quotes, edit-in-place, retry provisioning</div>
-            </div>
-            <div class="module built">
-              <div class="label">Tradie Notify SMS</div>
-              <div class="what">Daily SMS + WhatsApp on every draft</div>
-            </div>
-            <div class="module partial">
-              <div class="label">Booking Page</div>
-              <div class="what">Slot picker after deposit. Works, lightly exercised live.</div>
-            </div>
-          </div>
-        </div>
+          <g class="box built" transform="translate(690, 210)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">MMS Photo</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">in the SMS thread</text>
+          </g>
 
-        <div class="arrow">▼</div>
+          <!-- ═════════════ STAGE 2 · TWILIO ROUTING ═════════════ -->
+          <text class="stage-label" x="40" y="320">Stage 02 · Carrier Layer</text>
+          <line class="stage-bar" x1="40" y1="330" x2="920" y2="330"/>
 
-        <!-- PAYMENTS + EXTERNAL -->
-        <div class="layer">
-          <div class="layer-label">
-            <div class="title">Payments + External</div>
-            <div class="sub">Money in, infra out</div>
-          </div>
-          <div class="modules">
-            <div class="module built">
-              <div class="label">Stripe Checkout</div>
-              <div class="what">Three deposit links per quote. 30% on auto-quote, $199 inspection.</div>
-            </div>
-            <div class="module partial">
-              <div class="label">Stripe Connect</div>
-              <div class="what">Marketplace flow. Switches on when tradie #2 onboards.</div>
-            </div>
-            <div class="module built">
-              <div class="label">Twilio Provisioning</div>
-              <div class="what">Buys real AU numbers, sets webhooks, address-bundle compliant</div>
-            </div>
-            <div class="module built">
-              <div class="label">Vapi Provisioning</div>
-              <div class="what">Spins up a per-tradie voice assistant + binds the number</div>
-            </div>
-            <div class="module built">
-              <div class="label">Stripe Webhook</div>
-              <div class="what">Idempotent paid-quote marker. Triggers booking step.</div>
-            </div>
-            <div class="module partial">
-              <div class="label">Real Payment Run</div>
-              <div class="what">Test cards verified. Awaiting first real customer payment.</div>
-            </div>
-          </div>
-        </div>
+          <!-- Converge all three back to center -->
+          <path class="flow-line" d="M 170 270 L 170 350"/>
+          <path class="flow-line" d="M 480 270 L 480 350"/>
+          <path class="flow-line" d="M 790 270 L 790 350"/>
+          <line class="flow-bus" x1="170" y1="350" x2="790" y2="350"/>
+          <path class="flow-line" d="M 480 350 L 480 380" marker-end="url(#arrow)"/>
 
+          <!-- TWILIO box -->
+          <g class="box built" transform="translate(380, 385)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Twilio AU Number</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">per tradie · webhook in</text>
+          </g>
+
+          <!-- ═════════════ STAGE 3 · AI BRAINS ═════════════ -->
+          <text class="stage-label" x="40" y="490">Stage 03 · AI Brain Splits</text>
+          <line class="stage-bar" x1="40" y1="500" x2="920" y2="500"/>
+
+          <!-- branch to SMS vs Voice brains -->
+          <path class="flow-line" d="M 480 445 L 480 520"/>
+          <line class="flow-bus" x1="270" y1="520" x2="690" y2="520"/>
+          <path class="flow-line" d="M 270 520 L 270 555" marker-end="url(#arrow)"/>
+          <path class="flow-line" d="M 690 520 L 690 555" marker-end="url(#arrow)"/>
+
+          <!-- SMS dialog agent -->
+          <g class="box built" transform="translate(170, 560)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">SMS Dialog Agent</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">Haiku 4.5 · 1 call/turn</text>
+          </g>
+
+          <!-- Voice agent -->
+          <g class="box partial" transform="translate(590, 560)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Voice Agent</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">Vapi + Haiku 4.5</text>
+          </g>
+
+          <!-- Both converge -->
+          <path class="flow-line" d="M 270 620 L 270 660"/>
+          <path class="flow-line" d="M 690 620 L 690 660"/>
+          <line class="flow-bus" x1="270" y1="660" x2="690" y2="660"/>
+          <path class="flow-line" d="M 480 660 L 480 700" marker-end="url(#arrow)"/>
+
+          <!-- ═════════════ STAGE 4 · STRUCTURING ═════════════ -->
+          <text class="stage-label" x="40" y="725">Stage 04 · Intake</text>
+          <line class="stage-bar" x1="40" y1="735" x2="920" y2="735"/>
+
+          <!-- INTAKE STRUCTURING -->
+          <g class="box built" transform="translate(380, 745)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Intake Structuring</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">Opus 4.7 · clean JSON</text>
+          </g>
+
+          <path class="flow-line" d="M 480 805 L 480 855" marker-end="url(#arrow)"/>
+
+          <!-- ═════════════ STAGE 5 · DRAFTING ═════════════ -->
+          <text class="stage-label" x="40" y="880">Stage 05 · Quote Draft + Data Lookup</text>
+          <line class="stage-bar" x1="40" y1="890" x2="920" y2="890"/>
+
+          <!-- QUOTE DRAFTER (centered) -->
+          <g class="box built" transform="translate(380, 905)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Quote Drafter</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">Opus 4.7 + tool-calling</text>
+          </g>
+
+          <!-- Data sources LEFT and RIGHT of drafter, feeding in -->
+          <g class="box built" transform="translate(70, 905)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Pricing Book</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">per-tradie · per-trade</text>
+          </g>
+
+          <g class="box built" transform="translate(690, 905)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Shared Catalogue</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">assemblies + materials</text>
+          </g>
+
+          <!-- Data-lookup arrows (dashed orange, pointing IN to drafter) -->
+          <path class="data-line" d="M 270 935 L 380 935" marker-end="url(#arrow-accent)"/>
+          <path class="data-line" d="M 690 935 L 580 935" marker-end="url(#arrow-accent)"/>
+
+          <!-- RAG below center, also feeding in -->
+          <g class="box built" transform="translate(380, 1000)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">RAG · Past Quotes</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">pgvector · similar jobs</text>
+          </g>
+          <path class="data-line" d="M 480 1000 L 480 965" marker-end="url(#arrow-accent)"/>
+
+          <path class="flow-line" d="M 480 1060 L 480 1100" marker-end="url(#arrow)"/>
+
+          <!-- ═════════════ STAGE 6 · QUOTE OBJECT ═════════════ -->
+          <text class="stage-label" x="40" y="1125">Stage 06 · Quote Output</text>
+          <line class="stage-bar" x1="40" y1="1135" x2="920" y2="1135"/>
+
+          <!-- 3-TIER QUOTE -->
+          <g class="box built" transform="translate(380, 1150)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">3-Tier Quote</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">good · better · best</text>
+          </g>
+
+          <!-- Branch to 3 delivery surfaces -->
+          <path class="flow-line" d="M 480 1210 L 480 1245"/>
+          <line class="flow-bus" x1="170" y1="1245" x2="790" y2="1245"/>
+          <path class="flow-line" d="M 170 1245 L 170 1290" marker-end="url(#arrow)"/>
+          <path class="flow-line" d="M 480 1245 L 480 1290" marker-end="url(#arrow)"/>
+          <path class="flow-line" d="M 790 1245 L 790 1290" marker-end="url(#arrow)"/>
+
+          <!-- ═════════════ STAGE 7 · DELIVERY ═════════════ -->
+          <text class="stage-label" x="40" y="1315">Stage 07 · Customer + Tradie See It</text>
+          <line class="stage-bar" x1="40" y1="1325" x2="920" y2="1325"/>
+
+          <g class="box built" transform="translate(70, 1300)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Quote SMS</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">to customer · 3 links</text>
+          </g>
+
+          <g class="box built" transform="translate(380, 1300)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Mobile Quote Page</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">/q/&lt;token&gt;</text>
+          </g>
+
+          <g class="box built" transform="translate(690, 1300)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Tradie Dashboard</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">review · edit · resend</text>
+          </g>
+
+          <!-- Merge back for payment flow -->
+          <path class="flow-line" d="M 170 1360 L 170 1400"/>
+          <path class="flow-line" d="M 480 1360 L 480 1400"/>
+          <path class="flow-line" d="M 790 1360 L 790 1400"/>
+          <line class="flow-bus" x1="170" y1="1400" x2="790" y2="1400"/>
+          <path class="flow-line" d="M 480 1400 L 480 1450" marker-end="url(#arrow)"/>
+
+          <!-- ═════════════ STAGE 8 · PAYMENT ═════════════ -->
+          <text class="stage-label" x="40" y="1475">Stage 08 · Payment</text>
+          <line class="stage-bar" x1="40" y1="1485" x2="920" y2="1485"/>
+
+          <g class="box built" transform="translate(380, 1460)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Stripe Checkout</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">deposit · 30% or $199</text>
+          </g>
+
+          <path class="flow-line" d="M 480 1520 L 480 1560" marker-end="url(#arrow)"/>
+
+          <!-- Connect callout right side -->
+          <g class="box partial" transform="translate(690, 1460)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Stripe Connect</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">on at tradie #2</text>
+          </g>
+          <path class="data-line" d="M 690 1490 L 580 1490" marker-end="url(#arrow-accent)"/>
+
+          <!-- ═════════════ STAGE 9 · BOOKING ═════════════ -->
+          <text class="stage-label" x="40" y="1595">Stage 09 · Booking</text>
+          <line class="stage-bar" x1="40" y1="1605" x2="920" y2="1605"/>
+
+          <g class="box partial" transform="translate(380, 1620)">
+            <rect class="body" width="200" height="60" rx="4"/>
+            <rect class="stripe" x="0" y="0" width="3" height="60"/>
+            <text class="title" x="100" y="28" text-anchor="middle">Booking + Confirm</text>
+            <text class="sub" x="100" y="46" text-anchor="middle">slot picker · SMS both sides</text>
+          </g>
+
+          <!-- ═════════════ DECORATIVE SIDE LABELS ═════════════ -->
+          <text class="stage-label legend-mark solid" x="40" y="1740">───</text>
+          <text class="stage-label" x="70" y="1740">Solid line = conversation flow</text>
+          <text class="stage-label legend-mark dashed" x="40" y="1770">- - -</text>
+          <text class="stage-label" x="70" y="1770">Dashed orange = data lookup feeding the drafter</text>
+        </svg>
       </div>
 
       <div class="legend">
         <div class="legend-item">
           <div class="legend-swatch built"></div>
-          <span><strong style="color:var(--text-pri)">Built &amp; live</strong></span>
+          <span><strong>Built &amp; live</strong> — shipped and working today</span>
         </div>
         <div class="legend-item">
           <div class="legend-swatch partial"></div>
-          <span><strong style="color:var(--text-pri)">Partial</strong> — built but parked or lightly exercised</span>
+          <span><strong>Partial</strong> — code built, gated or lightly exercised</span>
         </div>
         <div class="legend-item">
           <div class="legend-swatch planned"></div>
-          <span><strong style="color:var(--text-pri)">Planned</strong></span>
+          <span><strong>Planned</strong></span>
         </div>
       </div>
     </section>
 
+    <!-- ─── SECTION 02 — STAGE NARRATIVE ──────────────────────── -->
     <section>
       <div class="section-head">
         <span class="num">02</span>
+        <h2>Each Stage In One Line</h2>
+      </div>
+      <div class="card">
+        <dl class="kv">
+          <dt>Stage 01</dt><dd>Customer texts, calls, or sends an MMS photo to the tradie's number.</dd>
+          <dt>Stage 02</dt><dd>Twilio receives it on the per-tradie AU number and webhooks our app.</dd>
+          <dt>Stage 03</dt><dd>SMS goes to the dialog agent (Haiku 4.5). Voice goes to Vapi (Haiku 4.5, parked behind env flag).</dd>
+          <dt>Stage 04</dt><dd>Opus 4.7 reads the full transcript + photos and writes a clean structured job brief.</dd>
+          <dt>Stage 05</dt><dd>Opus 4.7 drafts the quote, looking up real prices from the tradie's pricing book, the shared catalogue, and similar past quotes.</dd>
+          <dt>Stage 06</dt><dd>Three tiers come out — Good, Better, Best — every price grounded in real catalogue data.</dd>
+          <dt>Stage 07</dt><dd>Customer gets a quote SMS + mobile quote page link. Tradie sees a new card on the dashboard.</dd>
+          <dt>Stage 08</dt><dd>Customer pays a deposit via Stripe Checkout. Money currently lands in the QuoteMate account; Stripe Connect flips on when tradie #2 onboards.</dd>
+          <dt>Stage 09</dt><dd>Customer picks a slot. Both sides get a confirmation SMS.</dd>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ─── SECTION 03 — TECH STACK ───────────────────────────── -->
+    <section>
+      <div class="section-head">
+        <span class="num">03</span>
         <h2>Tech Stack</h2>
       </div>
       <div class="card">
         <dl class="kv">
           <dt>Web + API</dt><dd>Next.js (App Router) on Vercel</dd>
-          <dt>Database</dt><dd>Supabase Postgres (with pgvector for similar-quote lookup)</dd>
+          <dt>Database</dt><dd>Supabase Postgres + pgvector for similar-quote lookup</dd>
           <dt>Auth</dt><dd>Supabase Auth (email/password + magic links)</dd>
-          <dt>SMS / Voice carrier</dt><dd>Twilio Australia (mobile + local numbers, MMS, WhatsApp fallback)</dd>
+          <dt>SMS / Voice carrier</dt><dd>Twilio Australia · mobile + local numbers · MMS · WhatsApp fallback</dd>
           <dt>Voice AI</dt><dd>Vapi orchestrator · Deepgram speech-to-text · ElevenLabs voice</dd>
-          <dt>LLM</dt><dd>Anthropic Claude — Haiku 4.5 for dialog, Opus 4.7 for intake + drafting</dd>
+          <dt>LLM — dialog</dt><dd>Claude Haiku 4.5 (intent · SMS turn · slot extraction · voice brain)</dd>
+          <dt>LLM — drafting</dt><dd>Claude Opus 4.7 (intake structuring · 3-tier quote drafting)</dd>
+          <dt>Embeddings</dt><dd>Voyage AI · pgvector storage · reranking for past-quote RAG</dd>
           <dt>Image AI</dt><dd>Google Gemini for tier preview renders</dd>
-          <dt>Payments</dt><dd>Stripe Australia · Connect Express ready for marketplace flow</dd>
-          <dt>Hosting</dt><dd>Vercel (web + cron), Supabase (db + storage)</dd>
-          <dt>Tests</dt><dd>Vitest (93 unit specs) + Playwright (E2E activation flow)</dd>
+          <dt>Payments</dt><dd>Stripe Australia · platform-direct today · Connect Express ready</dd>
+          <dt>Hosting</dt><dd>Vercel (web + cron) · Supabase (DB + storage)</dd>
+          <dt>Tests</dt><dd>93 Vitest unit specs · 1 Playwright E2E (activation flow)</dd>
         </dl>
       </div>
     </section>
