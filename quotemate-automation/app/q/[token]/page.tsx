@@ -160,9 +160,18 @@ export default async function PublicQuotePage(props: {
   // only matters when intake.photo_paths is non-empty; when it's empty
   // we know the customer hasn't attached anything yet, so falling back
   // to live can't bleed photos from another quote.
+  // SMS intakes always have intakes.call_id = null — the link from intake
+  // to its sms_conversation is the reverse direction: sms_conversations.intake_id.
+  // Voice intakes use intakes.call_id pointing at the calls row. Resolve both.
+  // SMS intakes always have intakes.call_id = null — the link from intake
+  // to its sms_conversation is the reverse direction: sms_conversations.intake_id.
+  // Voice intakes use intakes.call_id pointing at the calls row. Resolve both.
+  type ConvoRow = { photo_request_token: string | null; photo_paths: string[] | null }
   let uploadToken: string | null = null
   let liveSignedUrls: string[] = []
   const callId = (intake?.call_id ?? null) as string | null
+  let convoRow: ConvoRow | null = null
+
   if (callId) {
     const { data: call } = await supabase
       .from('calls')
@@ -185,17 +194,28 @@ export default async function PublicQuotePage(props: {
         .select('photo_request_token, photo_paths')
         .eq('id', callId)
         .maybeSingle()
-      if (convo) {
-        uploadToken = (convo.photo_request_token as string | null) ?? null
-        if (photoPaths.length === 0) {
-          const livePaths = Array.isArray(convo.photo_paths)
-            ? (convo.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
-            : []
-          liveSignedUrls = livePaths.length === 0 ? [] : (
-            await Promise.all(livePaths.map(p => refreshSignedUrl(p).catch(() => null)))
-          ).filter((u): u is string => !!u)
-        }
-      }
+      convoRow = (convo as unknown as ConvoRow | null) ?? null
+    }
+  } else if (intake?.id) {
+    const { data: convo } = await supabase
+      .from('sms_conversations')
+      .select('photo_request_token, photo_paths')
+      .eq('intake_id', intake.id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    convoRow = (convo as unknown as ConvoRow | null) ?? null
+  }
+
+  if (convoRow) {
+    uploadToken = convoRow.photo_request_token ?? null
+    if (photoPaths.length === 0) {
+      const livePaths = Array.isArray(convoRow.photo_paths)
+        ? convoRow.photo_paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
+        : []
+      liveSignedUrls = livePaths.length === 0 ? [] : (
+        await Promise.all(livePaths.map(p => refreshSignedUrl(p).catch(() => null)))
+      ).filter((u): u is string => !!u)
     }
   }
 
