@@ -302,38 +302,33 @@ export default function DashboardPage() {
     )
   }
 
-  return (
-    <Shell businessName={data.tenant.business_name} onSignOut={signOut} wide>
-      {/* Greeting header — full-width across the grid */}
-      <header className="flex flex-wrap items-end justify-between gap-4 pb-6 border-b border-ink-line">
-        <div>
-          <span className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-text-dim">
-            QuoteMate · Portal
-          </span>
-          <h1 className="mt-2 font-extrabold uppercase text-[clamp(1.5rem,3.5vw,2.25rem)] leading-[1] tracking-[-0.03em]">
-            G&rsquo;day{' '}
-            <span className="text-accent">
-              {data.tenant.owner_first_name || 'tradie'}
-            </span>
-            .
-          </h1>
-          <p className="mt-2 text-text-sec text-sm">
-            {data.tenant.business_name} ·{' '}
-            {tenantTradesLabel(data.tenant)} · {data.tenant.state ?? '—'}
-          </p>
-        </div>
-        <StatusBadge status={data.tenant.status} />
-      </header>
+  // Compact subtitle for the top-nav profile chip — "Electrical · NSW"
+  // style. Replaces the prior big greeting block under the top bar.
+  const profileSubtitle = [
+    tenantTradesLabel(data.tenant),
+    data.tenant.state,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
+  return (
+    <Shell
+      businessName={data.tenant.business_name}
+      onSignOut={signOut}
+      wide
+      ownerFirstName={data.tenant.owner_first_name ?? 'Tradie'}
+      tenantStatus={data.tenant.status}
+      tenantSubtitle={profileSubtitle || null}
+    >
       {/* Mobile tab strip (< lg). Hidden on desktop — sidebar takes over. */}
-      <div className="mt-6 lg:mt-0">
-        <MobileTabBar tab={tab} setTab={setTab} quoteCount={data.quotes.length} />
-      </div>
+      <MobileTabBar tab={tab} setTab={setTab} quoteCount={data.quotes.length} />
 
       {/* Desktop two-column grid: sidebar | content. On mobile this
           collapses to single-column with MobileTabBar handling section
-          switching above. */}
-      <div className="mt-6 lg:mt-8 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8">
+          switching above. The grid starts immediately under the top
+          nav — no big greeting block above so the sidebar aligns flush
+          with the KPI row. */}
+      <div className="mt-4 lg:mt-6 lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8">
         <Sidebar tab={tab} setTab={setTab} quoteCount={data.quotes.length} />
         <section className="mt-6 lg:mt-0 pb-20 min-w-0">
           {/* `key={tab}` forces a tear-down + remount when the user
@@ -372,6 +367,9 @@ function Shell({
   onSignOut,
   children,
   wide,
+  ownerFirstName,
+  tenantStatus,
+  tenantSubtitle,
 }: {
   businessName: string | null
   onSignOut: () => void
@@ -380,47 +378,121 @@ function Shell({
    *  dashboard has room for the sidebar+content grid. Loading + error
    *  states omit this flag and keep the narrower 5xl frame. */
   wide?: boolean
+  /** Owner first name — when present, renders the compact profile chip
+   *  in the top-right of the nav bar (avatar disc + name + status). */
+  ownerFirstName?: string | null
+  /** Tenant status drives the green/amber pulse next to the profile
+   *  chip. Optional so the loading/error Shell can omit it. */
+  tenantStatus?: 'onboarding' | 'active' | null
+  /** Small one-line context under the name in the profile chip — e.g.
+   *  "Electrical · NSW". */
+  tenantSubtitle?: string | null
 }) {
+  const showProfile = !!ownerFirstName
   return (
     <main className="min-h-screen bg-ink-deep text-text-pri flex flex-col">
       <nav className="border-b border-ink-line bg-ink-deep sticky top-0 z-20">
         <div
-          className={`mx-auto flex items-center justify-between px-6 py-4 ${
+          className={`mx-auto flex items-center justify-between gap-4 px-6 py-3 ${
             wide ? 'max-w-[88rem]' : 'max-w-7xl'
           }`}
         >
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <span className="grid h-7 w-7 place-items-center bg-accent font-black text-white text-xs">
+          <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
+            <span className="grid h-7 w-7 place-items-center bg-accent font-black text-white text-xs shrink-0">
               Q
             </span>
-            <span className="font-extrabold uppercase tracking-tight text-text-pri">
+            <span className="font-extrabold uppercase tracking-tight text-text-pri shrink-0">
               QuoteMate
             </span>
             {businessName && (
               <>
-                <span className="text-text-dim">/</span>
-                <span className="font-mono text-xs uppercase tracking-[0.14em] text-text-sec">
+                <span className="text-text-dim shrink-0">/</span>
+                <span className="font-mono text-xs uppercase tracking-[0.14em] text-text-sec truncate">
                   {businessName}
                 </span>
               </>
             )}
           </Link>
-          <button
-            onClick={onSignOut}
-            className="text-sm font-semibold uppercase tracking-wider text-text-sec hover:text-text-pri transition-colors"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {showProfile && (
+              <ProfileChip
+                firstName={ownerFirstName!}
+                subtitle={tenantSubtitle ?? null}
+                status={tenantStatus ?? null}
+              />
+            )}
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="text-xs font-semibold uppercase tracking-wider text-text-sec hover:text-text-pri transition-colors cursor-pointer"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </nav>
       <div
-        className={`flex-1 mx-auto w-full px-6 py-8 ${
+        className={`flex-1 mx-auto w-full px-6 py-6 ${
           wide ? 'max-w-[88rem]' : 'max-w-5xl py-10'
         }`}
       >
         {children}
       </div>
     </main>
+  )
+}
+
+/** Compact identity chip rendered in the top-nav right-side cluster.
+ *  Avatar disc carries the owner's initial in accent orange; the name
+ *  and status sit beside it. Status badge uses a tiny coloured dot so
+ *  the chip doesn't visually outweigh the rest of the nav.
+ *  On narrow screens the name + subtitle collapse — only the avatar
+ *  remains, so the chip never wraps. */
+function ProfileChip({
+  firstName,
+  subtitle,
+  status,
+}: {
+  firstName: string
+  subtitle: string | null
+  status: 'onboarding' | 'active' | null
+}) {
+  const initial = (firstName.trim()[0] ?? '?').toUpperCase()
+  const active = status === 'active'
+  return (
+    <div className="flex items-center gap-2.5 border border-ink-line bg-ink-card pl-1.5 pr-3 py-1">
+      <span
+        aria-hidden="true"
+        className="grid h-7 w-7 place-items-center bg-accent/15 border border-accent/40 text-accent font-mono font-extrabold text-xs"
+      >
+        {initial}
+      </span>
+      <div className="hidden md:flex flex-col leading-none min-w-0">
+        <span className="font-extrabold text-text-pri text-xs uppercase tracking-[0.05em] truncate">
+          {firstName}
+        </span>
+        {subtitle && (
+          <span className="mt-0.5 font-mono text-[0.55rem] uppercase tracking-[0.14em] text-text-dim truncate">
+            {subtitle}
+          </span>
+        )}
+      </div>
+      {status && (
+        <span
+          className={`flex items-center gap-1.5 pl-2 ml-1 border-l border-ink-line font-mono text-[0.55rem] uppercase tracking-[0.16em] font-bold ${
+            active ? 'text-emerald-300' : 'text-amber-300'
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-1.5 rounded-full ${
+              active ? 'bg-emerald-300' : 'bg-amber-300'
+            }`}
+          />
+          {active ? 'Active' : 'Onboarding'}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -543,26 +615,6 @@ function MobileTabBar({
         )
       })}
     </nav>
-  )
-}
-
-function StatusBadge({ status }: { status: 'onboarding' | 'active' }) {
-  const isActive = status === 'active'
-  return (
-    <span
-      className={`inline-flex items-center gap-2 font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-3 py-1.5 border ${
-        isActive
-          ? 'text-emerald-300 border-emerald-700/60 bg-emerald-950/30'
-          : 'text-amber-300 border-amber-700/60 bg-amber-950/30'
-      }`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          isActive ? 'bg-emerald-300' : 'bg-amber-300'
-        }`}
-      />
-      {isActive ? 'Active' : 'Onboarding'}
-    </span>
   )
 }
 
