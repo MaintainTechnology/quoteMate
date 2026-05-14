@@ -141,6 +141,69 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     owner_id: resolved.ownerId.slice(0, 8) + '…',
   })
 
+  // ─── Mirror new paths into intakes.photo_paths ─────────────────────
+  // The customer quote page (/q/<token>) renders from intakes.photo_paths
+  // first and only falls back to live calls/sms_conversations.photo_paths
+  // when the intake snapshot is empty. Without this mirror, late uploads
+  // (via the SMS link or in-page Step 02 widget) would be invisible on
+  // any quote that already had dialog-attached photos in its snapshot.
+  // We merge (intake snapshot ∪ new paths) instead of overwriting, so
+  // dialog-MMS photos are preserved alongside the late uploads.
+  let mirroredIntakeId: string | null = null
+  try {
+    if (resolved.source === 'call') {
+      const { data } = await supabase
+        .from('intakes')
+        .select('id, photo_paths')
+        .eq('call_id', resolved.ownerId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (data?.id) {
+        mirroredIntakeId = data.id as string
+        const existing = Array.isArray(data.photo_paths)
+          ? (data.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+          : []
+        const mergedIntakePaths = Array.from(new Set([...existing, ...newPaths]))
+        const { error: mirrorErr } = await supabase
+          .from('intakes')
+          .update({ photo_paths: mergedIntakePaths })
+          .eq('id', mirroredIntakeId)
+        if (mirrorErr) log.err('intakes.photo_paths mirror failed (call)', mirrorErr.message)
+        else log.ok('intakes.photo_paths mirrored', { intake_id: mirroredIntakeId, total: mergedIntakePaths.length })
+      }
+    } else {
+      const { data: convo } = await supabase
+        .from('sms_conversations')
+        .select('intake_id')
+        .eq('id', resolved.ownerId)
+        .maybeSingle()
+      const intakeId = (convo?.intake_id as string | null) ?? null
+      if (intakeId) {
+        mirroredIntakeId = intakeId
+        const { data: intake } = await supabase
+          .from('intakes')
+          .select('photo_paths')
+          .eq('id', intakeId)
+          .maybeSingle()
+        const existing = Array.isArray(intake?.photo_paths)
+          ? (intake.photo_paths as string[]).filter((p): p is string => typeof p === 'string' && p.length > 0)
+          : []
+        const mergedIntakePaths = Array.from(new Set([...existing, ...newPaths]))
+        const { error: mirrorErr } = await supabase
+          .from('intakes')
+          .update({ photo_paths: mergedIntakePaths })
+          .eq('id', intakeId)
+        if (mirrorErr) log.err('intakes.photo_paths mirror failed (sms)', mirrorErr.message)
+        else log.ok('intakes.photo_paths mirrored', { intake_id: intakeId, total: mergedIntakePaths.length })
+      } else {
+        log.ok('intakes.photo_paths mirror skipped — no intake yet for this conversation')
+      }
+    }
+  } catch (e: any) {
+    log.err('intakes.photo_paths mirror threw', e?.message ?? String(e))
+  }
+
   // We deliberately do NOT re-trigger /api/intake/structure here. The intake/estimate
   // chain runs in parallel after the call ends, racing to produce a quote within
   // ~70s. By the time photos arrive, the quote SMS may already have gone out.
