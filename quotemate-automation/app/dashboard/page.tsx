@@ -812,9 +812,47 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* KPI ROW — at-a-glance triage state. Numbered-card pattern (big
-          orange mono value, uppercase label). Each tile carries its
-          own fade-up so the row reveals smoothly on first mount. */}
+      {/* PIPELINE — money view. Lifted to the top (right under the
+          QuoteMate number hero) because revenue + conversion are what
+          the tradie actually opens the dashboard to check first. */}
+      <section className="bg-ink-card border border-ink-line motion-safe:animate-[fade-up_280ms_ease-out_both]">
+        <header className="flex items-center justify-between px-5 py-3 border-b border-ink-line">
+          <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold text-text-pri">
+            Pipeline
+          </h2>
+          <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+            All time
+          </span>
+        </header>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-ink-line border-t border-ink-line">
+          <PipelineStat
+            label="Quoted"
+            value={`$${formatMoney(Math.round(quotedValue))}`}
+            hint={`${activeQuotes} ${activeQuotes === 1 ? 'quote' : 'quotes'} drafted`}
+          />
+          <PipelineStat
+            label="Converted"
+            value={`$${formatMoney(Math.round(acceptedValue))}`}
+            hint={`${acceptedQuotes.length} accepted`}
+            tone={acceptedQuotes.length > 0 ? 'ok' : 'default'}
+          />
+          <PipelineStat
+            label="Conversion"
+            value={`${conversionPct}%`}
+            hint={`${acceptedQuotes.length} of ${activeQuotes}`}
+          />
+          <PipelineStat
+            label="Avg quote"
+            value={`$${formatMoney(Math.round(avgQuoteValue))}`}
+            hint={`${depositsPaidCount} ${depositsPaidCount === 1 ? 'deposit' : 'deposits'} paid`}
+          />
+        </div>
+      </section>
+
+      {/* KPI ROW — operational state below the money. Numbered-card
+          pattern (big orange mono value, uppercase label). Each tile
+          carries its own fade-up so the row reveals smoothly on first
+          mount. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-ink-line border border-ink-line">
         <KpiTile
           label="Quotes total"
@@ -901,43 +939,6 @@ function OverviewTab({
         </section>
       </div>
 
-      {/* PIPELINE — the money view. Total quoted, total converted,
-          conversion %, deposits, average ticket. Numbered-card pattern
-          again so it reads as a continuation of the KPI row, not a new
-          design language. */}
-      <section className="bg-ink-card border border-ink-line motion-safe:animate-[fade-up_320ms_ease-out_both]">
-        <header className="flex items-center justify-between px-5 py-3 border-b border-ink-line">
-          <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold text-text-pri">
-            Pipeline
-          </h2>
-          <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
-            All time
-          </span>
-        </header>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-ink-line border-t border-ink-line">
-          <PipelineStat
-            label="Quoted"
-            value={`$${formatMoney(Math.round(quotedValue))}`}
-            hint={`${activeQuotes} ${activeQuotes === 1 ? 'quote' : 'quotes'} drafted`}
-          />
-          <PipelineStat
-            label="Converted"
-            value={`$${formatMoney(Math.round(acceptedValue))}`}
-            hint={`${acceptedQuotes.length} accepted`}
-            tone={acceptedQuotes.length > 0 ? 'ok' : 'default'}
-          />
-          <PipelineStat
-            label="Conversion"
-            value={`${conversionPct}%`}
-            hint={`${acceptedQuotes.length} of ${activeQuotes}`}
-          />
-          <PipelineStat
-            label="Avg quote"
-            value={`$${formatMoney(Math.round(avgQuoteValue))}`}
-            hint={`${depositsPaidCount} ${depositsPaidCount === 1 ? 'deposit' : 'deposits'} paid`}
-          />
-        </div>
-      </section>
     </div>
   )
 }
