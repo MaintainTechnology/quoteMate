@@ -43,6 +43,9 @@
       stroke-width: 1;
       stroke-dasharray: 3 3;
     }
+    /* legend inside the journey wrap — class to replace inline strong styles */
+    .journey-wrap + .legend strong,
+    .legend strong { color: var(--text-pri); }
     .zone-label {
       fill: var(--text-dim);
       font-family: 'JetBrains Mono', monospace;
@@ -161,12 +164,12 @@
         <span class="num">01</span>
         <h2>Two-Sided Flow · Tradie + Customer</h2>
       </div>
-      <p>Tradie sets up the platform once (top). After that, every customer text triggers the
-      recurring flow on the right. Orange arrows show the three real handoffs between the two
-      sides.</p>
+      <p>Setup runs left-to-right across the top (one time, tradie only). After the receptionist
+      goes live, every customer text moves both sides through their own column. Orange arrows mark
+      the four moments where the two sides cross over.</p>
 
       <div class="journey-wrap">
-        <svg viewBox="0 0 960 1560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="QuoteMate two-sided process flow — tradie and customer">
+        <svg viewBox="0 0 1000 1260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="QuoteMate two-sided process flow — tradie and customer">
           <defs>
             <marker id="arrow-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A8699"/>
@@ -176,167 +179,169 @@
             </marker>
           </defs>
 
-          <!-- ═══════ COLUMN HEADERS ═══════ -->
-          <text class="lane-header tradie"   x="230" y="32" text-anchor="middle">Tradie</text>
-          <text class="lane-header customer" x="730" y="32" text-anchor="middle">Customer</text>
+          <!-- ═══════ ZONE 1 · PLATFORM SETUP (horizontal · tradie only) ═══════ -->
+          <rect class="zone-band" x="20" y="20" width="960" height="200"/>
+          <text class="zone-label" x="40" y="44">Platform Setup · once</text>
 
-          <!-- ═══════ ZONE 1 · PLATFORM SETUP (Tradie only) ═══════ -->
-          <rect class="zone-band" x="20" y="60" width="920" height="500"/>
-          <text class="zone-label" x="40" y="84">Platform Setup · once</text>
-
-          <!-- T1 Signs up -->
-          <g class="step built" transform="translate(130, 110)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 01</text>
-            <text class="title" x="14" y="42">Signs up</text>
-            <text class="sub"   x="14" y="58">Web · or SMS link</text>
+          <!-- T1 -->
+          <g class="step built" transform="translate(70, 80)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T1</text>
+            <text class="title" x="16" y="46">Signs up</text>
+            <text class="sub"   x="16" y="64">Web · or SMS link</text>
           </g>
-          <path class="lane-line" d="M 230 178 L 230 210" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 270 120 L 290 120" marker-end="url(#arrow-grey)"/>
 
-          <!-- T2 Picks trades -->
-          <g class="step built" transform="translate(130, 215)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 02</text>
-            <text class="title" x="14" y="42">Picks trades</text>
-            <text class="sub"   x="14" y="58">Electrical · plumbing · both</text>
+          <!-- T2 -->
+          <g class="step built" transform="translate(290, 80)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T2</text>
+            <text class="title" x="16" y="46">Picks trades</text>
+            <text class="sub"   x="16" y="64">Electrical · plumbing · both</text>
           </g>
-          <path class="lane-line" d="M 230 283 L 230 315" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 490 120 L 510 120" marker-end="url(#arrow-grey)"/>
 
-          <!-- T3 Activates -->
-          <g class="step built" transform="translate(130, 320)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 03</text>
-            <text class="title" x="14" y="42">Hits Activate</text>
-            <text class="sub"   x="14" y="58">One tap · auto-provision</text>
+          <!-- T3 -->
+          <g class="step built" transform="translate(510, 80)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T3</text>
+            <text class="title" x="16" y="46">Hits Activate</text>
+            <text class="sub"   x="16" y="64">One tap · auto-provision</text>
           </g>
-          <path class="lane-line" d="M 230 388 L 230 420" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 710 120 L 730 120" marker-end="url(#arrow-grey)"/>
 
-          <!-- T4 Receptionist LIVE (milestone) -->
-          <g class="step built milestone" transform="translate(130, 425)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 04 · MILESTONE</text>
-            <text class="title" x="14" y="42">Receptionist live</text>
-            <text class="sub"   x="14" y="58">AU number · AI on 24/7</text>
+          <!-- T4 · MILESTONE -->
+          <g class="step built milestone" transform="translate(730, 80)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T4 · MILESTONE</text>
+            <text class="title" x="16" y="46">Receptionist live</text>
+            <text class="sub"   x="16" y="64">AU number · AI on 24/7</text>
           </g>
 
-          <!-- HANDOFF 1 · T4 enables the customer side -->
-          <path class="handoff" d="M 330 459 L 460 459 L 460 645 L 630 645" marker-end="url(#arrow-orange)"/>
-          <text class="handoff-label" x="470" y="450">enables →</text>
+          <!-- HANDOFF 1 · setup enables the recurring flow -->
+          <path class="handoff" d="M 830 160 L 830 235" marker-end="url(#arrow-orange)"/>
+          <text class="handoff-label" x="846" y="200">enables ↓</text>
 
-          <!-- ═══════ ZONE 2 · EVERY JOB (recurring) ═══════ -->
-          <rect class="zone-band" x="20" y="600" width="920" height="940"/>
-          <text class="zone-label" x="40" y="624">Every Job · recurring</text>
+          <!-- ═══════ ZONE 2 · EVERY JOB (recurring · dual column) ═══════ -->
+          <rect class="zone-band" x="20" y="250" width="960" height="980"/>
+          <text class="zone-label" x="40" y="274">Every Job · recurring</text>
+
+          <!-- COLUMN HEADERS (recurring zone only) -->
+          <text class="lane-header tradie"   x="230" y="305" text-anchor="middle">Tradie</text>
+          <text class="lane-header customer" x="770" y="305" text-anchor="middle">Customer</text>
 
           <!-- C1 Texts the number -->
-          <g class="step built" transform="translate(630, 650)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 01</text>
-            <text class="title" x="14" y="42">Texts the number</text>
-            <text class="sub"   x="14" y="58">Their tradie's AU mobile</text>
+          <g class="step built" transform="translate(670, 330)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C1</text>
+            <text class="title" x="16" y="46">Texts the number</text>
+            <text class="sub"   x="16" y="64">Their tradie's AU mobile</text>
           </g>
-          <path class="lane-line" d="M 730 718 L 730 750" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 770 410 L 770 430" marker-end="url(#arrow-grey)"/>
 
           <!-- C2 AI conversation -->
-          <g class="step built" transform="translate(630, 755)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 02</text>
-            <text class="title" x="14" y="42">AI conversation</text>
-            <text class="sub"   x="14" y="58">Haiku 4.5 · ≤ 4 turns</text>
+          <g class="step built" transform="translate(670, 430)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C2</text>
+            <text class="title" x="16" y="46">AI conversation</text>
+            <text class="sub"   x="16" y="64">Haiku 4.5 · ≤ 4 turns</text>
           </g>
-          <path class="lane-line" d="M 730 823 L 730 855" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 770 510 L 770 530" marker-end="url(#arrow-grey)"/>
 
           <!-- C3 Sends photos -->
-          <g class="step built" transform="translate(630, 860)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 03</text>
-            <text class="title" x="14" y="42">Sends photos</text>
-            <text class="sub"   x="14" y="58">Camera · gallery · MMS</text>
+          <g class="step built" transform="translate(670, 530)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C3</text>
+            <text class="title" x="16" y="46">Sends photos</text>
+            <text class="sub"   x="16" y="64">Camera · gallery · MMS</text>
           </g>
 
-          <!-- HANDOFF 2 · customer info crosses to tradie dashboard -->
-          <path class="handoff" d="M 630 894 L 480 894 L 480 974 L 330 974" marker-end="url(#arrow-orange)"/>
-          <text class="handoff-label" x="370" y="884">← AI drafts quote</text>
+          <!-- HANDOFF 2 · customer info crosses to tradie -->
+          <path class="handoff" d="M 670 580 L 500 580 L 500 670 L 330 670" marker-end="url(#arrow-orange)"/>
+          <text class="handoff-label" x="500" y="568" text-anchor="middle">AI drafts quote</text>
 
           <!-- T5 Quote appears -->
-          <g class="step built" transform="translate(130, 940)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 05</text>
-            <text class="title" x="14" y="42">Quote appears</text>
-            <text class="sub"   x="14" y="58">On the tradie dashboard</text>
+          <g class="step built" transform="translate(130, 630)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T5</text>
+            <text class="title" x="16" y="46">Quote appears</text>
+            <text class="sub"   x="16" y="64">On the tradie dashboard</text>
           </g>
-          <path class="lane-line" d="M 230 1008 L 230 1040" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 230 710 L 230 730" marker-end="url(#arrow-grey)"/>
 
           <!-- T6 Reviews + sends -->
-          <g class="step built" transform="translate(130, 1045)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 06</text>
-            <text class="title" x="14" y="42">Reviews + sends</text>
-            <text class="sub"   x="14" y="58">Edits any tier · re-stripes</text>
+          <g class="step built" transform="translate(130, 730)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T6</text>
+            <text class="title" x="16" y="46">Reviews + sends</text>
+            <text class="sub"   x="16" y="64">Edits any tier · re-stripes</text>
           </g>
 
-          <!-- HANDOFF 3 · tradie's reviewed quote crosses back to customer -->
-          <path class="handoff" d="M 330 1079 L 480 1079 L 480 1164 L 630 1164" marker-end="url(#arrow-orange)"/>
-          <text class="handoff-label" x="500" y="1070">quote sent →</text>
+          <!-- HANDOFF 3 · tradie's quote crosses back to customer -->
+          <path class="handoff" d="M 330 780 L 500 780 L 500 870 L 670 870" marker-end="url(#arrow-orange)"/>
+          <text class="handoff-label" x="500" y="768" text-anchor="middle">quote sent</text>
 
           <!-- C4 Gets quote SMS -->
-          <g class="step built" transform="translate(630, 1130)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 04</text>
-            <text class="title" x="14" y="42">Gets quote SMS</text>
-            <text class="sub"   x="14" y="58">3 tier prices + link</text>
+          <g class="step built" transform="translate(670, 830)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C4</text>
+            <text class="title" x="16" y="46">Gets quote SMS</text>
+            <text class="sub"   x="16" y="64">3 tier prices + link</text>
           </g>
-          <path class="lane-line" d="M 730 1198 L 730 1230" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 770 910 L 770 930" marker-end="url(#arrow-grey)"/>
 
           <!-- C5 Opens quote page -->
-          <g class="step built" transform="translate(630, 1235)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 05</text>
-            <text class="title" x="14" y="42">Opens quote page</text>
-            <text class="sub"   x="14" y="58">Mobile · picks a tier</text>
+          <g class="step built" transform="translate(670, 930)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C5</text>
+            <text class="title" x="16" y="46">Opens quote page</text>
+            <text class="sub"   x="16" y="64">Mobile · picks a tier</text>
           </g>
-          <path class="lane-line" d="M 730 1303 L 730 1335" marker-end="url(#arrow-grey)"/>
+          <path class="lane-line" d="M 770 1010 L 770 1030" marker-end="url(#arrow-grey)"/>
 
-          <!-- C6 Pays deposit -->
-          <g class="step partial" transform="translate(630, 1340)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 06</text>
-            <text class="title" x="14" y="42">Pays deposit</text>
-            <text class="sub"   x="14" y="58">Stripe · 30% or $199</text>
+          <!-- C6 Pays deposit · partial -->
+          <g class="step partial" transform="translate(670, 1030)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C6</text>
+            <text class="title" x="16" y="46">Pays deposit</text>
+            <text class="sub"   x="16" y="64">Stripe · 30% or $199</text>
           </g>
 
-          <!-- HANDOFF 4 · payment notifies tradie -->
-          <path class="handoff" d="M 630 1374 L 480 1374 L 480 1374 L 330 1374" marker-end="url(#arrow-orange)"/>
-          <text class="handoff-label" x="430" y="1362">← paid</text>
+          <!-- HANDOFF 4 · payment notifies tradie (horizontal) -->
+          <path class="handoff" d="M 670 1070 L 330 1070" marker-end="url(#arrow-orange)"/>
+          <text class="handoff-label" x="500" y="1060" text-anchor="middle">paid</text>
 
-          <!-- T7 Paid + booked -->
-          <g class="step partial" transform="translate(130, 1340)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">T · 07</text>
-            <text class="title" x="14" y="42">Paid + booked</text>
-            <text class="sub"   x="14" y="58">Webhook · slot confirmed</text>
+          <!-- T7 Paid + booked · partial (same row as C6) -->
+          <g class="step partial" transform="translate(130, 1030)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">T7</text>
+            <text class="title" x="16" y="46">Paid + booked</text>
+            <text class="sub"   x="16" y="64">Webhook · slot confirmed</text>
           </g>
-          <path class="lane-line" d="M 730 1408 L 730 1440" marker-end="url(#arrow-grey)"/>
 
-          <!-- C7 Books slot -->
-          <g class="step partial" transform="translate(630, 1445)">
-            <rect class="body" width="200" height="68" rx="4"/>
-            <rect class="stripe" width="3" height="68"/>
-            <text class="num"   x="14" y="22">C · 07</text>
-            <text class="title" x="14" y="42">Books a slot</text>
-            <text class="sub"   x="14" y="58">Both get confirm SMS</text>
+          <!-- continue customer column from C6 down to C7 -->
+          <path class="lane-line" d="M 770 1110 L 770 1130" marker-end="url(#arrow-grey)"/>
+
+          <!-- C7 Books a slot · partial -->
+          <g class="step partial" transform="translate(670, 1130)">
+            <rect class="body" width="200" height="80" rx="4"/>
+            <rect class="stripe" width="3" height="80"/>
+            <text class="num"   x="16" y="22">C7</text>
+            <text class="title" x="16" y="46">Books a slot</text>
+            <text class="sub"   x="16" y="64">Both sides get confirm SMS</text>
           </g>
         </svg>
       </div>
@@ -344,15 +349,15 @@
       <div class="legend">
         <div class="legend-item">
           <div class="legend-swatch built"></div>
-          <span><strong style="color:var(--text-pri)">Built &amp; live</strong> — shipped, tested, working today</span>
+          <span><strong>Built &amp; live</strong> — shipped, tested, working today</span>
         </div>
         <div class="legend-item">
           <div class="legend-swatch partial"></div>
-          <span><strong style="color:var(--text-pri)">Partial</strong> — code shipped, not yet exercised at volume</span>
+          <span><strong>Partial</strong> — code shipped, not yet exercised at volume</span>
         </div>
         <div class="legend-item">
           <div class="legend-swatch planned"></div>
-          <span><strong style="color:var(--text-pri)">Planned</strong> — designed, not yet built</span>
+          <span><strong>Planned</strong> — designed, not yet built</span>
         </div>
       </div>
     </section>
