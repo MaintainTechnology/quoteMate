@@ -17,6 +17,13 @@ export function plumbingSystemPrompt(pricingBook: {
   licence_state: string | null;
 }) {
   const minLabourHours = pricingBook.min_labour_hours ?? 1.5;
+  // Compute every catalogue price at the TRADIE'S configured markup, not
+  // a hardcoded 20%. Without this, Peppers (15%) sees $1320 in the prompt
+  // when its book actually produces $1265, Opus copies the prompt value
+  // verbatim, and the validator's ±5pp drift lets the wrong-markup line
+  // pass — producing quotes with mixed markup percentages across lines.
+  // Bug #3 from the 2026-05-14 stress test.
+  const m = (raw: number) => Math.round(raw * (1 + pricingBook.default_markup_pct / 100));
   return `STRICT GROUNDING — non-negotiable, supersedes every rule below
 1. EVERY line_item.unit_price_ex_gst MUST come from a tool result —
    lookup_assembly, lookup_material, apply_markup, pricing_book.hourly_rate,
@@ -58,29 +65,32 @@ export function plumbingSystemPrompt(pricingBook: {
     rejects any line whose price doesn't match raw or
     × ${pricingBook.default_markup_pct}% markup exactly.
 
-    EXACT VALID PRICES for plumbing materials (raw × 1.${String(pricingBook.default_markup_pct).padStart(2,'0')} = marked):
-      Sundries $35 → $42
-      Outdoor garden tap $45 → $54
-      Cistern internals $45 → $54
-      Standard chrome basin tap $80 → $96
-      Laundry tap (chrome) $95 → $114
-      Kitchen mixer $220 → $264
-      Close-coupled toilet $350 → $420
-      Premium wall mixer $380 → $456
-      Electric HWS 125L $520 → $624
-      Wall-faced toilet $580 → $696
-      Electric HWS 250L basic $750 → $900
-      In-wall cistern toilet $850 → $1020
-      Gas storage HWS 170L $950 → $1140
-      Gas storage HWS 250L $1050 → $1260
-      Electric HWS 315L premium $1100 → $1320
-      Gas storage HWS 315L $1250 → $1500
-      Gas continuous-flow $1350 → $1620
-      Electric HWS 400L premium $1450 → $1740
-      Smart toilet suite $1900 → $2280
-      Heat pump HWS 270L $2200 → $2640
-      Heat pump HWS 315L $2500 → $3000
-    Emit these EXACTLY. The validator allows ±$0.50 tolerance only.
+    EXACT VALID PRICES for plumbing materials (raw × ${(1 + pricingBook.default_markup_pct / 100).toFixed(2)} = marked, computed from THIS tradie's default_markup_pct=${pricingBook.default_markup_pct}%):
+      Sundries $35 → $${m(35)}
+      Outdoor garden tap $45 → $${m(45)}
+      Cistern internals $45 → $${m(45)}
+      Standard chrome basin tap $80 → $${m(80)}
+      Laundry tap (chrome) $95 → $${m(95)}
+      Kitchen mixer $220 → $${m(220)}
+      Close-coupled toilet $350 → $${m(350)}
+      Premium wall mixer $380 → $${m(380)}
+      Electric HWS 125L $520 → $${m(520)}
+      Wall-faced toilet $580 → $${m(580)}
+      Electric HWS 250L basic $750 → $${m(750)}
+      In-wall cistern toilet $850 → $${m(850)}
+      Gas storage HWS 170L $950 → $${m(950)}
+      Gas storage HWS 250L $1050 → $${m(1050)}
+      Electric HWS 315L premium $1100 → $${m(1100)}
+      Gas storage HWS 315L $1250 → $${m(1250)}
+      Gas continuous-flow $1350 → $${m(1350)}
+      Electric HWS 400L premium $1450 → $${m(1450)}
+      Smart toilet suite $1900 → $${m(1900)}
+      Heat pump HWS 270L $2200 → $${m(2200)}
+      Heat pump HWS 315L $2500 → $${m(2500)}
+    Emit these EXACTLY for the configured markup. The validator allows
+    ±$0.50 tolerance only. DO NOT default to 20% if your book is 15%, and
+    DO NOT mix markups across lines in the same quote — every priced
+    material line MUST use this tradie's default_markup_pct=${pricingBook.default_markup_pct}%.
     250L gas storage IS in the catalogue — never describe it as
     "closest size unavailable, falling back to 170L." That answer was
     correct before 2026-05-14; it is now wrong.
