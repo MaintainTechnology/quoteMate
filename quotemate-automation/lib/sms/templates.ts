@@ -183,38 +183,59 @@ export function buildTradieIntentExpiredSms(opts: {
 // Both are GSM-7 safe ASCII so they fit in a single SMS segment whenever
 // possible. They go to the tradie's mobile + WhatsApp simultaneously.
 // ════════════════════════════════════════════════════════════════════
+// Shared GSM-7 ASCII scrub for both tradie templates. Long dashes, smart
+// quotes, ellipsis, and middot render as boxes on older Android phones,
+// so we normalise them to safe ASCII before sending.
+function scrubForGsm7(text: string): string {
+  return text
+    .replace(/[‐-―−]/g, '-')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .replace(/·/g, '-')
+    .replace(/[^\x20-\x7E\n]/g, '')
+}
+
 export function buildTradieDraftNotification(opts: {
+  tradieFirstName?: string | null
   customerName?: string
   customerPhone?: string
   jobType: string
   itemCount?: number
   totalIncGst: number
   quoteUrl: string
+  dashboardUrl?: string
 }): string {
+  const greet = opts.tradieFirstName ? `Hi ${opts.tradieFirstName}` : 'Hi'
   const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
   const job = JOB_TYPE_LABEL[opts.jobType] ?? opts.jobType.replace(/_/g, ' ')
   const qty = opts.itemCount ? `${opts.itemCount} ${job}` : job
   const total = opts.totalIncGst.toFixed(0)
-  const body = `[QuoteMate] New SMS quote drafted - ${qty} for ${who}. Total $${total} inc GST. Review: ${opts.quoteUrl}`
-  return body
-    .replace(/[‐-―−]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
-    .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
+  const dashLine = opts.dashboardUrl ? `\nDashboard: ${opts.dashboardUrl}` : ''
+  const body =
+    `${greet}, ${who} has requested a quote - ${qty}, $${total} inc GST drafted and ready to review.\n` +
+    `Quote: ${opts.quoteUrl}${dashLine}`
+  return scrubForGsm7(body)
 }
 
 export function buildTradieInspectionNotification(opts: {
+  tradieFirstName?: string | null
   customerName?: string
   customerPhone?: string
   jobType: string
   inspectionReason?: string | null
   quoteUrl: string
+  dashboardUrl?: string
 }): string {
+  const greet = opts.tradieFirstName ? `Hi ${opts.tradieFirstName}` : 'Hi'
   const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
   const job = JOB_TYPE_LABEL[opts.jobType] ?? opts.jobType.replace(/_/g, ' ')
   const reason = opts.inspectionReason ? ` (${opts.inspectionReason})` : ''
-  const body = `[QuoteMate] SMS inspection booking - ${job} for ${who}${reason}. $199 site visit. Details: ${opts.quoteUrl}`
-  return body
-    .replace(/[‐-―−]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
-    .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
+  const dashLine = opts.dashboardUrl ? `\nDashboard: ${opts.dashboardUrl}` : ''
+  const body =
+    `${greet}, ${who} has requested work that needs a site visit - ${job}${reason}. $199 inspection.\n` +
+    `Details: ${opts.quoteUrl}${dashLine}`
+  return scrubForGsm7(body)
 }
 
 // Intake-recovery SMS — used when the quality gate fires 'empty' but we
@@ -359,23 +380,28 @@ export function buildBookingConfirmationSms(opts: {
 }
 
 // Tradie-side booking notification — fires alongside the customer
-// confirmation. Sent to TRADIE_NOTIFY_NUMBER (and WhatsApp) when set.
+// confirmation. Sent to the tenant's owner_mobile (and WhatsApp where
+// configured) when a customer accepts a tier and pays the deposit.
 export function buildTradieBookingNotification(opts: {
+  tradieFirstName?: string | null
   customerName?: string
   customerPhone?: string
   jobType: string
   itemCount?: number
   scheduledAt: string
   quoteUrl: string
+  dashboardUrl?: string
 }): string {
+  const greet = opts.tradieFirstName ? `Hi ${opts.tradieFirstName}` : 'Hi'
   const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
   const job = JOB_TYPE_LABEL[opts.jobType] ?? opts.jobType.replace(/_/g, ' ')
   const qty = opts.itemCount ? `${opts.itemCount} ${job}` : job
   const when = fmtSlotShort(opts.scheduledAt)
-  const body = `[QuoteMate] New booking - ${qty} for ${who} on ${when}. View: ${opts.quoteUrl}`
-  return body
-    .replace(/[‐-――]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
-    .replace(/…/g, '...').replace(/·/g, '-').replace(/[^\x20-\x7E\n]/g, '')
+  const dashLine = opts.dashboardUrl ? `\nDashboard: ${opts.dashboardUrl}` : ''
+  const body =
+    `${greet}, ${who} has booked and paid the deposit - ${qty} on ${when}.\n` +
+    `Job: ${opts.quoteUrl}${dashLine}`
+  return scrubForGsm7(body)
 }
 
 // Photo-request SMS — sent during/after the customer's first contact, in

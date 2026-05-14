@@ -169,14 +169,16 @@ export async function POST(
       // personal mobile (not a shared TRADIE_NOTIFY_NUMBER env var).
       let tenantSmsNumber: string | null = null
       let tenantOwnerMobile: string | null = null
+      let tenantOwnerFirstName: string | null = null
       if (quote.tenant_id) {
         const { data: tenantRow } = await supabase
           .from('tenants')
-          .select('twilio_sms_number, owner_mobile')
+          .select('twilio_sms_number, owner_mobile, owner_first_name')
           .eq('id', quote.tenant_id)
           .maybeSingle()
         tenantSmsNumber = (tenantRow?.twilio_sms_number as string | null) ?? null
         tenantOwnerMobile = (tenantRow?.owner_mobile as string | null) ?? null
+        tenantOwnerFirstName = (tenantRow?.owner_first_name as string | null) ?? null
       }
 
       const firstName = (intake?.caller as { name?: string } | null)?.name
@@ -224,12 +226,14 @@ export async function POST(
       const notifyMobile = tenantOwnerMobile ?? process.env.TRADIE_NOTIFY_NUMBER
       if (notifyMobile) {
         const tradieBody = buildTradieBookingNotification({
+          tradieFirstName: tenantOwnerFirstName,
           customerName: firstName,
           customerPhone: callerNumber ?? undefined,
           jobType: intake?.job_type ?? 'other',
           itemCount: (intake?.scope as { item_count?: number } | null)?.item_count,
           scheduledAt: slot,
           quoteUrl,
+          dashboardUrl: `${appUrl}/dashboard`,
         })
         sms.step('notifying tradie of booking', {
           to: notifyMobile,

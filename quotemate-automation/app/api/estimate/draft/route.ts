@@ -102,19 +102,22 @@ export async function POST(req: Request) {
     let tenantSmsNumber: string | null = null
     let tenantOwnerMobile: string | null = null
     let tenantBusinessName: string | null = null
+    let tenantOwnerFirstName: string | null = null
     if (intakeTenantId) {
       const { data: tenantRow } = await supabase
         .from('tenants')
-        .select('twilio_sms_number, owner_mobile, business_name')
+        .select('twilio_sms_number, owner_mobile, business_name, owner_first_name')
         .eq('id', intakeTenantId)
         .maybeSingle()
       tenantSmsNumber = (tenantRow?.twilio_sms_number as string | null) ?? null
       tenantOwnerMobile = (tenantRow?.owner_mobile as string | null) ?? null
       tenantBusinessName = (tenantRow?.business_name as string | null) ?? null
+      tenantOwnerFirstName = (tenantRow?.owner_first_name as string | null) ?? null
       log.ok('tenant outbound profile loaded', {
         tenant_id: intakeTenantId,
         has_sms_number: !!tenantSmsNumber,
         has_owner_mobile: !!tenantOwnerMobile,
+        has_owner_first_name: !!tenantOwnerFirstName,
       })
     }
 
@@ -518,21 +521,26 @@ export async function POST(req: Request) {
         const customerName = intake.caller?.name ?? undefined
         const customerPhone = callerNumber ?? undefined
         const quoteUrl = `${appUrl}/q/${shareToken}`
+        const dashboardUrl = `${appUrl}/dashboard`
         const tradieBody = isInspection
           ? buildTradieInspectionNotification({
+              tradieFirstName: tenantOwnerFirstName,
               customerName,
               customerPhone,
               jobType: intake.job_type,
               inspectionReason: draft.inspection_reason ?? null,
               quoteUrl,
+              dashboardUrl,
             })
           : buildTradieDraftNotification({
+              tradieFirstName: tenantOwnerFirstName,
               customerName,
               customerPhone,
               jobType: intake.job_type,
               itemCount: intake.scope?.item_count ?? undefined,
               totalIncGst: total,
               quoteUrl,
+              dashboardUrl,
             })
 
         if (notifyMobile) {
