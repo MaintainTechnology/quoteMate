@@ -393,27 +393,30 @@ function Shell({
     <main className="min-h-screen bg-ink-deep text-text-pri flex flex-col">
       <nav className="border-b border-ink-line bg-ink-deep sticky top-0 z-20">
         <div
-          className={`mx-auto flex items-center justify-between gap-4 px-6 py-3 ${
+          className={`mx-auto flex items-center justify-between gap-2 sm:gap-4 px-4 sm:px-6 py-3 ${
             wide ? 'max-w-[88rem]' : 'max-w-7xl'
           }`}
         >
-          <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
+          <Link href="/dashboard" className="flex items-center gap-2 sm:gap-3 min-w-0">
             <span className="grid h-7 w-7 place-items-center bg-accent font-black text-white text-xs shrink-0">
               Q
             </span>
-            <span className="font-extrabold uppercase tracking-tight text-text-pri shrink-0">
+            {/* Brand wordmark hidden on the smallest screens — the
+                Q-logo carries the brand and we need the row for the
+                business name + profile chip + sign-out. */}
+            <span className="hidden sm:inline font-extrabold uppercase tracking-tight text-text-pri shrink-0">
               QuoteMate
             </span>
             {businessName && (
               <>
-                <span className="text-text-dim shrink-0">/</span>
-                <span className="font-mono text-xs uppercase tracking-[0.14em] text-text-sec truncate">
+                <span className="hidden sm:inline text-text-dim shrink-0">/</span>
+                <span className="font-mono text-xs uppercase tracking-[0.14em] text-text-sec truncate max-w-[10rem] sm:max-w-none">
                   {businessName}
                 </span>
               </>
             )}
           </Link>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {showProfile && (
               <ProfileChip
                 firstName={ownerFirstName!}
@@ -424,15 +427,20 @@ function Shell({
             <button
               type="button"
               onClick={onSignOut}
-              className="text-xs font-semibold uppercase tracking-wider text-text-sec hover:text-text-pri transition-colors cursor-pointer"
+              aria-label="Sign out"
+              className="text-xs font-semibold uppercase tracking-wider text-text-sec hover:text-text-pri transition-colors cursor-pointer px-2 py-2 -mx-2"
             >
-              Sign out
+              {/* Full word on >= sm, compact glyph on mobile so the
+                  nav doesn't wrap. The pseudo-icon (→]) reads as
+                  "exit" without needing an SVG dependency. */}
+              <span className="hidden sm:inline">Sign out</span>
+              <span className="sm:hidden font-mono text-base">→]</span>
             </button>
           </div>
         </div>
       </nav>
       <div
-        className={`flex-1 mx-auto w-full px-6 py-6 ${
+        className={`flex-1 mx-auto w-full px-4 sm:px-6 py-5 sm:py-6 ${
           wide ? 'max-w-[88rem]' : 'max-w-5xl py-10'
         }`}
       >
@@ -459,14 +467,26 @@ function ProfileChip({
 }) {
   const initial = (firstName.trim()[0] ?? '?').toUpperCase()
   const active = status === 'active'
+  const dotColour = active ? 'bg-emerald-300' : 'bg-amber-300'
   return (
-    <div className="flex items-center gap-2.5 border border-ink-line bg-ink-card pl-1.5 pr-3 py-1">
-      <span
-        aria-hidden="true"
-        className="grid h-7 w-7 place-items-center bg-accent/15 border border-accent/40 text-accent font-mono font-extrabold text-xs"
-      >
-        {initial}
-      </span>
+    <div className="flex items-center gap-2.5 border border-ink-line bg-ink-card pl-1.5 pr-1.5 sm:pr-3 py-1">
+      <div className="relative shrink-0">
+        <span
+          aria-hidden="true"
+          className="grid h-7 w-7 place-items-center bg-accent/15 border border-accent/40 text-accent font-mono font-extrabold text-xs"
+        >
+          {initial}
+        </span>
+        {/* Mobile-only status dot — pinned to the avatar corner. The
+            full pill below carries the same info for >= sm, so this
+            badge is hidden then to avoid duplicate status indication. */}
+        {status && (
+          <span
+            aria-hidden="true"
+            className={`sm:hidden absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-ink-deep ${dotColour}`}
+          />
+        )}
+      </div>
       <div className="hidden md:flex flex-col leading-none min-w-0">
         <span className="font-extrabold text-text-pri text-xs uppercase tracking-[0.05em] truncate">
           {firstName}
@@ -479,15 +499,13 @@ function ProfileChip({
       </div>
       {status && (
         <span
-          className={`flex items-center gap-1.5 pl-2 ml-1 border-l border-ink-line font-mono text-[0.55rem] uppercase tracking-[0.16em] font-bold ${
+          className={`hidden sm:flex items-center gap-1.5 pl-2 ml-1 border-l border-ink-line font-mono text-[0.55rem] uppercase tracking-[0.16em] font-bold ${
             active ? 'text-emerald-300' : 'text-amber-300'
           }`}
         >
           <span
             aria-hidden="true"
-            className={`h-1.5 w-1.5 rounded-full ${
-              active ? 'bg-emerald-300' : 'bg-amber-300'
-            }`}
+            className={`h-1.5 w-1.5 rounded-full ${dotColour}`}
           />
           {active ? 'Active' : 'Onboarding'}
         </span>
@@ -590,17 +608,23 @@ function MobileTabBar({
   const items = buildNav(quoteCount)
   return (
     <nav
-      className="lg:hidden flex flex-wrap gap-1 border-b border-ink-line"
+      // Horizontal-scroll bar keeps all six tabs on one line on
+      // mobile (vs. wrapping to two cluttered rows). Scrollbar is
+      // hidden in both Firefox and Chromium via arbitrary utilities;
+      // the active tab is still tabbable + scrollable into view.
+      className="lg:hidden -mx-4 sm:mx-0 flex overflow-x-auto whitespace-nowrap border-b border-ink-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       aria-label="Dashboard sections"
     >
-      {items.map((item) => {
+      {items.map((item, i) => {
         const active = item.tab === tab
         return (
           <button
             key={item.tab}
             type="button"
             onClick={() => setTab(item.tab)}
-            className={`px-4 py-3 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors cursor-pointer ${
+            className={`shrink-0 px-4 py-3 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors cursor-pointer ${
+              i === 0 ? 'pl-4 sm:pl-0' : ''
+            } ${
               active
                 ? 'text-accent border-b-2 border-accent -mb-px'
                 : 'text-text-dim hover:text-text-pri'
@@ -717,27 +741,27 @@ function OverviewTab({
 
   return (
     <div className="space-y-6 motion-safe:animate-[fade-in_180ms_ease-out_both]">
-      {/* HERO — compact QuoteMate number. Tighter padding + a single
-          one-line subtitle instead of the prior wordy explainer. */}
-      <div className="bg-ink-card border border-ink-line p-5 md:p-6 motion-safe:animate-[fade-up_240ms_ease-out_both]">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-text-dim">
+      {/* HERO — compact QuoteMate number. Padding scales up from
+          mobile so the card doesn't dominate small screens. */}
+      <div className="bg-ink-card border border-ink-line p-4 sm:p-5 md:p-6 motion-safe:animate-[fade-up_240ms_ease-out_both]">
+        <div className="flex flex-wrap items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <div className="font-mono text-[0.6rem] sm:text-[0.65rem] uppercase tracking-[0.18em] text-text-dim">
               Your QuoteMate number
             </div>
             {smsNumber ? (
-              <div className="mt-2 font-mono text-[clamp(1.25rem,3vw,2rem)] font-bold text-text-pri tracking-tight leading-none">
+              <div className="mt-1.5 sm:mt-2 font-mono text-[clamp(1.25rem,5vw,2rem)] font-bold text-text-pri tracking-tight leading-none break-all">
                 {formatAuMobile(smsNumber)}
               </div>
             ) : (
-              <div className="mt-2 text-amber-300 text-sm max-w-md">
+              <div className="mt-2 text-amber-300 text-sm">
                 Provisioning didn&rsquo;t finish on activate. Hit retry —
                 your account + pricing book are saved.
               </div>
             )}
             {needsProvisioning && <RetryProvisionButton />}
           </div>
-          <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
             <Pill
               tone={needsProvisioning ? 'warn' : isStubTwilio ? 'warn' : 'ok'}
               label={
@@ -749,7 +773,7 @@ function OverviewTab({
               }
             />
             {tenant.activated_at && (
-              <span className="font-mono text-[0.55rem] uppercase tracking-[0.16em] text-text-dim">
+              <span className="hidden sm:inline font-mono text-[0.55rem] uppercase tracking-[0.16em] text-text-dim">
                 Activated {formatDate(tenant.activated_at)}
               </span>
             )}
@@ -2207,7 +2231,7 @@ function QuotesTab({ data }: { data: DashboardData }) {
           <button
             type="button"
             onClick={() => setVisible((v) => v + LIST_PAGE_SIZE)}
-            className="inline-flex items-center gap-2 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-5 py-2.5 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-5 py-3 min-h-[44px] transition-colors cursor-pointer w-full sm:w-auto justify-center"
           >
             Load {Math.min(LIST_PAGE_SIZE, remaining)} more · {remaining} left
           </button>
@@ -2280,33 +2304,39 @@ function QuoteCard({ q, isMultiTrade }: { q: Quote; isMultiTrade: boolean }) {
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded ? 'true' : 'false'}
-        className="w-full text-left flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-ink-deep/40 transition-colors cursor-pointer"
+        className="w-full text-left flex items-center justify-between gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 hover:bg-ink-deep/40 transition-colors cursor-pointer"
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-3 flex-wrap">
+          <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap">
             <span className="font-extrabold text-base text-text-pri tracking-tight truncate">
               {customerLabel}
             </span>
             {q.channel && <ChannelBadge channel={q.channel} />}
+            {/* Suburb hidden < sm so the customer name + channel pill
+                fit the line. It's still in the expanded metadata grid. */}
             {q.suburb && (
-              <span className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+              <span className="hidden sm:inline font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
                 · {q.suburb}
               </span>
             )}
-            <span className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-text-sec">
+            <span className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-text-sec truncate">
               · {formatJobType(q.job_type)}
             </span>
+            {/* Trade label only when actually relevant (multi-trade) +
+                large enough to fit. */}
             {isMultiTrade && trade && (
-              <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-accent font-bold">
+              <span className="hidden sm:inline font-mono text-[0.6rem] uppercase tracking-[0.14em] text-accent font-bold">
                 · {tradeLabel(trade)}
               </span>
             )}
           </div>
         </div>
-        <div className="shrink-0 flex items-center gap-3">
+        <div className="shrink-0 flex items-center gap-2 sm:gap-3">
+          {/* Primary status pill hidden < sm — kept inside the expanded
+              body. Avoids the right rail outgrowing the price. */}
           {primaryBadge && (
             <span
-              className={`inline-flex items-center font-mono text-[0.55rem] uppercase tracking-[0.14em] font-bold px-2 py-0.5 border ${
+              className={`hidden sm:inline-flex items-center font-mono text-[0.55rem] uppercase tracking-[0.14em] font-bold px-2 py-0.5 border ${
                 primaryBadge.tone === 'paid'
                   ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300'
                   : primaryBadge.tone === 'inspect'
@@ -2322,7 +2352,7 @@ function QuoteCard({ q, isMultiTrade }: { q: Quote; isMultiTrade: boolean }) {
             </span>
           )}
           <div className="text-right">
-            <div className="font-mono text-lg font-extrabold text-text-pri leading-none tabular-nums">
+            <div className="font-mono text-base sm:text-lg font-extrabold text-text-pri leading-none tabular-nums">
               {selectedTotal !== null ? `$${formatMoney(selectedTotal)}` : '—'}
             </div>
             {q.selected_tier && (
@@ -2414,7 +2444,7 @@ function QuoteCard({ q, isMultiTrade }: { q: Quote; isMultiTrade: boolean }) {
                 <Link
                   href={url}
                   target="_blank"
-                  className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-4 py-2 text-xs uppercase tracking-wider transition-colors"
+                  className="inline-flex items-center justify-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-4 py-3 text-xs uppercase tracking-wider transition-colors min-h-[44px] w-full sm:w-auto"
                 >
                   View customer page →
                 </Link>
@@ -2636,7 +2666,7 @@ function ChatsList({
           <button
             type="button"
             onClick={() => setVisible((v) => v + LIST_PAGE_SIZE)}
-            className="inline-flex items-center gap-2 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-5 py-2.5 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-5 py-3 min-h-[44px] transition-colors cursor-pointer w-full sm:w-auto justify-center"
           >
             Load {Math.min(LIST_PAGE_SIZE, remaining)} more · {remaining} left
           </button>
@@ -2671,7 +2701,7 @@ function ChatCard({ chat, isMultiTrade }: { chat: ChatRow; isMultiTrade: boolean
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded ? 'true' : 'false'}
-        className="w-full flex items-start justify-between gap-4 px-4 py-3 text-left hover:bg-ink-deep/40 transition-colors cursor-pointer"
+        className="w-full flex items-start justify-between gap-3 sm:gap-4 px-3 sm:px-4 py-3 text-left hover:bg-ink-deep/40 transition-colors cursor-pointer"
       >
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -2698,8 +2728,8 @@ function ChatCard({ chat, isMultiTrade }: { chat: ChatRow; isMultiTrade: boolean
             </span>
             {chat.from_number && (
               <>
-                <span className="text-text-dim">·</span>
-                <span className="font-mono text-text-dim">{chat.from_number}</span>
+                <span className="hidden sm:inline text-text-dim">·</span>
+                <span className="hidden sm:inline font-mono text-text-dim">{chat.from_number}</span>
               </>
             )}
           </div>
@@ -2846,7 +2876,7 @@ function Card({
 }) {
   return (
     <div className="bg-ink-card border border-ink-line">
-      <div className="px-6 py-5 border-b border-ink-line">
+      <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-ink-line">
         <h2 className="font-extrabold uppercase text-base tracking-[-0.01em] text-text-pri">
           {title}
         </h2>
@@ -2854,7 +2884,7 @@ function Card({
           <p className="mt-1.5 text-text-sec text-sm">{subtitle}</p>
         )}
       </div>
-      <div className="px-6 py-6">{children}</div>
+      <div className="px-4 sm:px-6 py-5 sm:py-6">{children}</div>
     </div>
   )
 }
