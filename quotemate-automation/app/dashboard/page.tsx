@@ -636,9 +636,30 @@ function OverviewTab({
     ['drafted', 'awaiting_review', 'review'].includes(q.status),
   ).length
 
+  // Pipeline numbers — the money/conversion view the tradie actually
+  // cares about. A quote counts as "accepted" if its status is
+  // 'accepted' OR a deposit has landed (deposit_paid overrides status
+  // in the QuoteCard badge ordering, same logic applied here).
+  const acceptedQuotes = data.quotes.filter(
+    (q) => q.deposit_paid || (q.status ?? '').toLowerCase() === 'accepted',
+  )
+  const quotedValue = data.quotes.reduce(
+    (sum, q) => sum + (toNum(q.total_inc_gst) ?? 0),
+    0,
+  )
+  const acceptedValue = acceptedQuotes.reduce(
+    (sum, q) => sum + (toNum(q.total_inc_gst) ?? 0),
+    0,
+  )
+  const conversionPct =
+    activeQuotes > 0
+      ? Math.round((acceptedQuotes.length / activeQuotes) * 100)
+      : 0
+  const avgQuoteValue = activeQuotes > 0 ? quotedValue / activeQuotes : 0
+  const depositsPaidCount = data.quotes.filter((q) => q.deposit_paid).length
+
   const tenant = data.tenant
   const smsNumber = tenant.twilio_sms_number
-  const voiceNumber = tenant.twilio_voice_number ?? smsNumber
   const assistantId = tenant.vapi_assistant_id
 
   // Stub detection — the activate route returns deterministic
@@ -825,60 +846,79 @@ function OverviewTab({
         </section>
       </div>
 
-      {/* LOWER GRID — AI receptionist setup + wired-up checklist */}
-      <div className="grid gap-6 lg:grid-cols-2 motion-safe:animate-[fade-up_320ms_ease-out_both]">
-        <Card title="AI receptionist setup" subtitle="The technical bits Vapi + Twilio need to route real customers.">
-          <dl className="grid gap-x-8 gap-y-4 text-sm">
-            <Row label="Twilio SMS number" value={smsNumber ?? null} mono />
-            <Row label="Twilio Voice number" value={voiceNumber ?? null} mono />
-            <Row label="Vapi assistant ID" value={assistantId ?? null} mono breakAll />
-            <Row label="Voice persona" value={tenant.vapi_voice_persona ?? 'Default'} />
-            <Row label="SMS webhook" value={`${appUrl()}/api/sms/inbound`} mono />
-            <Row label="Voice webhook" value="api.vapi.ai/twilio/inbound_call" mono />
-            <Row label="Status" value={tenant.status === 'active' ? 'Active' : 'Onboarding'} />
-            <Row
-              label="Provisioning mode"
-              value={
-                isStubTwilio && isStubVapi
-                  ? 'Stub (test mode)'
-                  : isStubTwilio
-                    ? 'Twilio stub · Vapi real'
-                    : isStubVapi
-                      ? 'Twilio real · Vapi stub'
-                      : 'Real (live)'
-              }
-            />
-          </dl>
-          {(isStubTwilio || isStubVapi) && (
-            <div className="mt-6 bg-amber-950/30 border border-amber-700/50 px-4 py-3">
-              <p className="text-sm text-amber-200">
-                <strong>Test mode active.</strong> Fund your Twilio account and flip{' '}
-                <span className="font-mono">TWILIO_PROVISIONING_ENABLED=true</span> +{' '}
-                <span className="font-mono">VAPI_PROVISIONING_ENABLED=true</span> on Vercel,
-                then re-activate to swap in real Twilio + Vapi resources.
-              </p>
-            </div>
-          )}
-        </Card>
+      {/* PIPELINE — the money view. Total quoted, total converted,
+          conversion %, deposits, average ticket. Numbered-card pattern
+          again so it reads as a continuation of the KPI row, not a new
+          design language. */}
+      <section className="bg-ink-card border border-ink-line motion-safe:animate-[fade-up_320ms_ease-out_both]">
+        <header className="flex items-center justify-between px-5 py-3 border-b border-ink-line">
+          <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold text-text-pri">
+            Pipeline
+          </h2>
+          <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+            All time
+          </span>
+        </header>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-ink-line border-t border-ink-line">
+          <PipelineStat
+            label="Quoted"
+            value={`$${formatMoney(Math.round(quotedValue))}`}
+            hint={`${activeQuotes} ${activeQuotes === 1 ? 'quote' : 'quotes'} drafted`}
+          />
+          <PipelineStat
+            label="Converted"
+            value={`$${formatMoney(Math.round(acceptedValue))}`}
+            hint={`${acceptedQuotes.length} accepted`}
+            tone={acceptedQuotes.length > 0 ? 'ok' : 'default'}
+          />
+          <PipelineStat
+            label="Conversion"
+            value={`${conversionPct}%`}
+            hint={`${acceptedQuotes.length} of ${activeQuotes}`}
+          />
+          <PipelineStat
+            label="Avg quote"
+            value={`$${formatMoney(Math.round(avgQuoteValue))}`}
+            hint={`${depositsPaidCount} ${depositsPaidCount === 1 ? 'deposit' : 'deposits'} paid`}
+          />
+        </div>
+      </section>
+    </div>
+  )
+}
 
-        <Card title="What's wired up">
-          <ul className="space-y-2 text-sm text-text-sec">
-            <Tick on={!!tenant.business_name}>Business identity saved</Tick>
-            <Tick on={!!data.pricing?.hourly_rate}>Pricing book in place</Tick>
-            <Tick on={enabledServices > 0}>
-              {enabledServices} of {totalServices} auto-quote services enabled
-            </Tick>
-            <Tick on={!!smsNumber}>
-              QuoteMate phone number assigned
-              {isStubTwilio && <span className="text-amber-300"> (stub)</span>}
-            </Tick>
-            <Tick on={!!assistantId}>
-              AI receptionist active
-              {isStubVapi && <span className="text-amber-300"> (stub)</span>}
-            </Tick>
-          </ul>
-        </Card>
+/** Stat cell inside the Pipeline section. Mirrors KpiTile's visual
+ *  language (mono accent number, uppercase label, optional hint) but
+ *  uses string values (currency formatted) instead of count-up so
+ *  dollar totals don't tick from $0 — which would feel jittery for a
+ *  number that's already large on first paint. */
+function PipelineStat({
+  label,
+  value,
+  hint,
+  tone = 'default',
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: 'default' | 'ok'
+}) {
+  const valueTone = tone === 'ok' ? 'text-emerald-300' : 'text-accent'
+  return (
+    <div className="bg-ink-card p-5">
+      <div className="font-mono text-[0.6rem] uppercase tracking-[0.18em] text-text-dim">
+        {label}
       </div>
+      <div
+        className={`mt-2 font-mono font-extrabold leading-none text-[clamp(1.25rem,2.2vw,1.75rem)] tabular-nums ${valueTone}`}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div className="mt-2 font-mono text-[0.55rem] uppercase tracking-[0.14em] text-text-sec">
+          {hint}
+        </div>
+      )}
     </div>
   )
 }
@@ -953,37 +993,6 @@ function Pill({ tone, label }: { tone: 'ok' | 'warn' | 'dim'; label: string }) {
   )
 }
 
-function Row({
-  label,
-  value,
-  mono,
-  breakAll,
-}: {
-  label: string
-  value: string | null
-  mono?: boolean
-  breakAll?: boolean
-}) {
-  return (
-    <div>
-      <dt className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-text-dim">
-        {label}
-      </dt>
-      <dd
-        className={`mt-1 ${mono ? 'font-mono' : ''} ${
-          breakAll ? 'break-all' : ''
-        } text-text-pri text-sm ${value ? '' : 'text-text-dim italic'}`}
-      >
-        {value || '—'}
-      </dd>
-    </div>
-  )
-}
-
-function appUrl(): string {
-  if (typeof window !== 'undefined') return window.location.origin
-  return 'https://quote-mate-rho.vercel.app'
-}
 
 function formatAuMobile(e164: string): string {
   const cleaned = e164.replace(/[^\d+]/g, '')
@@ -1193,20 +1202,6 @@ function LatestChatRow({
   )
 }
 
-function Tick({ on, children }: { on: boolean; children: ReactNode }) {
-  return (
-    <li className="flex items-baseline gap-3">
-      <span
-        className={`font-mono text-xs ${
-          on ? 'text-emerald-400' : 'text-text-dim'
-        }`}
-      >
-        {on ? '✓' : '○'}
-      </span>
-      <span className={on ? 'text-text-sec' : 'text-text-dim'}>{children}</span>
-    </li>
-  )
-}
 
 // ─── Account tab ──────────────────────────────────────────────────
 
