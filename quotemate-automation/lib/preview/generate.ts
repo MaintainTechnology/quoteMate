@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   buildPreviewPrompt,
+  buildPreviewPromptV2,
   type PromptContext,
   type PromptIntake,
   type PromptQuote,
@@ -115,10 +116,22 @@ export async function generatePreviewImage(quoteId: string): Promise<PreviewResu
     }
 
     // ── Load richer context for the prompt builder ──
+    //
+    // PREVIEW_PROMPT_VERSION env var selects which builder runs:
+    //   "v2"  → buildPreviewPromptV2 (XML-tag structured, Gemini 2.0+
+    //           best practice, ~40% shorter)
+    //   else  → buildPreviewPrompt (legacy, box-drawing + verbose prose)
+    //
+    // Default is v1 (legacy) so this rollout is opt-in. Flip the env
+    // to "v2" on a staging or rolling-release deployment, eyeball N
+    // generated images against v1 outputs, promote when satisfied.
     const ctx = await loadPromptContext(quoteId, intake as PromptIntake)
-    const prompt = buildPreviewPrompt(ctx)
+    const promptVersion = (process.env.PREVIEW_PROMPT_VERSION ?? 'v1').toLowerCase()
+    const prompt = promptVersion === 'v2'
+      ? buildPreviewPromptV2(ctx)
+      : buildPreviewPrompt(ctx)
     const t0 = Date.now()
-    const promptText = `[system]\n${prompt.system}\n\n[user]\n${prompt.user}`
+    const promptText = `[system v=${promptVersion}]\n${prompt.system}\n\n[user]\n${prompt.user}`
 
     // Generate ONE preview per uploaded customer photo, in parallel.
     // Each gets its own Gemini call with that specific photo as the

@@ -753,6 +753,202 @@ export function buildPreviewPrompt(ctx: PromptContext): SystemUserPrompt {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// PREVIEW prompt — V2 (XML-tag structured, Gemini 2.0+ best practice)
+//
+// Why: V1 leaned on box-drawing chars, ALL CAPS, and 9 verbose master
+// rules in prose. Gemini's instruction-tuning weights XML-tag adherence
+// heavily, and image models specifically lose attention after long
+// prose blocks. V2 preserves every proven concept from V1 — anchor
+// product, ordinal placement list, verbatim customer words, final
+// checklist — but wraps them in <task>, <spec>, <must>, <must_not>,
+// <verify_before_emit> tags. Output is ~40% shorter for the same
+// fidelity signal.
+//
+// Gated behind PREVIEW_PROMPT_VERSION env var ("v2" → use this,
+// anything else → V1). A/B over a small batch before promoting.
+// ════════════════════════════════════════════════════════════════════
+
+function buildSpecBlock(ctx: PromptContext, shot: RenderShot): string {
+  const { intake, quote } = ctx
+  const desc = (intake.scope?.description ?? '').trim()
+  const callerName = intake.caller?.name?.trim() || null
+  const room = detectRoom(desc)
+  const count = (intake.scope?.item_count && intake.scope.item_count > 0)
+    ? intake.scope.item_count
+    : null
+  const specs = intake.scope?.specs ?? {}
+  const access = intake.access ?? {}
+  const trade = (intake as { trade?: string }).trade ?? null
+  const anchor = pickAnchorProduct(ctx)
+  const tier = quote?.selected_tier ?? null
+  const installType =
+    intake.scope?.is_new_install === true ? 'new install'
+    : intake.scope?.is_new_install === false ? 'replacing existing'
+    : null
+
+  const kv = (key: string, value: unknown): string | null => {
+    if (value === null || value === undefined || value === '' || value === 'unknown') return null
+    if (typeof value === 'boolean') return `  ${key}=${value ? 'yes' : 'no'}`
+    return `  ${key}=${value}`
+  }
+
+  const lines = [
+    kv('render_mode', shot.mode),
+    kv('reference_photo', shot.mode === 'edit_customer_photo' ? 'attached as inline binary in user message' : 'not attached'),
+    kv('view_type', shot.role),
+    kv('customer_name', callerName),
+    kv('trade', trade),
+    kv('job_type', intake.job_type),
+    kv('quantity', count),
+    kv('product_to_render', anchor),
+    kv('selected_tier', tier),
+    kv('room', room),
+    kv('indoor_outdoor', intake.scope?.indoor_outdoor),
+    kv('install_type', installType),
+    kv('existing_wiring', intake.scope?.existing_wiring),
+    kv('colour_temp', colorTempHuman(specs.color_temp)),
+    kv('dimmable', specs.dimmable),
+    kv('smart_wifi', specs.smart),
+    kv('weatherproof', specs.weatherproof),
+    kv('supplied_by', specs.supplied_by),
+    kv('ceiling_type', access.ceiling_type),
+    kv('wall_type', access.wall_type),
+    kv('verbatim_customer', desc ? `"${desc.slice(0, 300)}"` : null),
+  ].filter((l): l is string => l !== null)
+
+  return `<spec>\n${lines.join('\n')}\n</spec>`
+}
+
+function buildPlacementBlock(ctx: PromptContext): string {
+  const count = (ctx.intake.scope?.item_count && ctx.intake.scope.item_count > 0)
+    ? ctx.intake.scope.item_count
+    : null
+  if (count === null) return ''
+  const positions = ordinalPositions(ctx.intake.job_type, count)
+  if (!positions) return ''
+  const items = positions.map(p => `  - ${p}`).join('\n')
+  return `<placement>\nRender each item in the position below. Tick them off as you compose:\n${items}\n</placement>`
+}
+
+function buildSystemInstructionV2(ctx: PromptContext, args: {
+  task: string
+  shot: RenderShot
+  subject: string
+  scene: string
+  style?: string
+  extraMust?: string[]
+  extraMustNot?: string[]
+}): string {
+  const count = (ctx.intake.scope?.item_count && ctx.intake.scope.item_count > 0)
+    ? ctx.intake.scope.item_count
+    : null
+  const anchor = pickAnchorProduct(ctx)
+  const callerName = ctx.intake.caller?.name?.trim() || 'the customer'
+  const { plural: jobLabelPlural } = humaniseJobType(ctx.intake.job_type)
+
+  const mustLines = [
+    count !== null ? `- Exactly ${count} ${jobLabelPlural}. Not ${count - 1}, not ${count + 1}.` : null,
+    anchor ? `- Depict the anchor product: ${anchor}. Match brand + style + finish. Do not substitute.` : null,
+    `- Match every value in <spec> exactly. Use neutral defaults for anything not specified.`,
+    `- Render the install as FULLY COMPLETED — day-of-handover state, no tools / packaging / ladders / mid-install pixels.`,
+    args.shot.mode === 'edit_customer_photo'
+      ? `- EDIT the attached photo, do not generate a lookalike room. Preserve walls, flooring, furniture, perspective, camera angle, ambient lighting exactly. Only the fittings change.`
+      : `- Generate photoreal Australian residential imagery. Neutral walls, blonde-oak flooring, minimal furniture.`,
+    `- Photoreal magazine-quality interior photography.`,
+    ...(args.extraMust ?? []),
+  ].filter((l): l is string => l !== null)
+
+  const mustNotLines = [
+    count !== null ? `- ${count - 1} or ${count + 1} fittings. Count must be exact.` : null,
+    `- People, hands, pets, body parts, tradies in frame.`,
+    `- Tools, ladders, packaging, exposed wiring or pipes mid-fit.`,
+    `- Text overlays, captions, brand logos. (The only allowed text is the small "AI PREVIEW" / "AI SAMPLE" watermark named in <scene>.)`,
+    `- Features the customer did not ask for (smart features, IP-rated, premium finishes, dimmable, tri-colour) unless they appear in <spec>.`,
+    `- Cartoon, illustration, 3D-render, or staged-stock-photo aesthetic.`,
+    args.shot.mode === 'edit_customer_photo'
+      ? `- Returning the input photo unchanged. The fitting area MUST visibly differ.`
+      : null,
+    args.shot.mode === 'edit_customer_photo'
+      ? `- Changing wall colour, flooring, furniture, decor, or camera angle from the source photo.`
+      : null,
+    ...(args.extraMustNot ?? []),
+  ].filter((l): l is string => l !== null)
+
+  const placement = buildPlacementBlock(ctx)
+  const verifyLines = [
+    count !== null ? `- Count the ${jobLabelPlural} you drew. The total must equal ${count}.` : null,
+    anchor ? `- Confirm the anchor product (${anchor}) is what's depicted, not a generic substitute.` : null,
+    args.shot.mode === 'edit_customer_photo'
+      ? `- Confirm the non-fitting pixels (walls, floor, furniture, angle) match the source photo.`
+      : null,
+    `- Confirm no people, no text, no logos.`,
+    `- Confirm the install reads as COMPLETED (no mid-install pixels).`,
+  ].filter((l): l is string => l !== null)
+
+  return [
+    `<task>${args.task}</task>`,
+    ``,
+    buildSpecBlock(ctx, args.shot),
+    ``,
+    `<subject>\n${args.subject}\n</subject>`,
+    ``,
+    `<scene>\n${args.scene}\n</scene>`,
+    ``,
+    args.style ? `<style>\n${args.style}\n</style>\n` : `<style>\nPhotoreal, magazine-quality interior photography. Contemporary Australian residential aesthetic.\n</style>\n`,
+    `<must>\n${mustLines.join('\n')}\n</must>`,
+    ``,
+    `<must_not>\n${mustNotLines.join('\n')}\n</must_not>`,
+    ``,
+    placement ? placement + '\n' : '',
+    `<context_for_${callerName.toLowerCase().replace(/\s+/g, '_')}>`,
+    ctx.intake.scope?.description
+      ? `Customer's own words (verbatim from SMS): "${ctx.intake.scope.description.slice(0, 400)}"`
+      : `Customer did not provide a free-text description — see <spec> for confirmed preferences.`,
+    `</context_for_${callerName.toLowerCase().replace(/\s+/g, '_')}>`,
+    ``,
+    `<verify_before_emit>\nBefore committing the image, confirm each:\n${verifyLines.join('\n')}\nIf any check fails, redraft. Do not emit a flawed image.\n</verify_before_emit>`,
+  ].filter(l => l !== '').join('\n')
+}
+
+export function buildPreviewPromptV2(ctx: PromptContext): SystemUserPrompt {
+  const room = detectRoom(ctx.intake.scope?.description) ?? 'space'
+  const { plural: jobLabelPlural } = humaniseJobType(ctx.intake.job_type)
+  const callerName = ctx.intake.caller?.name?.trim() || 'the customer'
+  const isReplacement = ctx.intake.scope?.is_new_install === false
+  const anchor = pickAnchorProduct(ctx)
+  const count = ctx.intake.scope?.item_count ?? null
+
+  const subject = anchor
+    ? `${count ?? ''} ${anchor}${count && count > 1 ? '' : ''} installed in ${callerName}'s ${room}. Match the anchor product's exact brand, style, and finish.`.trim()
+    : `${count ?? ''} ${jobLabelPlural} installed in ${callerName}'s ${room}.`.trim()
+
+  const scene = isReplacement
+    ? `${callerName}'s actual ${room}, edited from their attached reference photo. The existing fittings (visible in the source photo) are REMOVED and the new anchor product is installed in their place. Every other pixel — walls, paint colour, flooring, cabinets, furniture, decor, perspective, camera angle, lighting — preserved exactly. Watermark: small "AI PREVIEW" in bottom-right corner.`
+    : `${callerName}'s actual ${room}, edited from their attached reference photo. The new anchor product is added to the appropriate position. Every other pixel preserved exactly from the source photo. Watermark: small "AI PREVIEW" in bottom-right corner.`
+
+  const extraMust = isReplacement
+    ? [`- This is a REPLACEMENT job. The output MUST look visibly different from the input photo AT THE FITTING LOCATION. If your output is identical to the input, you have failed.`]
+    : []
+
+  const system = buildSystemInstructionV2(ctx, {
+    task: 'Edit the attached customer photo to show the proposed install completed.',
+    shot: { role: 'PREVIEW edit (in customer\'s own room)', mode: 'edit_customer_photo' },
+    subject,
+    scene,
+    extraMust,
+  })
+
+  const user = [
+    `Generate the AI Preview image now using the attached reference photo.`,
+    ``,
+    `Run <verify_before_emit> from the system instruction before committing.`,
+    `Do not return the input photo unchanged. Do not return a generic-looking room that isn't ${callerName}'s actual space.`,
+  ].join('\n')
+
+  return { system, user }
+}
+
+// ════════════════════════════════════════════════════════════════════
 // SAMPLE prompts
 // ════════════════════════════════════════════════════════════════════
 
