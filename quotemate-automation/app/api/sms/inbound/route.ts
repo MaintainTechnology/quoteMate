@@ -1140,6 +1140,148 @@ export async function POST(req: Request) {
         }
       }
 
+      // Quote-already-drafted guard (moved up before step 7 so we can decide
+      // message ordering before dispatching anything).
+      //
+      // When a customer texts back after their quote has been sent
+      // ("Thanks!", "Sounds good", "Can I add a fan?"), the
+      // sms_conversation is reused under the 5-min done-grace window and
+      // Haiku runs fresh. Without this check, Haiku — having no memory
+      // that intake/quote already ran — frequently reasons action='finish'
+      // again on the courtesy reply, which triggers a DUPLICATE intake
+      // and a DUPLICATE quote draft (with slightly different tier picks
+      // since the estimator is non-deterministic). The customer ends up
+      // with two photo links and two different quotes in the same SMS
+      // thread. Same root cause makes photo_request_sent_at-cleared
+      // conversations re-fire the photo link.
+      //
+      // Guard: if the conversation already has intake_id linked, suppress
+      // BOTH the photo-request dispatch AND the intake-handoff fire,
+      // regardless of what Haiku decided. Haiku's reply text still goes
+      // out (dispatched at step 7 below) so the customer gets a
+      // courtesy response, but the side effects don't fire twice.
+      // Multi-quote-per-conversation (genuine add-ons) is a future feature
+      // — for v1 the SOP is the tradie handles add-ons manually.
+      // Two-signal duplicate guard:
+      //   1. Fresh DB read of conversation.intake_id (catches the common case)
+      //   2. Pre-reuse status snapshot captured at request entry, BEFORE
+      //      the reuse-done-grace path flipped status back to 'open'. If
+      //      prior.status was 'done' or 'structuring' when we picked up
+      //      this inbound, a quote pipeline had already been triggered
+      //      and we should never re-fire — even in a race where the
+      //      DB read returns a stale null.
+      // Either signal is sufficient. Both must be true for normal flow.
+      const { data: convoState } = await supabase
+        .from('sms_conversations')
+        .select('intake_id')
+        .eq('id', conversationId)
+        .maybeSingle()
+      const freshIntakeId = (convoState?.intake_id as string | null) ?? null
+      const hasExistingIntake = !!freshIntakeId || quoteAlreadyDrafted
+      if (hasExistingIntake) {
+        console.log(
+          '[sms/inbound:after] quote already drafted on this conversation — suppressing photo + handoff',
+          {
+            conversationId,
+            freshIntakeId,
+            priorIntakeId,
+            priorStatusBeforeReopen: prior?.status,
+            quoteAlreadyDrafted,
+          },
+        )
+      }
+
+      // 8b. Photo-request SMS gate — computed early so we can send the photo
+      // link BEFORE the quote confirmation (correct UX order).
+      // Photo SMS firing is Haiku-driven via decision.request_photo_link.
+      // Haiku sets it true on the verification handshake turn (after all
+      // qualifying questions are answered). Safety-net: if Haiku reaches
+      // action='finish' on an easy-5 job without setting request_photo_link,
+      // fire on finish so we never silently drop the photo flow.
+      //
+      // BUG E fix: gate by EASY_5_JOB_TYPES regardless of Haiku's flag —
+      // plumbing jobs (blocked_drain, hot_water, etc.) don't benefit from
+      // customer photos, so we never send a photo link for them even if
+      // Haiku tries to set request_photo_link=true.
+      const haikuRequestedPhoto = decision.request_photo_link === true
+      const finishFallbackTrigger =
+        decision.action === 'finish' &&
+        EASY_5_JOB_TYPES.has(decision.job_type_guess)
+      const jobTypeQualifiesForPhoto =
+        EASY_5_JOB_TYPES.has(decision.job_type_guess)
+      const shouldSendPhotoRequest =
+        photoRequestToken &&
+        !photoRequestAlreadySent &&
+        !hasExistingIntake &&
+        decision.action !== 'escalate_inspection' &&
+        decision.action !== 'end_conversation' &&
+        jobTypeQualifiesForPhoto &&
+        (haikuRequestedPhoto || finishFallbackTrigger)
+
+      // Ordering fix: photo link goes FIRST, then "quote on its way" with a
+      // 2s carrier-ordering gap. Previously the confirmation fired first and
+      // the photo link arrived 2.5s later — customers read "quote on its way"
+      // then immediately got asked to send photos, which made no sense.
+      // New order: photo → 2s gap → confirmation.
+      if (shouldSendPhotoRequest) {
+        console.log('[sms/inbound:after] step 8b — dispatching photo-request SMS (before quote confirmation)', {
+          conversationId,
+          jobType: decision.job_type_guess,
+        })
+        try {
+          const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
+          const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
+          // Priority order (authoritative → best-effort):
+          //   1. conversation_state.slots.first_name (this turn's extracted + merged name)
+          //   2. customer.first_name (stable DB record)
+          //   3. guessFirstName(turns) — heuristic; only trusted when 1 & 2 are empty
+          const firstName =
+            (conversationState.slots.first_name as string | undefined) ||
+            (customer?.first_name as string | undefined) ||
+            guessFirstName(turns) ||
+            undefined
+          const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms', jobType: decision.job_type_guess })
+          const photoDispatch = await dispatchQuoteMessage({
+            to: fromNumber,
+            from: toNumber,
+            text: photoBody,
+          })
+          if (photoDispatch.ok) {
+            console.log('[sms/inbound:after] step 8b — photo-request SMS sent', {
+              channel: photoDispatch.channel,
+              sid: photoDispatch.sid,
+            })
+            await supabase.from('sms_messages').insert({
+              conversation_id: conversationId,
+              direction: 'outbound',
+              body: photoDispatch.channel === 'whatsapp'
+                ? `[WhatsApp fallback] ${photoBody}`
+                : photoBody,
+              twilio_message_sid: photoDispatch.sid,
+            })
+            await supabase
+              .from('sms_conversations')
+              .update({ photo_request_sent_at: new Date().toISOString() })
+              .eq('id', conversationId)
+          } else {
+            console.error('[sms/inbound:after] step 8b — photo-request SMS failed', {
+              smsAttempt: photoDispatch.smsAttempt,
+              waAttempt: photoDispatch.waAttempt,
+            })
+          }
+        } catch (e: any) {
+          console.error('[sms/inbound:after] step 8b — photo-request SMS threw', {
+            message: e?.message,
+            name: e?.name,
+          })
+        }
+        // 2s gap before the quote confirmation so AU long-code carrier
+        // doesn't reorder the two messages.
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      // Step 7: quote confirmation (or any dialog reply). Fires after the
+      // photo link when shouldSendPhotoRequest is true, immediately otherwise.
       console.log('[sms/inbound:after] step 7 — dispatching reply (SMS-first, WhatsApp fallback)')
       const dispatch = await dispatchQuoteMessage({
         to: fromNumber,
@@ -1174,166 +1316,6 @@ export async function POST(req: Request) {
           : decision.reply_to_send,
         twilio_message_sid: outboundSid,
       })
-
-      // Quote-already-drafted guard.
-      //
-      // When a customer texts back after their quote has been sent
-      // ("Thanks!", "Sounds good", "Can I add a fan?"), the
-      // sms_conversation is reused under the 5-min done-grace window and
-      // Haiku runs fresh. Without this check, Haiku — having no memory
-      // that intake/quote already ran — frequently reasons action='finish'
-      // again on the courtesy reply, which triggers a DUPLICATE intake
-      // and a DUPLICATE quote draft (with slightly different tier picks
-      // since the estimator is non-deterministic). The customer ends up
-      // with two photo links and two different quotes in the same SMS
-      // thread. Same root cause makes photo_request_sent_at-cleared
-      // conversations re-fire the photo link.
-      //
-      // Guard: if the conversation already has intake_id linked, suppress
-      // BOTH the photo-request dispatch AND the intake-handoff fire,
-      // regardless of what Haiku decided. Haiku's reply text still goes
-      // out (already dispatched at step 7) so the customer gets a
-      // courtesy response, but the side effects don't fire twice.
-      // Multi-quote-per-conversation (genuine add-ons) is a future feature
-      // — for v1 the SOP is the tradie handles add-ons manually.
-      // Two-signal duplicate guard:
-      //   1. Fresh DB read of conversation.intake_id (catches the common case)
-      //   2. Pre-reuse status snapshot captured at request entry, BEFORE
-      //      the reuse-done-grace path flipped status back to 'open'. If
-      //      prior.status was 'done' or 'structuring' when we picked up
-      //      this inbound, a quote pipeline had already been triggered
-      //      and we should never re-fire — even in a race where the
-      //      DB read returns a stale null.
-      // Either signal is sufficient. Both must be true for normal flow.
-      const { data: convoState } = await supabase
-        .from('sms_conversations')
-        .select('intake_id')
-        .eq('id', conversationId)
-        .maybeSingle()
-      const freshIntakeId = (convoState?.intake_id as string | null) ?? null
-      const hasExistingIntake = !!freshIntakeId || quoteAlreadyDrafted
-      if (hasExistingIntake) {
-        console.log(
-          '[sms/inbound:after] quote already drafted on this conversation — suppressing photo + handoff',
-          {
-            conversationId,
-            freshIntakeId,
-            priorIntakeId,
-            priorStatusBeforeReopen: prior?.status,
-            quoteAlreadyDrafted,
-          },
-        )
-      }
-
-      // 8b. Photo-request SMS (parity with voice agent's send_sms_photo_link).
-      // Fire ONCE per conversation, the first turn that identifies an
-      // easy-5 job_type AND we haven't already sent the link. We send it
-      // as a separate SMS rather than appending to Haiku's reply so the
-      // 320-char dialog cap stays clean and the upload-link message is
-      // visually distinct in the customer's thread.
-      // Photo SMS firing is now Haiku-driven via decision.request_photo_link.
-      // Haiku sets it true on the appropriate turn (typically the verification
-      // handshake, after all qualifying questions are answered). The route no
-      // longer auto-fires on first job_type identification — that was the bug
-      // where the photo link arrived on turn 2 before customers gave their name.
-      //
-      // Safety-net fallback: if Haiku reaches action='finish' on an easy-5 job
-      // without ever setting request_photo_link, fire the photo SMS on finish
-      // so we don't drop the photo flow entirely. Better late than never.
-      const haikuRequestedPhoto = decision.request_photo_link === true
-      const finishFallbackTrigger =
-        decision.action === 'finish' &&
-        EASY_5_JOB_TYPES.has(decision.job_type_guess)
-      // BUG E fix: photos are an electrical-only product feature. Haiku
-      // sometimes sets request_photo_link=true for plumbing jobs (it's
-      // trying to be helpful), but we don't want to send a photo upload
-      // link for "blocked drain" or "hot water" - the customer hasn't
-      // got anything visual to upload that helps the plumber. Gate the
-      // photo SMS by EASY_5_JOB_TYPES regardless of whether Haiku
-      // requested it.
-      const jobTypeQualifiesForPhoto =
-        EASY_5_JOB_TYPES.has(decision.job_type_guess)
-      const shouldSendPhotoRequest =
-        photoRequestToken &&
-        !photoRequestAlreadySent &&
-        !hasExistingIntake &&
-        decision.action !== 'escalate_inspection' &&
-        decision.action !== 'end_conversation' &&
-        jobTypeQualifiesForPhoto &&
-        (haikuRequestedPhoto || finishFallbackTrigger)
-
-      if (shouldSendPhotoRequest) {
-        console.log('[sms/inbound:after] step 8b — dispatching photo-request SMS', {
-          conversationId,
-          jobType: decision.job_type_guess,
-        })
-        // Brief delay before firing the photo SMS so it doesn't race the
-        // verification-handshake SMS we just sent in step 7. AU long codes
-        // can reorder messages sent <2s apart on the carrier side, which
-        // led to the customer seeing the photo link BEFORE the handshake
-        // message that announced it. 2.5s is enough headroom for reliable
-        // ordering without being a noticeable typing pause.
-        await new Promise(resolve => setTimeout(resolve, 2500))
-        try {
-          const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
-          const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
-          // Customer's first name is best-effort — Opus will recover it from
-          // the transcript later regardless. Pull from the most recent
-          // inbound turn that looks like a name (1-3 words, mostly letters);
-          // if the transcript doesn't have one (returning-customer flows skip
-          // re-asking the name when we already know it), fall back to the
-          // customer record. Last resort: generic greeting.
-          // Priority order (authoritative → best-effort):
-          //   1. conversation_state.slots.first_name (this turn's
-          //      extracted + merged name — most recent + customer-corrected)
-          //   2. customer.first_name (stable DB record)
-          //   3. guessFirstName(turns) — heuristic walk of inbound turns;
-          //      only trusted when 1 & 2 are empty. Previously this was
-          //      the FIRST source, which caused "LPG bottle" answers to
-          //      get mis-extracted as first_name="LPG".
-          const firstName =
-            (conversationState.slots.first_name as string | undefined) ||
-            (customer?.first_name as string | undefined) ||
-            guessFirstName(turns) ||
-            undefined
-          const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms', jobType: decision.job_type_guess })
-          const photoDispatch = await dispatchQuoteMessage({
-            to: fromNumber,
-            from: toNumber,
-            text: photoBody,
-          })
-          if (photoDispatch.ok) {
-            console.log('[sms/inbound:after] step 8b — photo-request SMS sent', {
-              channel: photoDispatch.channel,
-              sid: photoDispatch.sid,
-            })
-            // Persist as an outbound row so the agent's history reflects it.
-            await supabase.from('sms_messages').insert({
-              conversation_id: conversationId,
-              direction: 'outbound',
-              body: photoDispatch.channel === 'whatsapp'
-                ? `[WhatsApp fallback] ${photoBody}`
-                : photoBody,
-              twilio_message_sid: photoDispatch.sid,
-            })
-            // Stamp the conversation so we don't double-send on a later turn.
-            await supabase
-              .from('sms_conversations')
-              .update({ photo_request_sent_at: new Date().toISOString() })
-              .eq('id', conversationId)
-          } else {
-            console.error('[sms/inbound:after] step 8b — photo-request SMS failed', {
-              smsAttempt: photoDispatch.smsAttempt,
-              waAttempt: photoDispatch.waAttempt,
-            })
-          }
-        } catch (e: any) {
-          console.error('[sms/inbound:after] step 8b — photo-request SMS threw', {
-            message: e?.message,
-            name: e?.name,
-          })
-        }
-      }
 
       // 9. Update conversation: bump turn_count, merge assumptions, set status
       //    based on the dialog agent's decision.
