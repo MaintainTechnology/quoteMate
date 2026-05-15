@@ -186,16 +186,19 @@ export async function POST(req: Request) {
       )
     }
 
-    // Enable the easy-5 service catalogue for each added trade.
+    // Seed service offerings for each added trade. Core easy-5 rows
+    // (default_enabled = true) land enabled; opt-in extras from
+    // migration 021 (default_enabled = false) land disabled so the
+    // tradie actively ticks the additional services they perform.
     const { data: assemblies } = await supabase
       .from('shared_assemblies')
-      .select('id')
+      .select('id, default_enabled')
       .in('trade', toAdd)
     if (assemblies && assemblies.length > 0) {
       const offeringRows = assemblies.map((a) => ({
         tenant_id: tenant.id,
         assembly_id: a.id,
-        enabled: true,
+        enabled: (a as { default_enabled: boolean | null }).default_enabled ?? true,
       }))
       await supabase
         .from('tenant_service_offerings')

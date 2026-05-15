@@ -112,7 +112,7 @@ export async function GET(req: Request) {
         ? [tenant.trade as string]
         : []
 
-  const [pricingRes, assembliesRes, offeringsRes, quotesRes, licencesRes] =
+  const [pricingRes, assembliesRes, offeringsRes, quotesRes, licencesRes, materialsRes, prefsRes] =
     await Promise.all([
       // Pricing books — one row per trade for multi-trade tenants. Returned
       // as an array (`pricing_books`) below; the dashboard reads pricing[0]
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
       supabase
         .from('shared_assemblies')
         .select(
-          'id, name, description, trade, default_unit, default_unit_price_ex_gst, default_labour_hours, default_exclusions',
+          'id, name, description, trade, default_unit, default_unit_price_ex_gst, default_labour_hours, default_exclusions, default_enabled',
         )
         .in('trade', tenantTrades.length > 0 ? tenantTrades : ['__never__'])
         .order('trade')
@@ -156,6 +156,25 @@ export async function GET(req: Request) {
         .from('tenant_licences')
         .select('trade, licence_type, licence_number, licence_state, licence_expiry')
         .eq('tenant_id', tenant.id),
+      // Material catalogue grouped by category — fed to the dashboard
+      // so the "Preferred brands" section can render a brand dropdown
+      // per category. We pull only rows that have a category set
+      // (migration 022 backfill) AND a brand string (NULL-brand rows
+      // are generic and don't participate in preference selection).
+      supabase
+        .from('shared_materials')
+        .select('trade, category, brand')
+        .in('trade', tenantTrades.length > 0 ? tenantTrades : ['__never__'])
+        .not('category', 'is', null)
+        .not('brand', 'is', null)
+        .order('trade')
+        .order('category')
+        .order('brand'),
+      // This tenant's current brand preferences (one row per category).
+      supabase
+        .from('tenant_material_preferences')
+        .select('category, preferred_brand')
+        .eq('tenant_id', tenant.id),
     ])
 
   // Merge assemblies + offerings into a unified Service[] for the dashboard.
@@ -174,9 +193,15 @@ export async function GET(req: Request) {
     default_unit_price_ex_gst: a.default_unit_price_ex_gst as number | string | null,
     default_labour_hours: a.default_labour_hours as number | string | null,
     default_exclusions: (a.default_exclusions ?? null) as string | null,
+    // Tenant's explicit toggle wins; otherwise fall back to the
+    // catalogue's `default_enabled` flag. Migration 021 added that
+    // column so opt-in extras (aircon, EV charger, leak detection,
+    // etc.) appear OFF until the tradie ticks them, while the core
+    // easy-5 assemblies stay ON for tenants who haven't seeded a
+    // tenant_service_offerings row yet.
     enabled: offeringMap.has(a.id as string)
       ? (offeringMap.get(a.id as string) as boolean)
-      : true,
+      : (a.default_enabled as boolean | null) ?? true,
   }))
 
   // Resolve job context by joining quotes → intakes. The intake holds
@@ -400,6 +425,31 @@ export async function GET(req: Request) {
     }
   })
 
+  // Materials catalogue grouped by (trade, category) → unique brands.
+  // The dashboard renders one dropdown per category with these brands.
+  // We dedupe across SKUs so "Rheem" only appears once under hws_gas
+  // even though both 170L and 250L are Rheem-branded.
+  type CategoryRow = { trade: string; category: string; brands: string[] }
+  const categoryMap = new Map<string, CategoryRow>()
+  for (const m of materialsRes.data ?? []) {
+    const trade = m.trade as string
+    const category = m.category as string
+    const brand = m.brand as string
+    const key = `${trade}::${category}`
+    const existing = categoryMap.get(key)
+    if (existing) {
+      if (!existing.brands.includes(brand)) existing.brands.push(brand)
+    } else {
+      categoryMap.set(key, { trade, category, brands: [brand] })
+    }
+  }
+  const material_categories = Array.from(categoryMap.values())
+
+  const material_preferences: Record<string, string> = {}
+  for (const p of prefsRes.data ?? []) {
+    material_preferences[p.category as string] = p.preferred_brand as string
+  }
+
   return Response.json({
     tenant,
     pricing: pricingBooks[0] ?? null,
@@ -407,6 +457,8 @@ export async function GET(req: Request) {
     services,
     quotes,
     licences,
+    material_categories,
+    material_preferences,
   })
 }
 
@@ -534,6 +586,37 @@ export async function PATCH(req: Request) {
         .from('tenant_service_offerings')
         .upsert(rows, { onConflict: 'tenant_id,assembly_id' })
       if (error) errors.push(`services: ${error.message}`)
+    }
+  }
+
+  // 4. Material preferences — upsert non-empty brand picks, delete
+  //    rows the tradie cleared. A null / empty value means "no
+  //    preference" and the row is removed entirely; a string value
+  //    becomes the preferred brand for that category.
+  if (updates.material_preferences) {
+    const upserts: Array<{ tenant_id: string; category: string; preferred_brand: string }> = []
+    const deletes: string[] = []
+    for (const [category, brand] of Object.entries(updates.material_preferences)) {
+      const trimmed = typeof brand === 'string' ? brand.trim() : ''
+      if (trimmed) {
+        upserts.push({ tenant_id: tenant.id, category, preferred_brand: trimmed })
+      } else {
+        deletes.push(category)
+      }
+    }
+    if (upserts.length > 0) {
+      const { error } = await supabase
+        .from('tenant_material_preferences')
+        .upsert(upserts, { onConflict: 'tenant_id,category' })
+      if (error) errors.push(`material_preferences: ${error.message}`)
+    }
+    if (deletes.length > 0) {
+      const { error } = await supabase
+        .from('tenant_material_preferences')
+        .delete()
+        .eq('tenant_id', tenant.id)
+        .in('category', deletes)
+      if (error) errors.push(`material_preferences (clear): ${error.message}`)
     }
   }
 

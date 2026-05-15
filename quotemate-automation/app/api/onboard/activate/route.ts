@@ -170,17 +170,23 @@ export async function POST(req: Request) {
       })
     }
 
-    // ─── 3. Auto-enable the easy-5 services for ALL selected trades ─
+    // ─── 3. Seed service offerings for ALL selected trades ─────────
+    // Core easy-5 assemblies (default_enabled = true in shared_assemblies)
+    // land enabled so a newly-onboarded tradie sees their wedge live
+    // immediately. Opt-in extras (default_enabled = false — aircon,
+    // EV charger, leak detection, etc. from migration 021) land
+    // disabled; the tradie ticks them on from the Services tab if
+    // they perform that work.
     const { data: assemblies } = await supabase
       .from('shared_assemblies')
-      .select('id')
+      .select('id, default_enabled')
       .in('trade', form.trades)
 
     if (assemblies && assemblies.length > 0) {
       const rows = assemblies.map((a) => ({
         tenant_id: id,
         assembly_id: a.id,
-        enabled: true,
+        enabled: (a as { default_enabled: boolean | null }).default_enabled ?? true,
       }))
       await supabase.from('tenant_service_offerings').upsert(rows, {
         onConflict: 'tenant_id,assembly_id',

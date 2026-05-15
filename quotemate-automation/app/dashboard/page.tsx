@@ -143,6 +143,12 @@ type LicenceRow = {
   licence_expiry: string | null
 }
 
+type MaterialCategory = {
+  trade: string
+  category: string
+  brands: string[]
+}
+
 type DashboardData = {
   tenant: Tenant
   pricing: Pricing
@@ -152,6 +158,11 @@ type DashboardData = {
   quotes: Quote[]
   /** One row per active trade — per-trade licence storage from migration 018. */
   licences: LicenceRow[]
+  /** Material catalogue grouped by (trade, category) → unique brands.
+   *  Migration 022. The Preferred Brands UI renders one dropdown per row. */
+  material_categories: MaterialCategory[]
+  /** Map of category → preferred brand. Absent key = no preference. */
+  material_preferences: Record<string, string>
 }
 
 type Tab = 'overview' | 'account' | 'pricing' | 'services' | 'quotes' | 'chats'
@@ -2020,6 +2031,31 @@ function ServicesTab({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  // Expansion state per assembly_id. We keep a Set rather than a Map<bool>
+  // so a row's row is either present (expanded) or absent (collapsed) — no
+  // stale `false` entries to clean up.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  function toggleExpand(assemblyId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(assemblyId)) next.delete(assemblyId)
+      else next.add(assemblyId)
+      return next
+    })
+  }
+
+  // Hourly rate used to render the labour estimate inside the expanded
+  // detail view. Falls back to the trade's pricing book; when a tenant
+  // has multiple trades, we look up by the service's trade so the figure
+  // matches whichever rate would be applied when the AI drafts a quote.
+  function hourlyRateFor(trade: string): number | null {
+    const book = data.pricing_books.find((p) => p.trade === trade)
+    const rate = book?.hourly_rate
+    if (rate === null || rate === undefined) return null
+    const n = typeof rate === 'string' ? parseFloat(rate) : rate
+    return Number.isFinite(n) ? n : null
+  }
 
   const dirty = Object.keys(pending).length > 0
 
@@ -2108,42 +2144,237 @@ function ServicesTab({
                   : svc.enabled
               const price = toNum(svc.default_unit_price_ex_gst)
               const hours = toNum(svc.default_labour_hours)
+              const isOpen = expanded.has(svc.assembly_id)
+              const hourly = hourlyRateFor(svc.trade)
+              const labourCost =
+                hours !== null && hourly !== null ? hours * hourly : null
+              const baseTotal =
+                price !== null || labourCost !== null
+                  ? (price ?? 0) + (labourCost ?? 0)
+                  : null
+              // Was this row pending (uncommitted toggle)? Show a dot so
+              // the tradie knows they have unsaved changes on this card.
+              const isPending = pending[svc.assembly_id] !== undefined
               return (
-                <button
+                <div
                   key={svc.assembly_id}
-                  type="button"
-                  onClick={() => toggle(svc.assembly_id, svc.enabled)}
-                  className={`w-full flex items-start justify-between gap-4 px-4 py-3.5 border transition-colors text-left ${
+                  className={`border transition-colors ${
                     live
-                      ? 'border-accent/70 bg-accent/5 text-text-pri'
-                      : 'border-ink-line bg-ink-card text-text-sec hover:border-ink-line/70'
+                      ? 'border-accent/70 bg-accent/5'
+                      : 'border-ink-line bg-ink-card'
                   }`}
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm">{svc.name}</div>
-                    {svc.description && (
-                      <div className="mt-1 text-xs text-text-sec leading-snug">
-                        {svc.description}
-                      </div>
-                    )}
-                    <div className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                      {price !== null && (
-                        <span>
-                          ${price.toFixed(2)} {svc.default_unit ? `/ ${svc.default_unit}` : ''}
-                        </span>
-                      )}
-                      {hours !== null && hours > 0 && <span>{hours}h labour</span>}
-                      <span className="text-text-dim/70">{svc.trade}</span>
-                    </div>
-                  </div>
-                  <span
-                    className={`shrink-0 inline-flex items-center font-mono text-[0.7rem] uppercase tracking-[0.16em] font-bold px-3 py-1 ${
-                      live ? 'text-accent' : 'text-text-dim'
-                    }`}
+                  {/* Header — click to expand. Toggle button is separate
+                      so it doesn't fire expand-on-press. */}
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(svc.assembly_id)}
+                    aria-expanded={isOpen ? 'true' : 'false'}
+                    className="w-full flex items-start justify-between gap-4 px-4 py-3.5 text-left hover:bg-white/[0.02] transition-colors"
                   >
-                    {live ? '● Enabled' : '○ Off'}
-                  </span>
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`font-mono text-text-dim transition-transform shrink-0 ${
+                            isOpen ? 'rotate-90 text-accent' : ''
+                          }`}
+                          aria-hidden="true"
+                        >
+                          ›
+                        </span>
+                        <span
+                          className={`font-semibold text-sm ${
+                            live ? 'text-text-pri' : 'text-text-sec'
+                          }`}
+                        >
+                          {svc.name}
+                        </span>
+                        {isPending && (
+                          <span
+                            className="font-mono text-[0.55rem] uppercase tracking-[0.18em] text-accent shrink-0"
+                            title="Unsaved change"
+                          >
+                            • unsaved
+                          </span>
+                        )}
+                      </div>
+                      {svc.description && !isOpen && (
+                        <div className="mt-1 ml-5 text-xs text-text-sec leading-snug line-clamp-2">
+                          {svc.description}
+                        </div>
+                      )}
+                      <div className="ml-5 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                        {price !== null && (
+                          <span>
+                            ${price.toFixed(2)} {svc.default_unit ? `/ ${svc.default_unit}` : ''}
+                          </span>
+                        )}
+                        {hours !== null && hours > 0 && <span>{hours}h labour</span>}
+                        <span className="text-text-dim/70">{svc.trade}</span>
+                      </div>
+                    </div>
+                    {/* Toggle switch — sharp-cornered to match the
+                        Maintain brand language. role=switch + aria-checked
+                        so it announces properly to screen readers. Click
+                        propagation is stopped so flipping the switch
+                        doesn't also expand the card. */}
+                    <span
+                      role="switch"
+                      aria-checked={live}
+                      aria-label={`${svc.name} — ${live ? 'enabled, click to turn off' : 'disabled, click to turn on'}`}
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggle(svc.assembly_id, svc.enabled)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          toggle(svc.assembly_id, svc.enabled)
+                        }
+                      }}
+                      className="shrink-0 inline-flex items-center gap-2.5 cursor-pointer group select-none"
+                    >
+                      <span
+                        className={`relative inline-block h-5 w-10 border transition-colors ${
+                          live
+                            ? 'border-accent bg-accent/20'
+                            : 'border-ink-line bg-ink-base group-hover:border-text-dim'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-[1px] h-[14px] w-[14px] transition-transform ${
+                            live
+                              ? 'translate-x-[22px] bg-accent'
+                              : 'translate-x-[2px] bg-text-dim group-hover:bg-text-sec'
+                          }`}
+                        />
+                      </span>
+                      <span
+                        className={`font-mono text-[0.65rem] uppercase tracking-[0.18em] font-bold transition-colors w-7 ${
+                          live ? 'text-accent' : 'text-text-dim group-hover:text-text-sec'
+                        }`}
+                      >
+                        {live ? 'On' : 'Off'}
+                      </span>
+                    </span>
+                  </button>
+
+                  {/* Expanded detail — full description, exclusions,
+                      pricing breakdown using the tradie's hourly rate. */}
+                  {isOpen && (
+                    <div className="border-t border-ink-line/70 px-4 py-4 ml-5 mr-4 bg-ink-base/30 space-y-4 text-xs">
+                      {svc.description && (
+                        <div>
+                          <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim mb-1">
+                            What&rsquo;s included
+                          </div>
+                          <p className="text-sm text-text-sec leading-relaxed">
+                            {svc.description}
+                          </p>
+                        </div>
+                      )}
+
+                      {svc.default_exclusions && (
+                        <div>
+                          <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-warning mb-1">
+                            Excludes
+                          </div>
+                          <p className="text-sm text-text-sec leading-relaxed">
+                            {svc.default_exclusions}
+                          </p>
+                        </div>
+                      )}
+
+                      {(price !== null || labourCost !== null) && (
+                        <div>
+                          <div className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-text-dim mb-2">
+                            Base cost breakdown (ex-GST)
+                          </div>
+                          <table className="w-full text-sm">
+                            <tbody className="divide-y divide-ink-line/40">
+                              {price !== null && (
+                                <tr>
+                                  <td className="py-1.5 text-text-sec">
+                                    Sundries / equipment
+                                  </td>
+                                  <td className="py-1.5 text-right font-mono text-text-pri">
+                                    ${price.toFixed(2)}
+                                    {svc.default_unit ? (
+                                      <span className="text-text-dim"> / {svc.default_unit}</span>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              )}
+                              {hours !== null && hours > 0 && (
+                                <tr>
+                                  <td className="py-1.5 text-text-sec">
+                                    Labour estimate
+                                    {hourly !== null ? (
+                                      <span className="text-text-dim">
+                                        {' '}
+                                        — {hours}h × ${hourly}/h
+                                      </span>
+                                    ) : (
+                                      <span className="text-text-dim">
+                                        {' '}
+                                        — {hours}h
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-1.5 text-right font-mono text-text-pri">
+                                    {labourCost !== null
+                                      ? `$${labourCost.toFixed(2)}`
+                                      : '—'}
+                                  </td>
+                                </tr>
+                              )}
+                              {baseTotal !== null && labourCost !== null && (
+                                <tr>
+                                  <td className="py-1.5 text-text-pri font-semibold">
+                                    Base total
+                                  </td>
+                                  <td className="py-1.5 text-right font-mono font-semibold text-accent">
+                                    ${baseTotal.toFixed(2)}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                          <p className="mt-2 text-[0.65rem] text-text-dim leading-snug">
+                            Materials and product cost are added on top by the AI when it
+                            picks a tier-appropriate SKU. Markup
+                            {data.pricing
+                              ? ` (${data.pricing.default_markup_pct ?? 28}%)`
+                              : ''}{' '}
+                            and GST applied at quote time.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="font-mono text-[0.55rem] uppercase tracking-[0.18em] px-2 py-1 border border-ink-line text-text-dim">
+                          {svc.trade}
+                        </span>
+                        {svc.default_unit && (
+                          <span className="font-mono text-[0.55rem] uppercase tracking-[0.18em] px-2 py-1 border border-ink-line text-text-dim">
+                            per {svc.default_unit}
+                          </span>
+                        )}
+                        <span
+                          className={`font-mono text-[0.55rem] uppercase tracking-[0.18em] px-2 py-1 border ${
+                            live
+                              ? 'border-accent/40 text-accent'
+                              : 'border-ink-line text-text-dim'
+                          }`}
+                        >
+                          {live ? 'AI will auto-quote' : 'Routes to paid inspection'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )
             })}
               </div>
@@ -2174,6 +2405,13 @@ function ServicesTab({
         </div>
       </Card>
 
+      {/* Preferred brands — migration 022. Per-category dropdown the
+          tradie uses to bias the AI's material picks toward their
+          supplier of choice. Soft hint only: if the customer needs a
+          tier the preferred brand can't fulfil, the AI picks the best
+          alternative regardless. */}
+      <PreferredBrandsCard data={data} onSave={onSave} />
+
       {/* Inspection-only educational footer */}
       <Card title="Always require a site visit" subtitle="These jobs route to a $199 paid inspection regardless of toggles above. Your AI tells the customer up front.">
         <ul className="grid sm:grid-cols-2 gap-2 text-sm">
@@ -2197,6 +2435,190 @@ function ServicesTab({
         </p>
       </Card>
     </div>
+  )
+}
+
+// ─── Preferred brands card ───────────────────────────────────────
+//
+// One row per (trade, category) — each row shows the category name,
+// a dropdown of available brands, and a count of how many SKUs the
+// tradie's selection will cover. Save batches all changes into a
+// single PATCH /api/tenant/me call.
+
+function categoryLabel(category: string): string {
+  // Map snake_case slugs → human labels. Falls through to a title-cased
+  // best-effort for any future category that wasn't pre-mapped.
+  const labels: Record<string, string> = {
+    downlight: 'Downlights',
+    gpo: 'Power points (GPOs)',
+    smoke_alarm: 'Smoke alarms',
+    safety_switch: 'Safety switches',
+    ceiling_fan: 'Ceiling fans',
+    outdoor_light: 'Outdoor lights',
+    hws_electric: 'Hot water — electric',
+    hws_gas: 'Hot water — gas',
+    hws_heat_pump: 'Hot water — heat pump',
+    tapware_basin: 'Tapware — basin / bath',
+    tapware_kitchen: 'Tapware — kitchen',
+    tapware_laundry: 'Tapware — laundry',
+    tapware_outdoor: 'Tapware — outdoor',
+    toilet: 'Toilet suites',
+    toilet_repair: 'Toilet repair parts',
+    sundries: 'Sundries',
+  }
+  return labels[category] ?? category.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function PreferredBrandsCard({
+  data,
+  onSave,
+}: {
+  data: DashboardData
+  onSave: (payload: Record<string, unknown>) => Promise<void>
+}) {
+  const initial = data.material_preferences ?? {}
+  const [pending, setPending] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+
+  // Group by trade so multi-trade tenants see two sections.
+  const tenantTrades =
+    Array.isArray(data.tenant.trades) && data.tenant.trades.length > 0
+      ? (data.tenant.trades as string[])
+      : data.tenant.trade
+        ? [data.tenant.trade]
+        : []
+  const showGrouped = tenantTrades.length > 1
+
+  const grouped: Array<{ trade: string; rows: MaterialCategory[] }> =
+    tenantTrades.map((t) => ({
+      trade: t,
+      rows: (data.material_categories ?? []).filter((c) => c.trade === t),
+    }))
+
+  const totalCategories = (data.material_categories ?? []).length
+  if (totalCategories === 0) {
+    // Migration 022 hasn't run yet (or no branded SKUs in catalogue).
+    // Render nothing — silently degrades for legacy environments.
+    return null
+  }
+
+  function liveValue(category: string): string {
+    if (pending[category] !== undefined) return pending[category]
+    return initial[category] ?? ''
+  }
+
+  function change(category: string, value: string) {
+    setPending((prev) => {
+      const next = { ...prev }
+      // If the selection is reverting to whatever was saved, drop it
+      // from `pending` so the dirty count is accurate.
+      if ((initial[category] ?? '') === value) {
+        delete next[category]
+      } else {
+        next[category] = value
+      }
+      return next
+    })
+  }
+
+  async function saveAll() {
+    setError(null)
+    setBusy(true)
+    try {
+      // Empty-string values become null (clears the preference).
+      const payload: Record<string, string | null> = {}
+      for (const [cat, val] of Object.entries(pending)) {
+        payload[cat] = val === '' ? null : val
+      }
+      await onSave({ material_preferences: payload })
+      setPending({})
+      setSavedAt(Date.now())
+    } catch (err: any) {
+      setError(err?.message ?? 'Save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const dirty = Object.keys(pending).length > 0
+  const setCount = Object.values({ ...initial, ...pending }).filter((v) => !!v).length
+
+  return (
+    <Card
+      title="Preferred brands"
+      subtitle={`Your AI quote draft will lean toward these brands when the customer's tier and specs allow. Soft hint — never starves a quote. ${setCount} of ${totalCategories} categories set.`}
+    >
+      <div className="space-y-6">
+        {grouped.map(({ trade, rows }) => {
+          if (rows.length === 0) return null
+          return (
+            <div key={trade} className="space-y-2">
+              {showGrouped && (
+                <div className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-accent font-bold pt-1 pb-1">
+                  {tradeLabel(trade as 'electrical' | 'plumbing')}
+                </div>
+              )}
+              <div className="grid sm:grid-cols-2 gap-2">
+                {rows.map((row) => {
+                  const value = liveValue(row.category)
+                  const isSet = value !== ''
+                  return (
+                    <label
+                      key={`${row.trade}::${row.category}`}
+                      className={`flex flex-col gap-2 px-4 py-3 border transition-colors ${
+                        isSet
+                          ? 'border-accent/40 bg-accent/[0.04]'
+                          : 'border-ink-line bg-ink-card'
+                      }`}
+                    >
+                      <span className="text-sm font-semibold text-text-pri">
+                        {categoryLabel(row.category)}
+                      </span>
+                      <select
+                        value={value}
+                        onChange={(e) => change(row.category, e.target.value)}
+                        className="bg-ink-base border border-ink-line text-text-pri text-sm px-3 py-2 focus:outline-none focus:border-accent"
+                      >
+                        <option value="">Any (use catalogue default)</option>
+                        {row.brands.map((brand) => (
+                          <option key={brand} value={brand}>
+                            {brand}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {error && (
+        <div className="mt-4">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
+
+      <div className="mt-6 flex items-center justify-between">
+        <SaveHint savedAt={savedAt} />
+        <button
+          type="button"
+          onClick={saveAll}
+          disabled={busy || !dirty}
+          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-6 py-3 text-sm uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy
+            ? 'Saving…'
+            : dirty
+              ? `Save ${Object.keys(pending).length} change(s)`
+              : 'No changes'}
+        </button>
+      </div>
+    </Card>
   )
 }
 

@@ -49,8 +49,23 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
     cacheLog.err('RAG fetch failed — continuing without similar-quote context', e?.message ?? String(e))
   }
 
+  // Brand preferences (migration 022). Soft hint appended to the system
+  // prompt so Opus biases material picks toward the tradie's preferred
+  // brands when multiple candidates fit the customer's tier/spec. Never
+  // a hard filter — the grounding validator (loadCandidatePrices +
+  // validateQuoteGrounding below) keeps the safety guarantees regardless
+  // of which brand Opus picks. Preferences are scoped to intake.trade so
+  // a plumbing-only quote doesn't see electrical-brand hints and vice
+  // versa.
+  const preferencesBlock = await buildPreferencesBlock(
+    (intake?.tenant_id as string | null) ?? null,
+    (intake?.trade as string | null) ?? null,
+    cacheLog,
+  )
+
   const userPrompt =
     (ragContext ? `${ragContext}\n` : '') +
+    (preferencesBlock ? `${preferencesBlock}\n` : '') +
     `Draft a quote for this NEW intake:\n\n${JSON.stringify(intake, null, 2)}`
 
   // Anthropic prompt caching: the system prompt + pricing-book derivation
@@ -174,6 +189,99 @@ async function loadCandidatePrices(pricingBook: any, trade: string | null) {
     (assemblies ?? []).map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
     pricingBook,
   )
+}
+
+/**
+ * Build the "Preferred brands" hint block for the user message.
+ *
+ * Reads tenant_material_preferences and joins to shared_materials to
+ * confirm each (category, brand) pair still exists in the catalogue.
+ * Returns null when:
+ *   • intake has no tenant_id (legacy pre-v6 or dev intakes)
+ *   • the tenant has set no preferences
+ *   • the preferences table is unavailable (migration 022 not run)
+ *
+ * Lives in the USER message, not the system message, so per-tenant
+ * variance doesn't fragment the system-prompt cache. The system prompt
+ * stays identical across all tenants — only the per-call user message
+ * carries tenant-specific hints.
+ *
+ * Soft instruction phrasing: "prefer X when matching candidates exist"
+ * — never starves a quote when the customer needs a tier the preferred
+ * brand can't fulfil.
+ */
+async function buildPreferencesBlock(
+  tenantId: string | null,
+  trade: string | null,
+  log: ReturnType<typeof pipelineLog>,
+): Promise<string | null> {
+  if (!tenantId) return null
+
+  try {
+    const { data, error } = await supabase
+      .from('tenant_material_preferences')
+      .select('category, preferred_brand')
+      .eq('tenant_id', tenantId)
+
+    if (error) {
+      // Table missing or RLS blocking — log + carry on. Estimation
+      // continues without preferences (current behaviour pre-022).
+      log.err('preferences fetch failed — continuing without brand hints', error.message)
+      return null
+    }
+    if (!data || data.length === 0) return null
+
+    // Scope hints to the intake's trade so an electrical quote doesn't
+    // see plumbing-side brand picks. We join to shared_materials.category
+    // to filter — but a single category slug can technically be reused
+    // across trades (e.g. "sundries"), so we use an IN-list filter via
+    // a category lookup rather than assuming exclusivity.
+    if (trade) {
+      const categories = data.map((p) => p.category as string)
+      const { data: catRows } = await supabase
+        .from('shared_materials')
+        .select('category')
+        .in('category', categories)
+        .eq('trade', trade)
+        .limit(categories.length * 4)
+
+      const validCategories = new Set<string>(
+        (catRows ?? []).map((r) => r.category as string),
+      )
+      const scoped = data.filter((p) =>
+        validCategories.has(p.category as string),
+      )
+      if (scoped.length === 0) return null
+      return formatPreferencesBlock(scoped)
+    }
+
+    return formatPreferencesBlock(data)
+  } catch (e: any) {
+    log.err('preferences block build failed', e?.message ?? String(e))
+    return null
+  }
+}
+
+function formatPreferencesBlock(
+  rows: Array<{ category: string | null; preferred_brand: string | null }>,
+): string {
+  const lines = rows
+    .filter((r): r is { category: string; preferred_brand: string } =>
+      typeof r.category === 'string' && typeof r.preferred_brand === 'string',
+    )
+    .map((r) => `  • ${r.category}: ${r.preferred_brand}`)
+
+  if (lines.length === 0) return ''
+
+  return [
+    'Tradie preferred brands (soft hint — apply ONLY when picking materials):',
+    ...lines,
+    'When multiple shared_materials candidates fit the customer\'s tier and specs,',
+    'prefer the row whose brand matches the tradie\'s preference for that category.',
+    'If no preferred-brand candidate matches the customer\'s actual need, pick the',
+    'best fit regardless of brand — never sacrifice tier/spec match for brand.',
+    'Grounding validation runs after your output regardless of brand choice.',
+  ].join('\n')
 }
 
 // Opus often prefixes its response with reasoning ("Calculation: ...", "Here is the quote:")

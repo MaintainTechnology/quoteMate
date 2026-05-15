@@ -28,6 +28,11 @@ export function systemPrompt(intake: IntakeForRouting, pricingBook: PricingBook)
   // Default to electrical for legacy intake rows that pre-date v5 and
   // have no trade column populated. The intake structurer (voice path)
   // also defaults trade='electrical' explicitly — see lib/intake/structure.ts.
+  //
+  // Tenant brand preferences (migration 022) are NOT injected here —
+  // they live in the per-call user prompt via buildPreferencesBlock()
+  // in run.ts. That keeps this system prompt byte-identical across all
+  // tenants so the Anthropic ephemeral prompt cache stays warm.
   if (intake?.trade === 'plumbing') {
     return plumbingSystemPrompt(pricingBook)
   }

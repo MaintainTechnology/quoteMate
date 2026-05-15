@@ -449,30 +449,6 @@ export default async function PublicQuotePage(props: {
           </section>
         )}
 
-        {/* ─── Optional upsells ─────────────────────────── */}
-        {Array.isArray(quote.optional_upsells) && quote.optional_upsells.length > 0 ? (
-          <NumberedSection
-            number="04"
-            title="Optional add-ons"
-            subtitle="Not included in any tier above. Mention to your tradie if you'd like to add them."
-            className="mt-12"
-          >
-            <ul className="mt-2 divide-y divide-ink-line">
-              {(quote.optional_upsells as Array<{ description?: string; price_ex_gst?: number | string; total_ex_gst?: number | string }>).map((u, i) => {
-                const price = asNumber(u.total_ex_gst ?? u.price_ex_gst)
-                return (
-                  <li key={i} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                    <span className="text-sm text-text-pri">{u.description ?? 'Add-on'}</span>
-                    {price > 0 ? (
-                      <span className="font-mono text-sm text-accent shrink-0">+${fmt(incGst(price))}</span>
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
-          </NumberedSection>
-        ) : null}
-
         {/* ─── Assumptions + Risks ──────────────────────── */}
         <div className="mt-12 grid gap-5 sm:grid-cols-2 sm:gap-6">
           {Array.isArray(quote.assumptions) && quote.assumptions.length > 0 ? (

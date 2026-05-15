@@ -1,10 +1,10 @@
 ---
 active: true
 iteration: 1
-session_id: 9c701876-7e5b-4348-82b6-4bc0cccbef8b
+session_id: ef8da62b-d2a6-4082-b91f-6b3e1652d0b3
 max_iterations: 0
-completion_promise: "all tests pass"
-started_at: "2026-05-13T00:25:51Z"
+completion_promise: "All electrical stress-test scenarios pass on Sparky NSW with no bugs found"
+started_at: "2026-05-15T02:04:23Z"
 ---
 
-Fix activation flow: after tradie clicks activate at end of onboarding, automatically purchase a Twilio AU number, provision Vapi assistant and phone, wire SMS inbound webhook, persist assigned number on tradie profile so the dashboard shows LIVE. Currently provision=true but no number assigned — Peppers Plumbing tradie sees No number assigned yet on dashboard. Investigate the activation server action, Twilio purchase logic, Vapi setup, and any background workflow that should run on activate. Add tests covering Twilio provisioning end-to-end, Vapi assistant creation and linking, and persistence so reload shows LIVE. Loop until tests pass.
+Stress-test the Sparky NSW electrical tradie SMS number plus61468048422 via the n8n SMS harness. Test every electrical service that Sparky supports: six downlights install, two GPOs replace, two ceiling fans on a flat ceiling, four hardwired smoke alarms, outdoor wall lights install. Plus inspection-routed jobs: switchboard upgrade, EV charger install, fault-finding intermittent power loss, oven and cooktop install. Plus one wrong-trade rejection: customer asks for hot water replacement. For each scenario clear state by running node --env-file=.env.local scripts/clear-test-customer.mjs --phone plus61489083371 from the quotemate-automation folder, POST to https://n8n.nomanuai.com/webhook/sms-test-send with body containing to plus61468048422 and the opener message, wait 20 seconds, check the agent reply, respond to any clarifier via the same webhook, wait 75 to 90 seconds for the estimation pipeline, then query Postgres for the quote outcome. Capture: tier prices, line items, any grounding entries in risk_flags, any redundant clarifier questions. Expected outcomes: the five easy-5 jobs auto-quote as three tiers with consistent markup and no grounding failures

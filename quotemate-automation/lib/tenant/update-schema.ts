@@ -67,6 +67,18 @@ export const UpdateSchema = z.object({
   licences_by_trade: PartialTradeRecord(LicenceFields).optional(),
   // Map of assembly_id → enabled flag. Service offerings toggles.
   services: z.record(z.string().uuid(), z.boolean()).optional(),
+  // Map of material category (e.g. "downlight", "hws_gas", "toilet")
+  // → preferred brand. Null/empty string clears the preference. The
+  // route deletes existing rows when the value is null and upserts
+  // otherwise. Categories are validated lazily at runtime against
+  // shared_materials.category to avoid coupling this schema to the
+  // catalogue's evolving category list.
+  material_preferences: z
+    .record(
+      z.string().min(1).max(40),
+      z.union([z.string().trim().min(1).max(80), z.null(), z.literal('')]),
+    )
+    .optional(),
 })
 
 export type UpdateSchemaInput = z.input<typeof UpdateSchema>
