@@ -92,28 +92,9 @@ type ServiceOffering = {
   always_inspection: boolean
 }
 
-/**
- * Inline create/edit form state for the Services tab. `null` hides the
- * form; `{mode: 'create', trade}` opens a blank form locked to a trade;
- * `{mode: 'edit', id, ...row}` pre-fills the form with an existing
- * tenant_custom_assemblies row. Discriminated union keeps the edit
- * branch type-safe (only `mode: 'edit'` carries the id field).
- */
-type EditingService =
-  | { mode: 'create'; trade: string }
-  | {
-      mode: 'edit'
-      id: string
-      trade: string
-      name: string
-      description: string | null
-      default_unit: string | null
-      default_unit_price_ex_gst: number | string | null
-      default_labour_hours: number | string | null
-      default_exclusions: string | null
-      always_inspection: boolean
-      enabled: boolean
-    }
+// `EditingService` (the inline create/edit form state) is declared
+// alongside the CustomServiceForm component lower in this file so the
+// form's typed defaults stay co-located with their consumer.
 
 type TierJson = {
   subtotal_ex_gst?: number | string
