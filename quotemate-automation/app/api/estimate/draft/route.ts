@@ -159,18 +159,30 @@ export async function POST(req: Request) {
       sms_conversation_id: smsConversationId ?? 'n/a',
     })
 
-    log.step('running Opus (Claude 4.7) — typically ~40s, up to 3 attempts')
+    const MODEL_CASCADE = [
+      { id: 'claude-opus-4-7',   label: 'Opus 4.7'   },
+      { id: 'claude-opus-4-6',   label: 'Opus 4.6'   },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    ] as const
+    let modelIdx = 0
+
+    log.step(`running estimate — model cascade: ${MODEL_CASCADE.map(m => m.label).join(' → ')}, up to ${MODEL_CASCADE.length} attempts`)
     const estimation = await withRetry(
-      () => runEstimation(intake, pricingBook),
+      () => {
+        const m = MODEL_CASCADE[Math.min(modelIdx++, MODEL_CASCADE.length - 1)]
+        return runEstimation(intake, pricingBook, m.id)
+      },
       {
-        maxAttempts: 3,
+        maxAttempts: MODEL_CASCADE.length,
         baseDelayMs: 2000,
         onAttemptFailed: (err, attempt, willRetry) => {
           const msg = err instanceof Error ? err.message : String(err)
+          const used = MODEL_CASCADE[Math.min(attempt - 1, MODEL_CASCADE.length - 1)]
+          const next = MODEL_CASCADE[Math.min(attempt, MODEL_CASCADE.length - 1)]
           if (willRetry) {
-            log.err(`Opus attempt ${attempt}/3 failed — retrying`, msg)
+            log.err(`${used.label} attempt ${attempt}/${MODEL_CASCADE.length} failed — retrying with ${next.label}`, msg)
           } else {
-            log.err(`Opus attempt ${attempt}/3 failed — giving up`, msg)
+            log.err(`${used.label} attempt ${attempt}/${MODEL_CASCADE.length} failed — giving up`, msg)
           }
         },
       }

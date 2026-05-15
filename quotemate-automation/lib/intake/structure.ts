@@ -13,6 +13,7 @@ export async function structureIntake(
   transcript: string,
   photoUrls: string[] = [],
   tradeHint: TradeHint = 'electrical',
+  modelId = 'claude-opus-4-7',
 ) {
   // `trade` is required on the canonical IntakeSchema (v5 multi-trade) but
   // omitted from generateObject so Opus doesn't have to classify it. We
@@ -22,7 +23,7 @@ export async function structureIntake(
   // the customer's described issue.
   const isPlumbing = tradeHint === 'plumbing'
   const { object } = await generateObject({
-    model: anthropic('claude-opus-4-7'),
+    model: anthropic(modelId),
     schema: IntakeSchema.omit({ trade: true }),
     maxRetries: 0, // wrapper handles retries with logging — no double-retry
     // Opus 4.7 ignores temperature (extended-thinking model). The AI SDK

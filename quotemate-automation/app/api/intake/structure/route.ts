@@ -182,18 +182,30 @@ export async function POST(req: Request) {
     tenantId = (call.tenant_id as string | null) ?? null
   }
 
-  log.step('running Opus vision (Claude 4.7) — typically ~35s, up to 3 attempts', { tradeHint })
+  const INTAKE_MODEL_CASCADE = [
+    { id: 'claude-opus-4-7',   label: 'Opus 4.7'   },
+    { id: 'claude-opus-4-6',   label: 'Opus 4.6'   },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  ] as const
+  let intakeModelIdx = 0
+
+  log.step(`running intake — model cascade: ${INTAKE_MODEL_CASCADE.map(m => m.label).join(' → ')}, up to ${INTAKE_MODEL_CASCADE.length} attempts`, { tradeHint })
   const intake = await withRetry(
-    () => structureIntake(transcript, photoUrls, tradeHint),
+    () => {
+      const m = INTAKE_MODEL_CASCADE[Math.min(intakeModelIdx++, INTAKE_MODEL_CASCADE.length - 1)]
+      return structureIntake(transcript, photoUrls, tradeHint, m.id)
+    },
     {
-      maxAttempts: 3,
+      maxAttempts: INTAKE_MODEL_CASCADE.length,
       baseDelayMs: 2000,
       onAttemptFailed: (err, attempt, willRetry) => {
         const msg = err instanceof Error ? err.message : String(err)
+        const used = INTAKE_MODEL_CASCADE[Math.min(attempt - 1, INTAKE_MODEL_CASCADE.length - 1)]
+        const next = INTAKE_MODEL_CASCADE[Math.min(attempt, INTAKE_MODEL_CASCADE.length - 1)]
         if (willRetry) {
-          log.err(`Opus intake attempt ${attempt}/3 failed — retrying`, msg)
+          log.err(`${used.label} intake attempt ${attempt}/${INTAKE_MODEL_CASCADE.length} failed — retrying with ${next.label}`, msg)
         } else {
-          log.err(`Opus intake attempt ${attempt}/3 failed — giving up`, msg)
+          log.err(`${used.label} intake attempt ${attempt}/${INTAKE_MODEL_CASCADE.length} failed — giving up`, msg)
         }
       },
     }

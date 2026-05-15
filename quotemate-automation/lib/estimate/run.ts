@@ -26,7 +26,7 @@ export type EstimationResult = {
   downgradedToInspection?: boolean
 }
 
-export async function runEstimation(intake: any, pricingBook: any): Promise<EstimationResult> {
+export async function runEstimation(intake: any, pricingBook: any, modelId = 'claude-opus-4-7'): Promise<EstimationResult> {
   const cacheLog = pipelineLog('estimate', intake?.id ?? null)
 
   // RAG: anchor Opus to similar past quotes. Returns null on cold-start
@@ -60,7 +60,7 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
   // cost (cacheReadInputTokens > 0). Cache invalidates automatically when
   // any pricing_book field changes (different prompt content → different key).
   const result = await generateText({
-    model: anthropic('claude-opus-4-7'),
+    model: anthropic(modelId),
     messages: [
       {
         role: 'system',
@@ -85,7 +85,7 @@ export async function runEstimation(intake: any, pricingBook: any): Promise<Esti
 
   const cacheMeta = (result.providerMetadata as any)?.anthropic
   if (cacheMeta) {
-    cacheLog.ok('Opus call complete (cache stats)', {
+    cacheLog.ok(`${modelId} call complete (cache stats)`, {
       cache_creation_input_tokens: cacheMeta.cacheCreationInputTokens ?? 0,
       cache_read_input_tokens: cacheMeta.cacheReadInputTokens ?? 0,
       input_tokens: cacheMeta.usage?.inputTokens ?? null,
