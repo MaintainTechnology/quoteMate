@@ -17,6 +17,7 @@ import type { ReactNode } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { resolveGoogleBookingUrl } from '@/lib/quote/booking'
 import { SlotPicker } from './SlotPicker'
 
 export const dynamic = 'force-dynamic'
@@ -82,12 +83,19 @@ export default async function BookingPage(props: {
         ? String(quote.selected_tier)
         : 'better'
 
+  // Off-platform "book directly on the tradie's calendar" link (Google
+  // Appointment). Decision: DB picker = pay-last + auto-confirmed;
+  // Google = off-platform, tradie handles that deposit. Null when unset
+  // or not a valid https URL → the option simply doesn't render.
+  const googleUrl = resolveGoogleBookingUrl(process.env.GOOGLE_BOOKING_URL)
+  const tradieName = tradie?.business_name ?? null
+
   let content: ReactNode
   if (isPaid && isScheduled) {
     content = (
       <AlreadyScheduledState
         scheduledAt={quote.scheduled_at!}
-        tradieName={tradie?.business_name ?? null}
+        tradieName={tradieName}
       />
     )
   } else if (!isPaid && isScheduled) {
@@ -104,11 +112,19 @@ export default async function BookingPage(props: {
         token={token}
         slots={slots}
         tier={tier}
-        tradieName={tradie?.business_name ?? null}
+        tradieName={tradieName}
+        googleUrl={googleUrl}
       />
     )
   } else if (!isPaid && !isScheduled && slots.length === 0) {
-    content = <NoSlotsPayState token={token} tier={tier} tradieName={tradie?.business_name ?? null} />
+    content = (
+      <NoSlotsPayState
+        token={token}
+        tier={tier}
+        tradieName={tradieName}
+        googleUrl={googleUrl}
+      />
+    )
   } else if (isPaid && !isScheduled && slots.length > 0) {
     // Legacy: paid before this reorder shipped, now needs to pick a time.
     content = (
@@ -116,11 +132,14 @@ export default async function BookingPage(props: {
         token={token}
         slots={slots}
         tier={tier}
-        tradieName={tradie?.business_name ?? null}
+        tradieName={tradieName}
+        googleUrl={googleUrl}
       />
     )
   } else {
-    content = <NoSlotsState tradieName={tradie?.business_name ?? null} />
+    content = (
+      <NoSlotsState tradieName={tradieName} googleUrl={googleUrl} />
+    )
   }
 
   return (
@@ -204,7 +223,48 @@ function ReservedPayState({
   )
 }
 
-function NoSlotsState({ tradieName }: { tradieName: string | null }) {
+// Off-platform alternative: book straight into the tradie's own Google
+// calendar. Renders nothing unless a valid https link is configured.
+// Copy is explicit that this path is arranged with the tradie directly
+// (no QuoteMate deposit/confirmation on it) so the customer isn't
+// surprised — matches the "DB = pay-last; Google = off-platform" call.
+function GoogleBookingOption({
+  googleUrl,
+  tradieName,
+}: {
+  googleUrl: string | null
+  tradieName: string | null
+}) {
+  if (!googleUrl) return null
+  return (
+    <div className="mt-6 rounded-lg border border-zinc-200 bg-white p-4 sm:p-5">
+      <p className="text-sm font-semibold text-zinc-900">
+        Prefer to book straight into {tradieName ?? 'the tradie'}&apos;s calendar?
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Opens {tradieName ?? 'the tradie'}&apos;s Google booking page. With this option your
+        deposit is sorted with {tradieName ?? 'the tradie'} directly — it won&apos;t go through
+        the screen above.
+      </p>
+      <a
+        href={googleUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 inline-block rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+      >
+        Book on {tradieName ?? 'the tradie'}&apos;s calendar ↗
+      </a>
+    </div>
+  )
+}
+
+function NoSlotsState({
+  tradieName,
+  googleUrl,
+}: {
+  tradieName: string | null
+  googleUrl: string | null
+}) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 sm:p-8">
       <h1 className="text-2xl font-extrabold tracking-tight">We&apos;ll be in touch</h1>
@@ -212,6 +272,7 @@ function NoSlotsState({ tradieName }: { tradieName: string | null }) {
         {tradieName ?? 'Your tradie'} doesn&apos;t have published times right now. They&apos;ll text you within one
         business day to arrange one.
       </p>
+      <GoogleBookingOption googleUrl={googleUrl} tradieName={tradieName} />
     </section>
   )
 }
@@ -222,10 +283,12 @@ function NoSlotsPayState({
   token,
   tier,
   tradieName,
+  googleUrl,
 }: {
   token: string
   tier: string
   tradieName: string | null
+  googleUrl: string | null
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 sm:p-8">
@@ -240,6 +303,7 @@ function NoSlotsPayState({
       >
         Pay deposit to secure →
       </a>
+      <GoogleBookingOption googleUrl={googleUrl} tradieName={tradieName} />
     </section>
   )
 }
@@ -249,11 +313,13 @@ function PickState({
   slots,
   tier,
   tradieName,
+  googleUrl,
 }: {
   token: string
   slots: string[]
   tier: string
   tradieName: string | null
+  googleUrl: string | null
 }) {
   return (
     <section>
@@ -265,6 +331,7 @@ function PickState({
       <div className="mt-8">
         <SlotPicker token={token} slots={slots} tier={tier} />
       </div>
+      <GoogleBookingOption googleUrl={googleUrl} tradieName={tradieName} />
     </section>
   )
 }

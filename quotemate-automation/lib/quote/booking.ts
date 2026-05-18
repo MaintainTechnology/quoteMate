@@ -65,3 +65,33 @@ export function shouldFinaliseBookingOnPaid(
 ): boolean {
   return !!scheduledAt
 }
+
+// ── Off-platform "book directly on the tradie's calendar" option ────
+//
+// A Google Appointment link (calendar.app.google/…) has no callback, so
+// bookings made there are invisible to QuoteMate and the deposit is
+// arranged by the tradie directly (decision: "DB = pay-last; Google =
+// off-platform"). We surface the link ONLY when it is a real https URL
+// so a blank/typo'd env var can never render a broken or non-secure
+// "book here" button. Sourced from env (GOOGLE_BOOKING_URL) — not
+// hardcoded — so it's configurable per deploy without a code change.
+
+/**
+ * Validate + normalise the configured off-platform booking URL.
+ * Returns the trimmed URL only if it's an absolute https:// link,
+ * otherwise null (→ the Google option simply doesn't render).
+ */
+export function resolveGoogleBookingUrl(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol !== 'https:') return null
+    return u.toString()
+  } catch {
+    return null
+  }
+}

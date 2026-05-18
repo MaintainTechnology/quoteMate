@@ -3577,6 +3577,7 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
   const [actionState, setActionState] = useState<
     Record<string, { kind: 'ok' | 'err'; text: string }>
   >({})
+  const [threadOpen, setThreadOpen] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     if (!accessToken) {
@@ -3870,6 +3871,18 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
                 )}
                 <button
                   type="button"
+                  onClick={() =>
+                    setThreadOpen((s) => ({
+                      ...s,
+                      [f.quote_id]: !s[f.quote_id],
+                    }))
+                  }
+                  className="inline-flex items-center gap-1.5 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-sec hover:text-text-pri font-mono text-[0.62rem] uppercase tracking-[0.16em] font-bold px-4 py-2 min-h-[40px] transition-colors cursor-pointer"
+                >
+                  {threadOpen[f.quote_id] ? 'Hide messages ▾' : 'Messages ▸'}
+                </button>
+                <button
+                  type="button"
                   disabled={busyId === f.quote_id}
                   onClick={() => void markContacted(f.quote_id)}
                   className="ml-auto inline-flex items-center gap-2 border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.62rem] uppercase tracking-[0.16em] font-bold px-4 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-50"
@@ -3877,6 +3890,14 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
                   {busyId === f.quote_id ? 'Saving…' : 'Mark contacted'}
                 </button>
               </div>
+              {threadOpen[f.quote_id] && (
+                <div className="mt-3 border-t border-ink-line pt-3">
+                  <FollowupThread
+                    quoteId={f.quote_id}
+                    accessToken={accessToken}
+                  />
+                </div>
+              )}
             </div>
           )
         })}
@@ -3999,6 +4020,16 @@ function FollowupTextModal({
           </div>
         )}
 
+        <div className="mt-4 border border-ink-line bg-ink-deep p-3">
+          <p className="mb-2 font-mono text-[0.58rem] uppercase tracking-[0.14em] text-text-dim">
+            Conversation
+          </p>
+          <FollowupThread
+            quoteId={item.quote_id}
+            accessToken={accessToken}
+            compact
+          />
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -4007,7 +4038,7 @@ function FollowupTextModal({
           disabled={sending}
           aria-label="Follow-up message to the customer"
           placeholder="Type your follow-up message…"
-          className="mt-4 w-full bg-ink-deep border border-ink-line text-text-pri text-sm p-3 outline-none focus:border-accent/60 disabled:opacity-60"
+          className="mt-3 w-full bg-ink-deep border border-ink-line text-text-pri text-sm p-3 outline-none focus:border-accent/60 disabled:opacity-60"
         />
         <p className="mt-1.5 font-mono text-[0.58rem] uppercase tracking-[0.14em] text-text-dim">
           {trimmed.length}/640 chars · ~{segments} SMS{' '}
@@ -4032,6 +4063,159 @@ function FollowupTextModal({
             {sending ? 'Sending…' : 'Send text'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Follow-up SMS thread ─────────────────────────────────────────
+// The two-way conversation with this customer (their replies + what we
+// sent), oldest-first, each line stamped with WHEN it was sent. Used
+// both as a card expander and inside the compose modal so the VA can
+// read a reply before answering. Lazy-loads on mount.
+function fmtSmsWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+type ThreadMsg = {
+  direction: 'inbound' | 'outbound'
+  body: string
+  created_at: string
+}
+
+function FollowupThread({
+  quoteId,
+  accessToken,
+  compact = false,
+}: {
+  quoteId: string
+  accessToken: string | null
+  compact?: boolean
+}) {
+  const [state, setState] = useState<
+    | { phase: 'loading' }
+    | { phase: 'error'; msg: string }
+    | {
+        phase: 'ok'
+        messages: ThreadMsg[]
+        lastInbound: string | null
+        lastOutbound: string | null
+      }
+  >({ phase: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!accessToken) {
+        setState({ phase: 'error', msg: 'Not signed in' })
+        return
+      }
+      try {
+        const res = await fetch(
+          `/api/tenant/followups/messages?quoteId=${encodeURIComponent(quoteId)}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: 'no-store',
+          },
+        )
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          messages?: ThreadMsg[]
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          error?: string
+        }
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error || `HTTP ${res.status}`)
+        }
+        if (!cancelled) {
+          setState({
+            phase: 'ok',
+            messages: json.messages ?? [],
+            lastInbound: json.last_inbound_at ?? null,
+            lastOutbound: json.last_outbound_at ?? null,
+          })
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setState({
+            phase: 'error',
+            msg: e instanceof Error ? e.message : 'Failed to load messages',
+          })
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [quoteId, accessToken])
+
+  if (state.phase === 'loading') {
+    return <p className="text-xs text-text-dim">Loading messages…</p>
+  }
+  if (state.phase === 'error') {
+    return <p className="text-xs text-amber-300">{state.msg}</p>
+  }
+  if (state.messages.length === 0) {
+    return (
+      <p className="text-xs text-text-dim">
+        No messages yet. Your text and any reply from the customer will
+        appear here.
+      </p>
+    )
+  }
+
+  const customerRepliedLast =
+    !!state.lastInbound &&
+    (!state.lastOutbound ||
+      new Date(state.lastInbound) > new Date(state.lastOutbound))
+
+  return (
+    <div>
+      {customerRepliedLast && (
+        <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-emerald-300">
+          Customer replied — awaiting your response
+        </p>
+      )}
+      <div
+        className={`space-y-2 overflow-y-auto pr-1 ${
+          compact ? 'max-h-44' : 'max-h-72'
+        }`}
+      >
+        {state.messages.map((m, i) => {
+          const mine = m.direction === 'outbound'
+          return (
+            <div
+              key={i}
+              className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] px-3 py-2 text-sm ${
+                  mine
+                    ? 'bg-accent/15 border border-accent/40 text-text-pri'
+                    : 'bg-ink-card border border-ink-line text-text-sec'
+                }`}
+              >
+                <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                <p
+                  className={`mt-1 font-mono text-[0.55rem] uppercase tracking-[0.12em] ${
+                    mine ? 'text-accent/80' : 'text-text-dim'
+                  }`}
+                >
+                  {mine ? 'You' : 'Customer'} · {fmtSmsWhen(m.created_at)}
+                </p>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

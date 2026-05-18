@@ -8,6 +8,7 @@ import { BOOKING_STATE } from './hold'
 import {
   bookingStateOnPaid,
   payRedirectTarget,
+  resolveGoogleBookingUrl,
   shouldFinaliseBookingOnPaid,
 } from './booking'
 
@@ -75,5 +76,33 @@ describe('shouldFinaliseBookingOnPaid', () => {
     expect(shouldFinaliseBookingOnPaid('2026-05-20T03:00:00.000Z')).toBe(true)
     expect(shouldFinaliseBookingOnPaid(null)).toBe(false)
     expect(shouldFinaliseBookingOnPaid(undefined)).toBe(false)
+  })
+})
+
+describe('resolveGoogleBookingUrl — off-platform link safety', () => {
+  it('accepts a real https Google Appointment link', () => {
+    expect(
+      resolveGoogleBookingUrl('https://calendar.app.google/ispmShod4UYbCJ7r8'),
+    ).toBe('https://calendar.app.google/ispmShod4UYbCJ7r8')
+  })
+
+  it('trims surrounding whitespace', () => {
+    expect(
+      resolveGoogleBookingUrl('  https://calendar.app.google/abc  '),
+    ).toBe('https://calendar.app.google/abc')
+  })
+
+  it('returns null when unset / blank (option just does not render)', () => {
+    expect(resolveGoogleBookingUrl(null)).toBeNull()
+    expect(resolveGoogleBookingUrl(undefined)).toBeNull()
+    expect(resolveGoogleBookingUrl('')).toBeNull()
+    expect(resolveGoogleBookingUrl('   ')).toBeNull()
+  })
+
+  it('rejects non-https / non-URL values (never renders an unsafe link)', () => {
+    expect(resolveGoogleBookingUrl('http://calendar.app.google/x')).toBeNull()
+    expect(resolveGoogleBookingUrl('calendar.app.google/x')).toBeNull()
+    expect(resolveGoogleBookingUrl('javascript:alert(1)')).toBeNull()
+    expect(resolveGoogleBookingUrl('not a url')).toBeNull()
   })
 })
