@@ -1015,11 +1015,13 @@ function customServicesDirective(
     .slice(0, MAX_LISTED_CUSTOM_SERVICES)
 
   const lines: string[] = [
-    'TENANT CUSTOM SERVICES (authoritative — like the TENANT TRADE SCOPE',
-    'block, this OVERRIDES the system prompt defaults. This tradie added',
-    'these to their own service list; they ARE in scope and OVERRIDE both',
-    'Rule 4/6 ("job outside SMS scope -> escalate") AND the trade-scope',
-    'wrong-trade redirect for any customer request that matches one):',
+    'TENANT SERVICES THIS TRADIE OFFERS (authoritative — like the TENANT',
+    'TRADE SCOPE block, this OVERRIDES the system prompt defaults. These',
+    'are services the tradie has switched ON for their business (their',
+    'own added services AND catalogue services they enabled in Services).',
+    'They ARE in scope and OVERRIDE both Rule 4/6 ("job outside SMS scope',
+    '-> escalate") AND the trade-scope wrong-trade redirect for any',
+    'customer request that matches one):',
   ]
 
   if (autoQuote.length > 0) {

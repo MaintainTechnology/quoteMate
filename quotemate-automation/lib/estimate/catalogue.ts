@@ -270,3 +270,61 @@ export function catalogueCandidateRows(
   }
   return out
 }
+
+// ── soft prompt hints (WP2 brand/range, WP3 structured BOM) ─────────
+// Both are SOFT hints appended to the user message — the grounding
+// validator still enforces correctness regardless. Empty input -> null
+// so legacy/no-catalogue tenants and an unseeded BOM table change
+// nothing (additive, no regression).
+
+export interface CatalogueHintRow {
+  category: string
+  name: string
+  brand?: string | null
+  range_series?: string | null
+  tier_hint?: Tier | null
+}
+/** "Prefer THESE exact products, mapped to the tier shown" — makes the
+ *  operator's brand+range catalogue (WP2) visible to the model. */
+export function formatCatalogueHint(rows: CatalogueHintRow[]): string | null {
+  const valid = rows.filter((r) => r?.category && r?.name)
+  if (valid.length === 0) return null
+  const byCat = new Map<string, string[]>()
+  for (const r of valid) {
+    const tier = resolveTierForBrandRange(r.brand, r.range_series, r.tier_hint ?? null)
+    const label = [r.brand, r.range_series].filter(Boolean).join(' ')
+    const desc = `${r.name}${label ? ` (${label})` : ''}${tier ? ` -> ${tier}` : ''}`
+    const arr = byCat.get(r.category) ?? []
+    arr.push(desc)
+    byCat.set(r.category, arr)
+  }
+  const lines = [...byCat.entries()].map(([cat, items]) => `  • ${cat}: ${items.join('; ')}`)
+  return [
+    "Tradie operator catalogue (prefer THESE exact products; brand+range maps to the tier shown):",
+    ...lines,
+    "Pick the catalogue row that fits the customer's tier/spec; grounding validation runs regardless.",
+  ].join('\n')
+}
+
+export interface BomHintRow {
+  material_category: string
+  quantity: number | string
+  required?: boolean | null
+  description?: string | null
+}
+/** "Standard bill of materials for this job" — makes WP3's structured
+ *  BOM visible so the same job quotes the same parts every time. */
+export function formatBomHint(rows: BomHintRow[]): string | null {
+  const valid = rows.filter((r) => r?.material_category && Number(num(r.quantity)) > 0)
+  if (valid.length === 0) return null
+  const lines = valid.map((r) => {
+    const opt = (r.required ?? true) ? '' : ' (optional)'
+    const d = r.description ? ` ${r.description}` : ''
+    return `  • ${num(r.quantity)} x ${r.material_category}${d}${opt}`
+  })
+  return [
+    'Standard bill of materials for this job (quote these parts consistently every time):',
+    ...lines,
+    'These are the baseline parts. Price each from the catalogue / shared materials.',
+  ].join('\n')
+}

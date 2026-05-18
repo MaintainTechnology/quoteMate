@@ -1,24 +1,25 @@
 
-## Iteration: WP2 LOCKSTEP wired (money path) — safe, additive, proven
-- tools.ts: makeLookupMaterial(tenantId) unions active tenant_material_catalogue ahead of
-  shared (mirrors makeLookupAssembly); makeTools() uses it; static export = makeLookupMaterial(null).
-- run.ts loadCandidatePrices: tenantCataloguePromise + catalogueCandidateRows() merged into
-  material candidates BEFORE buildCandidatePrices (THE TRAP, same change as the lookup).
-- run.ts: import { catalogueCandidateRows } from './catalogue'.
-- New catalogue-trap.test.ts (3): proves branded tenant line GROUNDS with feed, DUMPS without
-  it (trap real+closed), customer-supply variant grounds. Full vitest 177/177, parity 70/0.
-- Safe: absent table (prod pre-028) → supabase {data:null} (no throw) → [] → identical to
-  pre-WP2; no pricing-math/Stripe change; existing quotes unaffected.
-- init.sql NOT updated: 022/023 tenant tables aren't in init.sql either — matched that
-  established precedent rather than introduce partial-representativeness drift.
-- STILL TODO (next iterations, additive, gates-green, NO prod apply, NO promise yet):
-  1) run.ts buildPreferencesBlock — surface tenant catalogue brand+range->tier hint.
-  2) WP3: wire buildBomQuoteLines + shared_assembly_bom into the estimate path
-     (deterministic lines instead of model free-decide).
-  3) Dashboard: full service catalog list + per-service on/off toggle +
-     per-service estimation-process visibility (global vs local).
-  4) Human-gated: apply migration 028 (scripts/run-migration-028.mjs --apply).
-- NOT emitting promise: WP2/WP3 not fully applied (lookup+trap done; pref/BOM-wire/UI remain).
+## Iteration: WP2/WP3 BACKEND APPLIED + INTEGRATED (engine complete, UI remains)
+- Migration 028 APPLIED TO PROD (user-authorised): tenant_material_catalogue,
+  shared_assembly_bom, tenant_assembly_overrides — 3 tables live.
+- WP2 lockstep now FUNCTIONAL against live tables (lookupMaterial unions tenant
+  catalogue; run.ts loadCandidatePrices trap-fix grounds those prices).
+- WP2 brand+range->tier hint: catalogue.ts formatCatalogueHint + run.ts buildCatalogueHint
+  wired into userPrompt (soft, additive, null when no catalogue).
+- WP3 structured-BOM hint: catalogue.ts formatBomHint + run.ts buildBomHint wired in
+  (soft, additive, null when shared_assembly_bom unseeded).
+- Tests: +5 catalogue-hints; FULL vitest 182/182, parity 70/0. Zero regression.
+- Engine is end-to-end: lookup -> ground -> brand/range+BOM hinted.
+- GENUINELY REMAINING (honest, NOT done; do NOT emit promise):
+  A) Dashboard UI in app/dashboard/page.tsx (4,242 lines) + app/api/tenant/services:
+     full catalogue list, per-row on/off toggle, add/edit, per-service estimation-
+     process visibility (global vs local). Operator self-service surface — its own
+     focused iteration; rushing a 4.2k-line UI on a live product = the mess WP2 warns of.
+  B) WP3 BOM DATA seeding (data task per brief: validate source first). buildBomQuoteLines
+     (deterministic generator) built+tested, available for a later controlled switch.
+- Promise NOT emitted: backend applied/integrated/green, but operator UI + BOM data
+  are real WP2/WP3 gaps. tests-green != feature-complete; emitting = circumventing intent.
+3 not fully applied (lookup+trap done; pref/BOM-wire/UI remain).
 mitting now would circumvent the loop intent. Quality > velocity.
 ull vitest suite + scripts/test-sms-parity.mjs all pass. Don't touch brief
   docs or WP numbering. Migrations now exist through 027 (WP7). Prior shipped: WP1(025), WP6(026).

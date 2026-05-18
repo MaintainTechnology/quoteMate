@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { systemPrompt } from './prompt'
 import { makeTools } from './tools'
 import { buildCandidatePrices, validateQuoteGrounding, type GroundingFailure, type PricingBookForValidation } from './validate'
-import { catalogueCandidateRows } from './catalogue'
+import { catalogueCandidateRows, formatCatalogueHint, formatBomHint, type CatalogueHintRow, type BomHintRow } from './catalogue'
 import { fetchSimilarPastQuotesContext } from './rag'
 import { pipelineLog } from '@/lib/log/pipeline'
 
@@ -64,9 +64,21 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
     cacheLog,
   )
 
+  // WP2 — operator brand+range catalogue hint. WP3 — structured BOM hint.
+  // Both soft, both null when the tenant has no catalogue / the BOM table
+  // is unseeded, so this is purely additive (no change for legacy data).
+  const catalogueBlock = await buildCatalogueHint(
+    (intake?.tenant_id as string | null) ?? null,
+    (intake?.trade as string | null) ?? null,
+    cacheLog,
+  )
+  const bomBlock = await buildBomHint(intake, (intake?.trade as string | null) ?? null, cacheLog)
+
   const userPrompt =
     (ragContext ? `${ragContext}\n` : '') +
     (preferencesBlock ? `${preferencesBlock}\n` : '') +
+    (catalogueBlock ? `${catalogueBlock}\n` : '') +
+    (bomBlock ? `${bomBlock}\n` : '') +
     `Draft a quote for this NEW intake:\n\n${JSON.stringify(intake, null, 2)}`
 
   // Tenant-scoped tool factory. lookupAssembly now reads BOTH
@@ -362,6 +374,73 @@ function formatPreferencesBlock(
     'best fit regardless of brand — never sacrifice tier/spec match for brand.',
     'Grounding validation runs after your output regardless of brand choice.',
   ].join('\n')
+}
+
+/**
+ * WP2 — operator catalogue hint. Lists the tenant's active
+ * tenant_material_catalogue rows (brand + range -> tier) so Opus
+ * prefers their real products. Resilient: missing table / no rows /
+ * error -> null, so legacy tenants are unaffected.
+ */
+async function buildCatalogueHint(
+  tenantId: string | null,
+  trade: string | null,
+  log: ReturnType<typeof pipelineLog>,
+): Promise<string | null> {
+  if (!tenantId) return null
+  try {
+    let q = supabase
+      .from('tenant_material_catalogue')
+      .select('category, name, brand, range_series, tier_hint')
+      .eq('tenant_id', tenantId)
+      .eq('active', true)
+    if (trade) q = q.eq('trade', trade)
+    const { data, error } = await q
+    if (error) {
+      log.err('catalogue hint fetch failed — continuing without it', error.message)
+      return null
+    }
+    return formatCatalogueHint((data ?? []) as CatalogueHintRow[])
+  } catch (e: any) {
+    log.err('catalogue hint build failed', e?.message ?? String(e))
+    return null
+  }
+}
+
+/**
+ * WP3 — structured bill-of-materials hint. Finds shared_assemblies that
+ * match the job, pulls their shared_assembly_bom rows, and lists the
+ * baseline parts so the same job quotes the same parts every time.
+ * Resilient: no matching assembly / unseeded BOM / error -> null.
+ */
+async function buildBomHint(
+  intake: any,
+  trade: string | null,
+  log: ReturnType<typeof pipelineLog>,
+): Promise<string | null> {
+  const jobType = (intake?.job_type as string | null) ?? null
+  if (!jobType) return null
+  try {
+    const term = jobType.replace(/_/g, ' ')
+    let aq = supabase.from('shared_assemblies').select('id, name, trade').ilike('name', `%${term}%`)
+    if (trade) aq = aq.eq('trade', trade)
+    const { data: asm, error: aerr } = await aq.limit(5)
+    if (aerr || !asm || asm.length === 0) return null
+    const ids = asm.map((a: any) => a.id)
+    const { data: bom, error: berr } = await supabase
+      .from('shared_assembly_bom')
+      .select('material_category, quantity, required, description, sort')
+      .in('assembly_id', ids)
+      .order('sort', { ascending: true })
+    if (berr) {
+      log.err('BOM hint fetch failed — continuing without it', berr.message)
+      return null
+    }
+    return formatBomHint((bom ?? []) as BomHintRow[])
+  } catch (e: any) {
+    log.err('BOM hint build failed', e?.message ?? String(e))
+    return null
+  }
 }
 
 // Opus often prefixes its response with reasoning ("Calculation: ...", "Here is the quote:")

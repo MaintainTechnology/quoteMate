@@ -18,6 +18,7 @@ import {
 } from '@/lib/sms/twilio-validator'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
+import { isQuoteInflight, DONE_INFLIGHT_WINDOW_MS } from '@/lib/sms/inflight'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteInFlightSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
@@ -341,9 +342,10 @@ export async function POST(req: Request) {
   //   NEW:      no prior or prior is too old/stale. Create a new row;
   //             customerHistoryHint = 'first_time' or 'returning'.
   //
-  // Window thresholds (don't change without updating the comment):
-  const STRUCTURING_INFLIGHT_MAX_MS = 5 * 60 * 1000  // structuring beyond 5min = stuck/failed → treat as new
-  const DONE_INFLIGHT_WINDOW_MS     = 60 * 1000      // 60s after done = quote SMS in transit
+  // Window thresholds (don't change without updating the comment).
+  // STRUCTURING_INFLIGHT_MAX_MS + DONE_INFLIGHT_WINDOW_MS + the in-flight
+  // rule itself now live in lib/sms/inflight.ts (pure + unit-tested) so
+  // the "done means a quote is in transit" bug can't silently regress.
   const REUSE_DONE_GRACE_MS         = 5 * 60 * 1000  // 5min after done = add-on grace
   const REUSE_OPEN_WINDOW_MS        = 4 * 60 * 60 * 1000  // 4h on open = pause-and-resume
 
@@ -389,10 +391,12 @@ export async function POST(req: Request) {
 
   // ── Mode classification ───────────────────────────────────────────
   // Order matters — first matching rule wins.
-  const isInflight = !!prior && (
-    (prior.status === 'structuring' && ageMs < STRUCTURING_INFLIGHT_MAX_MS)
-    || (prior.status === 'done' && ageMs < DONE_INFLIGHT_WINDOW_MS)
-  )
+  // 'done' is overloaded (quote-sent / inspection-escalated / ended).
+  // isQuoteInflight only holds the customer when a quote was ACTUALLY
+  // produced (intake_id set) — so an inspection escalation or ended
+  // chat no longer triggers the bogus "wrapping up your quote" reply
+  // that skipped the AI and blocked service-toggle testing.
+  const isInflight = isQuoteInflight(prior, ageMs)
   const isReuseOpenLike = !!prior && !isInflight && (
     (prior.status === 'open' && ageMs < REUSE_OPEN_WINDOW_MS)
     || (prior.status === 'structuring' && ageMs < REUSE_OPEN_WINDOW_MS)
@@ -993,6 +997,70 @@ export async function POST(req: Request) {
             count: customAssemblies.length,
             autoQuote: customAssemblies.filter((c) => !c.always_inspection).length,
             inspectionOnly: customAssemblies.filter((c) => c.always_inspection).length,
+          })
+        }
+      }
+
+      // ─── Tenant ENABLED catalogue extras (the toggle ↔ AI sync) ──────
+      // The dialog only knew the hardcoded easy-5 + custom services, so
+      // toggling a SHARED catalogue extra ON (e.g. "Install dishwasher",
+      // "Hardwire induction cooktop") in the Services tab had ZERO effect
+      // on what the AI would take — the exact bug Jon hit. We now also
+      // feed in the tenant's enabled catalogue EXTRAS (the migration-021
+      // opt-in services, default_enabled=false). Core easy-5 rows
+      // (default_enabled=true) are skipped — they're already in the
+      // system prompt, listing them again just bloats it. Turning an
+      // extra OFF removes it here, so the toggle genuinely controls the
+      // AI. Fail-soft + merged into the same in-scope list the
+      // authoritative dialog directive renders.
+      if (tenant?.id) {
+        try {
+          const { data: offerings } = await supabase
+            .from('tenant_service_offerings')
+            .select('assembly_id')
+            .eq('tenant_id', tenant.id)
+            .eq('enabled', true)
+          const enabledIds = (offerings ?? [])
+            .map((o) => o.assembly_id as string | null)
+            .filter((id): id is string => !!id)
+          if (enabledIds.length > 0) {
+            const { data: extras } = await supabase
+              .from('shared_assemblies')
+              .select('name, description, trade, default_enabled')
+              .in('id', enabledIds)
+              .eq('default_enabled', false)
+              .order('trade')
+              .order('name')
+            if (extras && extras.length > 0) {
+              const seen = new Set(
+                (customAssemblies ?? []).map((c) => c.name.trim().toLowerCase()),
+              )
+              const mapped = extras
+                .map((r) => ({
+                  name: r.name as string,
+                  description: (r.description as string | null) ?? null,
+                  always_inspection: false,
+                }))
+                .filter((r) => {
+                  const k = r.name.trim().toLowerCase()
+                  if (seen.has(k)) return false
+                  seen.add(k)
+                  return true
+                })
+              if (mapped.length > 0) {
+                customAssemblies = [...(customAssemblies ?? []), ...mapped]
+                console.log('[sms/inbound:after] enabled catalogue extras in dialog scope', {
+                  tenantId: tenant.id,
+                  count: mapped.length,
+                  names: mapped.map((m) => m.name),
+                })
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[sms/inbound:after] catalogue-extras fetch failed — continuing without them', {
+            tenantId: tenant.id,
+            message: e instanceof Error ? e.message : String(e),
           })
         }
       }
