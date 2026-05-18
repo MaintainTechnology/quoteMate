@@ -200,7 +200,7 @@ function makeLookupAssembly(tenantId: string | null) {
 export function makeTools(tenantId: string | null) {
   return {
     lookupAssembly: makeLookupAssembly(tenantId),
-    lookupMaterial,
+    lookupMaterial: makeLookupMaterial(tenantId),
     applyMarkup,
     flagInspectionNeeded,
   }
@@ -211,42 +211,88 @@ export function makeTools(tenantId: string | null) {
 // shared catalogue only.
 export const lookupAssembly = makeLookupAssembly(null)
 
-export const lookupMaterial = tool({
-  description:
-    'Search materials by name or brand plus optional filters. Results are ' +
-    'returned BEST-MATCH-FIRST via cross-encoder reranker — pick the top row ' +
-    'unless the customer asked for a specific tier. ' +
-    'ALWAYS pass `trade` ("electrical" or "plumbing") — the DB carries both ' +
-    'and unfiltered queries may return cross-trade matches. ' +
-    'For electrical jobs, when intake.scope.specs has values, PASS THEM THROUGH. ' +
-    'Example: lookupMaterial({ query: "warm white dimmable LED downlight", trade: "electrical", color_temp: "warm_white", dimmable: true }) ' +
-    'returns only warm-white-capable, dimmable electrical downlights, ranked best-match-first.',
-  inputSchema: z.object({
-    query: z.string(),
-    trade: TradeEnum.optional(),
-    color_temp: z.enum(['warm_white', 'cool_white', 'tri_colour']).optional(),
-    dimmable: z.boolean().optional(),
-    smart: z.boolean().optional(),
-    weatherproof: z.boolean().optional(),
-    supplied_by: z.enum(['tradie', 'customer']).optional(),
-  }),
-  execute: async ({ query, trade, ...filters }) => {
-    let q = supabase.from('shared_materials').select('*').or(
-      `name.ilike.%${query}%,brand.ilike.%${query}%`
-    )
-    if (trade) q = q.eq('trade', trade)
-    q = applyPropertyFilters(q, filters)
-    const { data } = await q.limit(FETCH_LIMIT)
-    const rows = data ?? []
-    // Re-rank: pack brand + name for a denser cross-encoder doc.
-    return rerankRows(
-      query,
-      rows,
-      RETURN_LIMIT,
-      (r: any) => r.brand ? `${r.brand} ${r.name}` : r.name,
-    )
-  },
-})
+// WP2 — factory variant. When the intake carries a tenant_id, lookupMaterial
+// UNIONs shared_materials with this tenant's active tenant_material_catalogue
+// (migration 028) — their real brands/ranges (Clipsal Iconic vs 2000),
+// ranked AHEAD of the generic shared catalogue. Tenant rows alias
+// unit_price_ex_gst → default_unit_price_ex_gst so Opus reads the SAME
+// price field regardless of source. Mirrors makeLookupAssembly (023).
+//
+// The grounding validator MUST also accept these prices (see
+// run.ts loadCandidatePrices) or every branded quote dumps to inspection
+// — that lockstep is shipped in the same change.
+function makeLookupMaterial(tenantId: string | null) {
+  return tool({
+    description:
+      'Search materials by name or brand plus optional filters. Results are ' +
+      'returned BEST-MATCH-FIRST via cross-encoder reranker — pick the top row ' +
+      'unless the customer asked for a specific tier. ' +
+      'When this tenant has an operator-owned materials catalogue (their real ' +
+      'brands/ranges, e.g. Clipsal Iconic vs Clipsal 2000), those rows are ' +
+      'UNIONed in and ranked ahead of the generic shared catalogue. ' +
+      'ALWAYS pass `trade` ("electrical" or "plumbing") — the DB carries both ' +
+      'and unfiltered queries may return cross-trade matches. ' +
+      'For electrical jobs, when intake.scope.specs has values, PASS THEM THROUGH. ' +
+      'Example: lookupMaterial({ query: "warm white dimmable LED downlight", trade: "electrical", color_temp: "warm_white", dimmable: true }) ' +
+      'returns only warm-white-capable, dimmable electrical downlights, ranked best-match-first.',
+    inputSchema: z.object({
+      query: z.string(),
+      trade: TradeEnum.optional(),
+      color_temp: z.enum(['warm_white', 'cool_white', 'tri_colour']).optional(),
+      dimmable: z.boolean().optional(),
+      smart: z.boolean().optional(),
+      weatherproof: z.boolean().optional(),
+      supplied_by: z.enum(['tradie', 'customer']).optional(),
+    }),
+    execute: async ({ query, trade, ...filters }) => {
+      // Shared catalogue (unchanged behaviour).
+      let sharedQ = supabase.from('shared_materials').select('*').or(
+        `name.ilike.%${query}%,brand.ilike.%${query}%`
+      )
+      if (trade) sharedQ = sharedQ.eq('trade', trade)
+      sharedQ = applyPropertyFilters(sharedQ, filters)
+      const sharedRes = await sharedQ.limit(FETCH_LIMIT)
+      const sharedRows = (sharedRes.data ?? []).map((r: any) => ({ ...r, is_tenant: false }))
+
+      // Operator-owned catalogue (migration 028). Absent table (prod
+      // pre-028) → supabase-js returns {data:null} (no throw) → [] →
+      // shared-only, identical to pre-WP2 behaviour.
+      let tenantRows: any[] = []
+      if (tenantId) {
+        let tq = supabase
+          .from('tenant_material_catalogue')
+          .select('*')
+          .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
+          .eq('tenant_id', tenantId)
+          .eq('active', true)
+        if (trade) tq = tq.eq('trade', trade)
+        tq = applyPropertyFilters(tq, filters)
+        const tRes = await tq.limit(FETCH_LIMIT)
+        tenantRows = (tRes.data ?? []).map((r: any) => ({
+          ...r,
+          default_unit_price_ex_gst: r.unit_price_ex_gst,
+          is_tenant: true,
+        }))
+      }
+
+      // Tenant rows first so the reranker can promote them; the reranker
+      // decides final order regardless.
+      const rows = [...tenantRows, ...sharedRows]
+      return rerankRows(
+        query,
+        rows,
+        RETURN_LIMIT,
+        (r: any) => {
+          const brandRange = [r.brand, r.range_series].filter(Boolean).join(' ')
+          return brandRange ? `${brandRange} ${r.name}` : r.name
+        },
+      )
+    },
+  })
+}
+
+// Backward-compat static export — shared catalogue only (pre-WP2 behaviour).
+export const lookupMaterial = makeLookupMaterial(null)
 
 export const applyMarkup = tool({
   description: 'Apply the tradie\'s markup percentage to a base material price. Always pass markupPct explicitly using pricingBook.default_markup_pct (default falls back to 28% — the AU electrical median — only as a safety net).',

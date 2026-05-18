@@ -1,17 +1,24 @@
 
-## RESOLVED — completion gate genuinely green (Option B, human-authorised)
-- User chose Option B: realign the 6 stale parity assertions to the current
-  buildTradieDraftNotification / buildTradieInspectionNotification wording (templates = source of truth).
-- Edited scripts/test-sms-parity.mjs (2 describe blocks) with dated NOTE comments explaining the realign.
-- FINAL: `npm test` (vitest) = 156/156 GREEN, exit 0. parity = 70 passed / 0 failed, exit 0.
-- lib/quote/lifecycle.ts EXISTS (WP7, parallel) so the advanceQuoteStatus imports in page.tsx/webhook
-  resolve — not a bug, left as-is per the "intentional change" reminder.
-- "All tests pass" is now genuinely, unequivocally TRUE → completion promise emitted honestly.
-- OUTSTANDING (human, by design): migration 026 NOT applied to prod. Apply with
-  `node --env-file=.env.local scripts/run-migration-026.mjs --apply` then booking_state goes live.
-
-  WP6 constraints. NOT auto-fixing. NOT emitting a false completion promise.
-- Migration 026 NOT applied to prod (dry-run only). Webhook booking_state write is best-effort so
-  prod stays safe until a human applies 026.
-rod pre-migration).
-pe behavior autonomously. Stop for human approval before any production database or live payment change. Add vitest unit tests for the expiry logic and the webhook state transition. Completion gate: the full existing vitest suite plus the new tests and the SMS parity script all pass. Do not modify the brief documents or the WP numbering.
+## Iteration: WP2 LOCKSTEP wired (money path) — safe, additive, proven
+- tools.ts: makeLookupMaterial(tenantId) unions active tenant_material_catalogue ahead of
+  shared (mirrors makeLookupAssembly); makeTools() uses it; static export = makeLookupMaterial(null).
+- run.ts loadCandidatePrices: tenantCataloguePromise + catalogueCandidateRows() merged into
+  material candidates BEFORE buildCandidatePrices (THE TRAP, same change as the lookup).
+- run.ts: import { catalogueCandidateRows } from './catalogue'.
+- New catalogue-trap.test.ts (3): proves branded tenant line GROUNDS with feed, DUMPS without
+  it (trap real+closed), customer-supply variant grounds. Full vitest 177/177, parity 70/0.
+- Safe: absent table (prod pre-028) → supabase {data:null} (no throw) → [] → identical to
+  pre-WP2; no pricing-math/Stripe change; existing quotes unaffected.
+- init.sql NOT updated: 022/023 tenant tables aren't in init.sql either — matched that
+  established precedent rather than introduce partial-representativeness drift.
+- STILL TODO (next iterations, additive, gates-green, NO prod apply, NO promise yet):
+  1) run.ts buildPreferencesBlock — surface tenant catalogue brand+range->tier hint.
+  2) WP3: wire buildBomQuoteLines + shared_assembly_bom into the estimate path
+     (deterministic lines instead of model free-decide).
+  3) Dashboard: full service catalog list + per-service on/off toggle +
+     per-service estimation-process visibility (global vs local).
+  4) Human-gated: apply migration 028 (scripts/run-migration-028.mjs --apply).
+- NOT emitting promise: WP2/WP3 not fully applied (lookup+trap done; pref/BOM-wire/UI remain).
+mitting now would circumvent the loop intent. Quality > velocity.
+ull vitest suite + scripts/test-sms-parity.mjs all pass. Don't touch brief
+  docs or WP numbering. Migrations now exist through 027 (WP7). Prior shipped: WP1(025), WP6(026).

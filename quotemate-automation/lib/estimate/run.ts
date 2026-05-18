@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { systemPrompt } from './prompt'
 import { makeTools } from './tools'
 import { buildCandidatePrices, validateQuoteGrounding, type GroundingFailure, type PricingBookForValidation } from './validate'
+import { catalogueCandidateRows } from './catalogue'
 import { fetchSimilarPastQuotesContext } from './rag'
 import { pipelineLog } from '@/lib/log/pipeline'
 
@@ -217,14 +218,34 @@ async function loadCandidatePrices(
       })()
     : Promise.resolve({ data: [] as Array<{ name: string; default_unit_price_ex_gst: number | string; trade: string }> })
 
+  // WP2 TRAP-FIX (lockstep with tools.ts makeLookupMaterial): lookupMaterial
+  // now returns operator-owned tenant_material_catalogue rows (migration
+  // 028), so the validator MUST accept prices grounded on them or every
+  // branded quote is downgraded to inspection. Absent table (prod pre-028)
+  // → supabase-js returns {data:null} (no throw) → [] → behaviour identical
+  // to pre-WP2. always-active filter mirrors the lookup tool's filter.
+  const tenantCataloguePromise = tenantId
+    ? (() => {
+        let q = supabase
+          .from('tenant_material_catalogue')
+          .select('name, unit_price_ex_gst, customer_supply_price_ex_gst, active, trade')
+          .eq('tenant_id', tenantId)
+          .eq('active', true)
+        if (trade) q = q.eq('trade', trade)
+        return q
+      })()
+    : Promise.resolve({ data: [] as Array<{ name: string; unit_price_ex_gst: number | string; customer_supply_price_ex_gst: number | string | null; active: boolean; trade: string }> })
+
   const [
     { data: materials },
     { data: assemblies },
     { data: customAssemblies },
+    { data: tenantCatalogue },
   ] = await Promise.all([
     trade ? materialsQuery.eq('trade', trade) : materialsQuery,
     trade ? assembliesQuery.eq('trade', trade) : assembliesQuery,
     customAssembliesPromise,
+    tenantCataloguePromise,
   ])
 
   // Merge shared + custom assemblies into one candidate set — the
@@ -234,8 +255,17 @@ async function loadCandidatePrices(
     ...(customAssemblies ?? []),
   ]
 
+  // Expand the tenant catalogue (supply + customer-supply price variants)
+  // into material candidates so a branded tenant-priced line grounds.
+  const tenantMaterialCandidates = catalogueCandidateRows(
+    (tenantCatalogue ?? []) as any[],
+  )
+
   return buildCandidatePrices(
-    (materials ?? []).map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
+    [
+      ...(materials ?? []).map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
+      ...tenantMaterialCandidates,
+    ],
     allAssemblies.map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
     pricingBook,
   )
