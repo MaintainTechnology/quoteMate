@@ -1,23 +1,29 @@
 // Booking endpoint — called by the SlotPicker on the booking page.
-// Persists `quotes.scheduled_at`, sets status='accepted' + accepted_at,
-// and removes the picked slot from `tradies.available_slots`.
 //
-// Hardening rules (any failure → 4xx, no partial writes):
+// WP6 reorder: BOOK FIRST, PAY LAST. This route no longer requires a
+// paid deposit. It records the customer's chosen time on the quote and
+// puts it into 'reserved', then hands back the pay URL as `next` so the
+// customer is sent to the deposit step (the LAST step). The booking is
+// only CONFIRMED — status='accepted', booking_state='booked', slot
+// removed from availability, confirmation SMS sent — when the deposit is
+// actually paid, which now happens in the Stripe webhook.
+//
+// Slot-hold model ("confirm slot on payment"): the picked slot is NOT
+// removed from tradies.available_slots here, so an abandoned checkout
+// never strands a slot. The (small, pilot-tolerated) trade-off is two
+// customers could pick the same time before either pays — the webhook
+// resolves that when finalising.
+//
+// Hardening rules:
 //   - share_token must resolve to a quote
-//   - quote.paid_at must be set (no booking before deposit)
-//   - quote.scheduled_at must be null (no double-booking same quote)
-//   - slot must currently be in the tradie's available_slots
+//   - if the quote is already PAID + scheduled → already booked (409)
+//   - a not-yet-paid quote may (re-)pick a slot freely
+//   - slot must be a published slot in tradies.available_slots
 //   - slot must be a parseable ISO timestamp in the future
-//
-// Uses two sequential updates rather than a transaction. Race window
-// (two customers picking the same slot at once) is tolerated for v0.5
-// single-tradie. When tradie #2 onboards, wrap in a stored procedure.
 
 import { createClient } from '@supabase/supabase-js'
-import { after } from 'next/server'
 import { pipelineLog } from '@/lib/log/pipeline'
-import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
-import { buildBookingConfirmationSms, buildTradieBookingNotification } from '@/lib/sms/templates'
+import { BOOKING_STATE } from '@/lib/quote/hold'
 
 export const maxDuration = 30
 
@@ -26,15 +32,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+const PAY_TIERS = new Set(['good', 'better', 'best'])
+
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ token: string }> },
 ) {
   const log = pipelineLog('dispatch')
   const { token } = await ctx.params
-  log.step('booking attempt', { token: token.slice(0, 8) + '…' })
+  log.step('slot reservation attempt', { token: token.slice(0, 8) + '…' })
 
-  let body: { slot?: unknown }
+  let body: { slot?: unknown; tier?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -56,7 +64,7 @@ export async function POST(
 
   const { data: quote, error: quoteErr } = await supabase
     .from('quotes')
-    .select('id, paid_at, scheduled_at, share_token, intake_id, tenant_id')
+    .select('id, paid_at, scheduled_at, selected_tier, share_token, intake_id, tenant_id')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -67,11 +75,12 @@ export async function POST(
   if (!quote) {
     return Response.json({ ok: false, error: 'Quote not found' }, { status: 404 })
   }
-  if (!quote.paid_at) {
-    return Response.json({ ok: false, error: 'Pay your deposit first' }, { status: 409 })
-  }
-  if (quote.scheduled_at) {
-    return Response.json({ ok: false, error: 'This quote is already scheduled' }, { status: 409 })
+  // Already booked + paid → terminal, don't let them re-pick.
+  if (quote.paid_at && quote.scheduled_at) {
+    return Response.json(
+      { ok: false, error: 'This quote is already booked' },
+      { status: 409 },
+    )
   }
 
   const { data: tradie, error: tradieErr } = await supabase
@@ -100,173 +109,44 @@ export async function POST(
     return Response.json({ ok: false, error: 'That slot is no longer available' }, { status: 409 })
   }
 
-  const remainingSlots = currentSlots.filter((s) => s !== slot)
   const nowIso = new Date().toISOString()
 
+  // Reserve the time on the quote. We deliberately do NOT set
+  // status='accepted'/accepted_at and do NOT prune the tradie's
+  // available_slots — the booking is only CONFIRMED on payment (the
+  // Stripe webhook). booking_state='reserved' surfaces "time picked,
+  // awaiting deposit" on the dashboard.
   const { error: quoteUpdateErr } = await supabase
     .from('quotes')
     .update({
       scheduled_at: slot,
-      status: 'accepted',
-      accepted_at: nowIso,
-      // WP7 — keep the single sortable "last activity" column in step
-      // with the lifecycle. 'accepted' is the top of the ladder so this
-      // write stays atomic with scheduled_at (no separate advance call
-      // that could miss the slot write); the booking precondition above
-      // already guarantees we only get here from a paid quote.
+      booking_state: BOOKING_STATE.RESERVED,
       last_status_at: nowIso,
     })
     .eq('id', quote.id)
 
   if (quoteUpdateErr) {
-    log.err('quote update failed', quoteUpdateErr.message, { quote_id: quote.id })
-    return Response.json({ ok: false, error: 'Failed to lock in slot' }, { status: 500 })
+    log.err('quote reserve failed', quoteUpdateErr.message, { quote_id: quote.id })
+    return Response.json({ ok: false, error: 'Failed to reserve that time' }, { status: 500 })
   }
 
-  const { error: tradieUpdateErr } = await supabase
-    .from('tradies')
-    .update({ available_slots: remainingSlots })
-    .eq('id', tradie.id)
+  // Resolve which tier's deposit to charge: the tier the customer chose
+  // on the quote page (passed through), else the quote's selected_tier,
+  // else 'better' (the canonical default).
+  const reqTier = typeof body.tier === 'string' ? body.tier : null
+  const tier =
+    reqTier && PAY_TIERS.has(reqTier)
+      ? reqTier
+      : PAY_TIERS.has(String(quote.selected_tier))
+        ? String(quote.selected_tier)
+        : 'better'
+  const next = `/r/${token}/${tier}`
 
-  if (tradieUpdateErr) {
-    // Quote is already marked scheduled. Log loudly so the operator can
-    // manually reconcile the tradie's slot list, but don't fail the request.
-    log.err('tradie slot list update failed (quote IS booked, slot list NOT pruned)', tradieUpdateErr.message, {
-      quote_id: quote.id,
-      tradie_id: tradie.id,
-      slot,
-    })
-  }
-
-  log.done('quote booked', { quote_id: quote.id, slot })
-
-  // Fire confirmation SMS to the customer + tradie. Wrapped in `after()`
-  // so the response returns instantly; SMS failures are logged loudly
-  // but never undo the booking. Mirrors the pattern in /api/estimate/draft.
-  after(async () => {
-    const sms = pipelineLog('dispatch', quote.id)
-    try {
-      const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
-
-      // Resolve customer name + phone via intake → calls.
-      // intake.caller.phone is set on SMS-sourced quotes; calls.caller_number
-      // is set on voice-sourced quotes. Either one is sufficient.
-      const { data: intake } = await supabase
-        .from('intakes')
-        .select('id, call_id, job_type, caller, scope')
-        .eq('id', quote.intake_id)
-        .maybeSingle()
-
-      let callerNumber: string | null =
-        (intake?.caller as { phone?: string } | null)?.phone ?? null
-
-      if (!callerNumber && intake?.call_id) {
-        const { data: callRow } = await supabase
-          .from('calls')
-          .select('caller_number')
-          .eq('id', intake.call_id)
-          .maybeSingle()
-        callerNumber = callRow?.caller_number ?? null
-      }
-
-      // v6 multi-tenant: resolve the tenant who owns this quote so the
-      // booking confirmation SMS goes FROM their provisioned number
-      // (not the shared dev line) and the tradie-notify goes TO their
-      // personal mobile (not a shared TRADIE_NOTIFY_NUMBER env var).
-      let tenantSmsNumber: string | null = null
-      let tenantOwnerMobile: string | null = null
-      let tenantOwnerFirstName: string | null = null
-      if (quote.tenant_id) {
-        const { data: tenantRow } = await supabase
-          .from('tenants')
-          .select('twilio_sms_number, owner_mobile, owner_first_name')
-          .eq('id', quote.tenant_id)
-          .maybeSingle()
-        tenantSmsNumber = (tenantRow?.twilio_sms_number as string | null) ?? null
-        tenantOwnerMobile = (tenantRow?.owner_mobile as string | null) ?? null
-        tenantOwnerFirstName = (tenantRow?.owner_first_name as string | null) ?? null
-      }
-
-      const firstName = (intake?.caller as { name?: string } | null)?.name
-      const bookingUrl = `${appUrl}/q/${token}/book`
-      const quoteUrl = `${appUrl}/q/${token}`
-
-      // ── Customer SMS — from the tenant's provisioned number so the
-      //    booking confirmation lands in the SAME thread as the original
-      //    quote (not the shared dev line). Falls back to env for legacy
-      //    pre-v6 quotes that have no tenant_id.
-      if (callerNumber) {
-        const body = buildBookingConfirmationSms({
-          firstName,
-          scheduledAt: slot,
-          bookingUrl,
-        })
-        const customerFrom = tenantSmsNumber ?? process.env.TWILIO_SMS_NUMBER
-        sms.step('sending booking confirmation to customer', {
-          to: callerNumber,
-          from: customerFrom ?? '(default TWILIO_PHONE_NUMBER)',
-        })
-        const r = await dispatchQuoteMessage({
-          to: callerNumber,
-          text: body,
-          from: customerFrom ?? undefined,
-        })
-        if (r.ok) {
-          sms.ok('customer booking confirmation sent', { channel: r.channel, sid: r.sid })
-        } else {
-          sms.err('customer booking confirmation failed', null, {
-            sms_code: r.smsAttempt.code,
-            sms_reason: r.smsAttempt.reason,
-            wa_code: r.waAttempt?.code,
-            wa_reason: r.waAttempt?.reason,
-          })
-        }
-      } else {
-        sms.ok('customer SMS skipped — no callerNumber resolvable', { quote_id: quote.id })
-      }
-
-      // ── Tradie SMS — go to tenant.owner_mobile, from the tenant's
-      //    own number so the booking notification lands in the SAME
-      //    thread as the tradie's welcome SMS. Falls back to
-      //    TRADIE_NOTIFY_NUMBER env for legacy pre-v6 pilot data.
-      const notifyMobile = tenantOwnerMobile ?? process.env.TRADIE_NOTIFY_NUMBER
-      if (notifyMobile) {
-        const tradieBody = buildTradieBookingNotification({
-          tradieFirstName: tenantOwnerFirstName,
-          customerName: firstName,
-          customerPhone: callerNumber ?? undefined,
-          jobType: intake?.job_type ?? 'other',
-          itemCount: (intake?.scope as { item_count?: number } | null)?.item_count,
-          scheduledAt: slot,
-          quoteUrl,
-          dashboardUrl: `${appUrl}/dashboard`,
-        })
-        sms.step('notifying tradie of booking', {
-          to: notifyMobile,
-          from: tenantSmsNumber ?? '(default TWILIO_PHONE_NUMBER)',
-        })
-        const r = await dispatchQuoteMessage({
-          to: notifyMobile,
-          text: tradieBody,
-          from: tenantSmsNumber ?? undefined,
-        })
-        if (r.ok) {
-          sms.ok('tradie booking notification sent', { channel: r.channel, sid: r.sid })
-        } else {
-          sms.err('tradie booking notification failed', null, {
-            sms_code: r.smsAttempt.code,
-            sms_reason: r.smsAttempt.reason,
-            wa_code: r.waAttempt?.code,
-            wa_reason: r.waAttempt?.reason,
-          })
-        }
-      } else {
-        sms.ok('tradie notify skipped — no tenant.owner_mobile and no env fallback')
-      }
-    } catch (e) {
-      sms.err('booking SMS dispatch threw — booking IS persisted, only SMS failed', e)
-    }
+  log.done('slot reserved — sending customer to deposit (last step)', {
+    quote_id: quote.id,
+    slot,
+    tier,
   })
 
-  return Response.json({ ok: true, scheduled_at: slot })
+  return Response.json({ ok: true, scheduled_at: slot, next })
 }

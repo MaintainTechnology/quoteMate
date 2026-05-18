@@ -3554,20 +3554,17 @@ function fmtJobType(j: string | null): string {
   return j.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// tel:/sms: hrefs want a dial-safe string (digits + leading +).
-function dialHref(scheme: 'tel' | 'sms', phone: string | null): string | null {
-  if (!phone) return null
-  const cleaned = phone.replace(/[^\d+]/g, '')
-  if (cleaned.replace(/\D/g, '').length < 6) return null
-  return `${scheme}:${cleaned}`
-}
-
 function FollowupsTab({ accessToken }: { accessToken: string | null }) {
   const [rows, setRows] = useState<FollowupItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [minAgeHours, setMinAgeHours] = useState<number | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [callBusy, setCallBusy] = useState<string | null>(null)
+  const [composeFor, setComposeFor] = useState<FollowupItem | null>(null)
+  const [actionState, setActionState] = useState<
+    Record<string, { kind: 'ok' | 'err'; text: string }>
+  >({})
 
   const load = useCallback(async () => {
     if (!accessToken) {
@@ -3641,6 +3638,69 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
     }
   }
 
+  function setRowMsg(quoteId: string, kind: 'ok' | 'err', text: string) {
+    setActionState((s) => ({ ...s, [quoteId]: { kind, text } }))
+  }
+  function clearRowMsg(quoteId: string) {
+    setActionState((s) => {
+      const next = { ...s }
+      delete next[quoteId]
+      return next
+    })
+  }
+
+  async function startCall(item: FollowupItem) {
+    if (!accessToken) return
+    if (
+      !window.confirm(
+        `Call ${
+          item.customer.full_name || 'this customer'
+        }? Your phone rings first, then we connect you to the customer.`,
+      )
+    )
+      return
+    setCallBusy(item.quote_id)
+    clearRowMsg(item.quote_id)
+    try {
+      const res = await fetch('/api/tenant/followups/call', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ quoteId: item.quote_id }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        message?: string
+        error?: string
+      }
+      if (!res.ok || !json.ok) {
+        setRowMsg(
+          item.quote_id,
+          'err',
+          json.message ||
+            json.error ||
+            `Couldn't start the call (HTTP ${res.status}).`,
+        )
+        return
+      }
+      setRowMsg(
+        item.quote_id,
+        'ok',
+        'Calling — your phone will ring, then we connect the customer.',
+      )
+    } catch (e) {
+      setRowMsg(
+        item.quote_id,
+        'err',
+        e instanceof Error ? e.message : 'Network error starting the call.',
+      )
+    } finally {
+      setCallBusy(null)
+    }
+  }
+
   if (loading) {
     return (
       <Card title="Follow-ups">
@@ -3689,6 +3749,7 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
   }
 
   return (
+    <>
     <Card
       title="Follow-ups"
       subtitle={`${list.length} ${
@@ -3698,8 +3759,11 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
       <div className="space-y-3">
         {list.map((f) => {
           const name = f.customer.full_name || 'Unknown customer'
-          const tel = dialHref('tel', f.customer.phone)
-          const sms = dialHref('sms', f.customer.phone)
+          const hasPhone =
+            !!f.customer.phone &&
+            f.customer.phone.replace(/\D/g, '').length >= 6
+          const act = actionState[f.quote_id]
+          const calling = callBusy === f.quote_id
           const opened = f.followup_reason.startsWith('Opened')
           return (
             <div
@@ -3739,24 +3803,27 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
                 </div>
                 <div className="flex flex-col items-stretch gap-2 shrink-0">
                   <div className="flex gap-2">
-                    {tel ? (
-                      <a
-                        href={tel}
-                        className="inline-flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-press text-white font-mono text-[0.62rem] uppercase tracking-[0.14em] font-bold px-3 py-2 min-h-[40px] transition-colors"
-                      >
-                        Call
-                      </a>
-                    ) : null}
-                    {sms ? (
-                      <a
-                        href={sms}
-                        className="inline-flex items-center justify-center gap-1.5 border border-accent/60 text-accent hover:bg-accent/10 font-mono text-[0.62rem] uppercase tracking-[0.14em] font-bold px-3 py-2 min-h-[40px] transition-colors"
-                      >
-                        Text
-                      </a>
-                    ) : null}
+                    <button
+                      type="button"
+                      disabled={!hasPhone || calling}
+                      onClick={() => void startCall(f)}
+                      className="inline-flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-press text-white font-mono text-[0.62rem] uppercase tracking-[0.14em] font-bold px-3 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {calling ? 'Ringing…' : 'Call'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!hasPhone}
+                      onClick={() => {
+                        clearRowMsg(f.quote_id)
+                        setComposeFor(f)
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 border border-accent/60 text-accent hover:bg-accent/10 font-mono text-[0.62rem] uppercase tracking-[0.14em] font-bold px-3 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Text
+                    </button>
                   </div>
-                  {!tel && !sms && (
+                  {!hasPhone && (
                     <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-amber-300">
                       No phone on file
                     </span>
@@ -3764,6 +3831,17 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
                   {f.customer.phone && (
                     <span className="text-center text-xs text-text-dim tabular-nums">
                       {f.customer.phone}
+                    </span>
+                  )}
+                  {act && (
+                    <span
+                      className={`text-center font-mono text-[0.6rem] uppercase tracking-[0.12em] leading-relaxed ${
+                        act.kind === 'ok'
+                          ? 'text-emerald-300'
+                          : 'text-amber-300'
+                      }`}
+                    >
+                      {act.text}
                     </span>
                   )}
                 </div>
@@ -3792,6 +3870,158 @@ function FollowupsTab({ accessToken }: { accessToken: string | null }) {
         })}
       </div>
     </Card>
+      {composeFor && (
+        <FollowupTextModal
+          item={composeFor}
+          accessToken={accessToken}
+          onClose={() => setComposeFor(null)}
+          onSent={(quoteId, channel) => {
+            setComposeFor(null)
+            setRowMsg(
+              quoteId,
+              'ok',
+              channel === 'whatsapp' ? 'Sent via WhatsApp ✓' : 'Text sent ✓',
+            )
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+// ─── Follow-up text modal ─────────────────────────────────────────
+// Compose + send a real SMS from the tenant's provisioned number. Send
+// failures (bad number, opted-out, no sender, carrier reject) surface
+// INLINE here — the modal stays open with the text preserved so the VA
+// can fix and retry. Success closes the modal and the card shows "sent".
+function FollowupTextModal({
+  item,
+  accessToken,
+  onClose,
+  onSent,
+}: {
+  item: FollowupItem
+  accessToken: string | null
+  onClose: () => void
+  onSent: (quoteId: string, channel: 'sms' | 'whatsapp') => void
+}) {
+  const firstName = item.customer.first_name || ''
+  const jobLabel = fmtJobType(item.job_type)
+  const amount =
+    item.total_inc_gst != null ? fmtAUD(item.total_inc_gst) : null
+  const defaultMsg =
+    `Hi ${firstName || 'there'}, just following up on your ${jobLabel} quote` +
+    `${amount ? ` (${amount} inc GST)` : ''}. Happy to answer any questions ` +
+    `or lock in a time — just reply to this message.`
+  const [text, setText] = useState(defaultMsg)
+  const [sending, setSending] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const trimmed = text.trim()
+  const segments = trimmed.length === 0 ? 0 : Math.ceil(trimmed.length / 153)
+
+  async function send() {
+    if (!accessToken || !trimmed || sending) return
+    setSending(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/tenant/followups/text', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ quoteId: item.quote_id, text: trimmed }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        channel?: 'sms' | 'whatsapp'
+        message?: string
+        error?: string
+      }
+      if (!res.ok || !json.ok) {
+        setErr(
+          json.message || json.error || `Couldn't send (HTTP ${res.status}).`,
+        )
+        return
+      }
+      onSent(item.quote_id, json.channel ?? 'sms')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error sending the text.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md bg-ink border border-ink-line p-5 sm:p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-extrabold uppercase tracking-tight text-text-pri">
+              Text {item.customer.full_name || 'customer'}
+            </h3>
+            <p className="mt-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-text-dim">
+              From your QuoteMate number · {item.customer.phone ?? 'no number'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-dim hover:text-text-pri font-mono text-sm cursor-pointer"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {err && (
+          <div className="mt-4 border border-amber-500/50 bg-amber-500/10 text-amber-200 text-sm px-3 py-2">
+            {err}
+          </div>
+        )}
+
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={5}
+          maxLength={640}
+          disabled={sending}
+          aria-label="Follow-up message to the customer"
+          placeholder="Type your follow-up message…"
+          className="mt-4 w-full bg-ink-deep border border-ink-line text-text-pri text-sm p-3 outline-none focus:border-accent/60 disabled:opacity-60"
+        />
+        <p className="mt-1.5 font-mono text-[0.58rem] uppercase tracking-[0.14em] text-text-dim">
+          {trimmed.length}/640 chars · ~{segments} SMS{' '}
+          {segments === 1 ? 'segment' : 'segments'}
+        </p>
+
+        <div className="mt-5 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri font-mono text-[0.62rem] uppercase tracking-[0.16em] font-bold px-4 py-2.5 min-h-[44px] transition-colors cursor-pointer disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={sending || trimmed.length === 0}
+            className="bg-accent hover:bg-accent-press text-white font-mono text-[0.62rem] uppercase tracking-[0.16em] font-bold px-5 py-2.5 min-h-[44px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {sending ? 'Sending…' : 'Send text'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

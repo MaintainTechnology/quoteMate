@@ -21,7 +21,17 @@ function formatSlot(iso: string): { day: string; time: string } {
   return { day, time }
 }
 
-export function SlotPicker({ token, slots }: { token: string; slots: string[] }) {
+export function SlotPicker({
+  token,
+  slots,
+  tier,
+}: {
+  token: string
+  slots: string[]
+  /** Tier the customer chose on the quote page — passed to the book API
+   *  so the deposit step at the end charges the right amount. */
+  tier?: string
+}) {
   const [picked, setPicked] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -43,15 +53,24 @@ export function SlotPicker({ token, slots }: { token: string; slots: string[] })
       const res = await fetch(`/api/q/${token}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slot: picked }),
+        body: JSON.stringify({ slot: picked, tier }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || !json?.ok) {
-        throw new Error(json?.error ?? `Couldn't lock in slot (HTTP ${res.status}).`)
+        throw new Error(json?.error ?? `Couldn't hold that time (HTTP ${res.status}).`)
       }
       setStatus('done')
-      // Reload so the server-rendered page re-renders into AlreadyScheduledState.
-      setTimeout(() => window.location.reload(), 600)
+      // Book-first / pay-last: the time is now reserved on the quote.
+      // Send the customer straight to the deposit step (the LAST step) —
+      // the booking is confirmed once that's paid. `next` is the pay
+      // short-link returned by the API; fall back to a reload if absent.
+      setTimeout(() => {
+        if (typeof json?.next === 'string' && json.next) {
+          window.location.href = json.next as string
+        } else {
+          window.location.reload()
+        }
+      }, 600)
     } catch (err: any) {
       setStatus('error')
       setErrorMessage(err?.message ?? 'Booking failed. Try another slot or reply to your SMS.')
@@ -105,7 +124,11 @@ export function SlotPicker({ token, slots }: { token: string; slots: string[] })
             : 'bg-zinc-900 hover:bg-zinc-700'
         }`}
       >
-        {status === 'submitting' ? 'Locking in…' : status === 'done' ? 'Locked in ✓' : 'Confirm this time'}
+        {status === 'submitting'
+          ? 'Holding…'
+          : status === 'done'
+            ? 'Taking you to deposit…'
+            : 'Hold this time & pay deposit →'}
       </button>
 
       {errorMessage ? (

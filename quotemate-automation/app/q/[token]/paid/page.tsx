@@ -23,14 +23,39 @@ export default async function PaidPage(props: {
     .eq('share_token', token)
     .single()
 
-  const showBookCta = quote && quote.paid_at && !quote.scheduled_at && sp.tier !== 'inspection'
+  const scheduledAt = (quote?.scheduled_at as string | null) ?? null
+  const isBooked = !!(quote && quote.paid_at && scheduledAt)
+  const showBookCta = quote && quote.paid_at && !scheduledAt && sp.tier !== 'inspection'
+
+  let bookedLabel = ''
+  if (scheduledAt) {
+    try {
+      bookedLabel = new Date(scheduledAt).toLocaleString('en-AU', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Australia/Sydney',
+      })
+    } catch {
+      bookedLabel = scheduledAt
+    }
+  }
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 560, margin: '4rem auto', padding: '0 1rem', color: '#111' }}>
-      <h1 style={{ fontSize: '1.6rem', marginBottom: '0.5rem' }}>Payment received</h1>
+      <h1 style={{ fontSize: '1.6rem', marginBottom: '0.5rem' }}>
+        {isBooked ? "You're booked in" : 'Payment received'}
+      </h1>
       <p style={{ color: '#444', lineHeight: 1.5 }}>
         Thanks{sp.already ? '' : '!'} Your deposit{sp.tier ? ` for the ${sp.tier.toUpperCase()} option` : ''} is in.
-        {showBookCta ? ' Pick a time below to lock in your visit.' : ' Your tradie will be in touch shortly to confirm a time.'}
+        {isBooked
+          ? ` Your visit is confirmed for ${bookedLabel}. Your tradie will text you the day before.`
+          : showBookCta
+            ? ' Pick a time below to lock in your visit.'
+            : ' Your tradie will be in touch shortly to confirm a time.'}
       </p>
       {showBookCta ? (
         <a
