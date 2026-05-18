@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuoteMate Build Brief — Week of 18 May 2026</title>
+<style>
+  :root { --ink:#000; --paper:#fff; --rule:#000; --soft:#666; --box:#f4f4f4; --line:#cccccc; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 48px 20px 120px;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  h1, h2, h3 { line-height: 1.25; }
+  .doc-title { font-size: 38px; margin: 0 0 4px; }
+  .kicker { letter-spacing: 4px; font-size: 13px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; }
+  .sub { font-size: 18px; color: var(--soft); margin: 0 0 22px; }
+  .meta { font-size: 15px; margin: 0 0 4px; }
+  .meta.status { color: var(--soft); font-style: italic; }
+  hr.heavy { border: 0; border-top: 3px solid var(--rule); margin: 22px 0 0; }
+  h1.section {
+    font-size: 25px; margin: 56px 0 14px; padding-bottom: 6px;
+    border-bottom: 2px solid var(--rule);
+  }
+  h1.section:first-of-type { margin-top: 34px; }
+  h2.part { font-size: 18px; margin: 22px 0 6px; }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 14px; padding-left: 24px; }
+  li { margin: 0 0 7px; }
+  strong { font-weight: 700; }
+  a { color: var(--ink); }
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--ink);
+    background: var(--box);
+    padding: 14px 18px;
+    margin: 14px 0 18px;
+  }
+  .callout .ct { font-weight: 700; margin: 0 0 6px; }
+  .callout p:last-child { margin-bottom: 0; }
+  nav.toc {
+    border: 1px solid var(--line);
+    padding: 16px 20px;
+    margin: 20px 0 8px;
+  }
+  nav.toc ol { margin: 0; padding-left: 22px; }
+  nav.toc li { margin: 0 0 5px; }
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 18px; font-size: 16px; }
+  th, td { border: 1px solid var(--line); padding: 10px 12px; vertical-align: top; text-align: left; }
+  th { background: #ececec; }
+  td ul { margin: 0; padding-left: 20px; }
+  .note { color: var(--soft); font-size: 14px; }
+  .foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--soft); font-size: 14px; }
+  @media print {
+    body { padding: 0; font-size: 12pt; }
+    h1.section { page-break-after: avoid; }
+    .callout, table, h2.part { page-break-inside: avoid; }
+    nav.toc { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="kicker">QuoteMate</p>
+  <h1 class="doc-title">Build Brief</h1>
+  <p class="sub">What to build this week — detailed, plain English</p>
+  <p class="meta"><strong>Week of 18 May 2026</strong></p>
+  <p class="meta">Prepared for: Jon Pepper</p>
+  <p class="meta">Engineering owner: Jeph</p>
+  <p class="meta status">Status: planning only — no code has been changed. Work Package numbers match the Revised Word/PDF version.</p>
+  <hr class="heavy">
+
+  <nav class="toc" aria-label="Contents">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#map">Quick map: John's list &rarr; Work Package</a></li>
+      <li><a href="#intro">Introduction</a></li>
+      <li><a href="#wp1">WP1 — Estimation consistency and accuracy</a></li>
+      <li><a href="#wp2">WP2 — Materials pricing book, brand priming &amp; range pricing (the keystone)</a></li>
+      <li><a href="#wp3">WP3 — Fixed bills of materials + accurate job-type sourcing</a></li>
+      <li><a href="#wp4">WP4 — AI render of the exact product on the customer's photo</a></li>
+      <li><a href="#wp5">WP5 — Different pricing when the customer supplies the product</a></li>
+      <li><a href="#wp6">WP6 — Calendar, urgency &amp; lock-in after deposit</a></li>
+      <li><a href="#wp7">WP7 — Setter function for non-conversions</a></li>
+      <li><a href="#wp8">WP8 — Cost per transaction / quote</a></li>
+      <li><a href="#wp9">WP9 — SMS / MMS to the client mid-process</a></li>
+      <li><a href="#extra">Additional call items (not on John's numbered list)</a></li>
+      <li><a href="#decisions">Decisions only John can make</a></li>
+      <li><a href="#plan">Honest plan for the week</a></li>
+    </ol>
+  </nav>
+
+  <h1 class="section" id="map">Quick map: John's list &rarr; Work Package</h1>
+  <p>Use this to see exactly where each item from John's list lives in this brief. <strong>The WP number is the build order, not John's list order</strong> — and some items share one Work Package because in the code they are a single build. <strong>These numbers are identical to the Revised Word/PDF version.</strong></p>
+  <table>
+    <thead>
+      <tr><th>#</th><th>John's requested change</th><th>Where it is handled</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Estimation consistency and accuracy</td><td><strong>WP1</strong></td></tr>
+      <tr><td>2</td><td>Materials pricing book for each operator</td><td><strong>WP2</strong></td></tr>
+      <tr><td>3</td><td>Prime products by brand, e.g. Clipsal</td><td><strong>WP2</strong></td></tr>
+      <tr><td>4</td><td>Price by range within brand, e.g. 2000 vs Iconic</td><td><strong>WP2</strong></td></tr>
+      <tr><td>5</td><td>Strong consistent bill of materials for each job type</td><td><strong>WP3</strong></td></tr>
+      <tr><td>6</td><td>Source accurate list of job types</td><td><strong>WP3</strong></td></tr>
+      <tr><td>7</td><td>AI render of the product in the customer's own photo</td><td><strong>WP4</strong></td></tr>
+      <tr><td>8</td><td>Different pricing when customer supplies vs tradie supplies</td><td><strong>WP5</strong></td></tr>
+      <tr><td>9</td><td>Calendar / urgency / lock in after deposit</td><td><strong>WP6</strong></td></tr>
+      <tr><td>10</td><td>Setter function for non-conversions / VA follow-up</td><td><strong>WP7</strong></td></tr>
+      <tr><td>11</td><td>Cost per transaction / quote</td><td><strong>WP8</strong></td></tr>
+      <tr><td>12</td><td>SMS / MMS to client in the middle of the process</td><td><strong>WP9</strong></td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <p class="ct">Why it is not a 1-to-1 match</p>
+    <p>Items 2, 3 and 4 are all <strong>WP2</strong> (one operator-owned catalogue), and items 5 and 6 are both <strong>WP3</strong>. They look like separate jobs but are built together.</p>
+    <p>Rough-range estimates, $199 &rarr; $99, dropping the "Best" tier, and backup-AI resilience came from the call, not John's numbered list, so they are tracked separately under <a href="#extra">Additional call items</a>.</p>
+  </div>
+
+  <h1 class="section" id="intro">Introduction</h1>
+  <p>This brief explains exactly what to build on QuoteMate this week, why each piece matters, what already exists in the system, and the steps involved. It is written in plain English so both the engineering side and John can follow it. <strong>It uses the same Work Package numbering as the Revised Word/PDF version, so WP1–WP9 mean exactly the same thing in every file.</strong></p>
+
+  <h2 class="part">The two goals</h2>
+  <p>Everything on the list serves one of two goals that John says will sell this product:</p>
+  <ol>
+    <li><strong>Quotes that are accurate every single time.</strong> A tradie will not trust the tool if a price is wrong even once.</li>
+    <li><strong>The "wow" moment.</strong> The customer sees the actual product placed onto a photo of their own kitchen or wall.</li>
+  </ol>
+
+  <h2 class="part">The golden rule: order matters</h2>
+  <p>Some items sit on top of others. If they are built in list order, work gets wasted. Build in this order:</p>
+  <div class="callout">
+    <p class="ct">Correct build order</p>
+    <p>1. Fix the accuracy foundation (WP1). &nbsp;2. Build the operator-owned product catalogue (WP2). &nbsp;3. Lock jobs to fixed bills of materials and expand the job list (WP3). &nbsp;4. Use the catalogue for exact-product images (WP4) and supply-mode pricing (WP5). &nbsp;5. Add the customer-control flows: calendar/urgency (WP6), follow-up (WP7), mid-chat options (WP9). &nbsp;6. Cost reporting (WP8) runs in parallel.</p>
+  </div>
+
+  <h2 class="part">The one trap to remember all week</h2>
+  <div class="callout">
+    <p class="ct">Read this before touching pricing</p>
+    <p>There is a safety check in the code (call it the "price-checker"). It rejects any price it cannot trace back to the database, and sends that quote to the paid inspection instead.</p>
+    <p>So whenever you add a new place that prices come from (especially WP2), you <strong>must</strong> teach the price-checker about it in the <strong>same</strong> change. If you forget, every new quote gets thrown to inspection — the opposite of what John wants.</p>
+  </div>
+
+  <h2 class="part">How to read this document</h2>
+  <p>The work is nine Work Packages (WP1–WP9), shown in the order to do them, plus an "Additional call items" section for things raised on the call but not on John's numbered list. Each Work Package has the same six parts:</p>
+  <ul>
+    <li><strong>Introduction</strong> — the background and why it matters.</li>
+    <li><strong>What it is</strong> — the feature in plain words.</li>
+    <li><strong>What's there now</strong> — what already exists, so nothing is rebuilt by mistake.</li>
+    <li><strong>What you build</strong> — the actual steps.</li>
+    <li><strong>Watch out</strong> — traps and dependencies.</li>
+    <li><strong>Done when</strong> — a clear finish line so you know it works.</li>
+  </ul>
+
+  <h1 class="section" id="wp1">WP1 — Estimation consistency and accuracy (item 1)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>This is the first item John listed and the foundation for everything else. If the same tradie request can produce different answers, the product loses trust. The call also raised a real bug (Jeph: "some pricing didn't have a tenant id… messed up after we set up a new tenant") — it lives here because it directly breaks accuracy.</p>
+  <h2 class="part">What it is</h2>
+  <p>Make the estimator give the same grounded answer for the same input, and remove every silent way it can use the wrong price.</p>
+  <h2 class="part">What's there now</h2>
+  <p>QuoteMate already has shared jobs, shared materials, similar-past-quote retrieval, and a price-checker. But a price book can have a blank or wrong tradie attached, and when none is found the system silently uses another tradie's book or a hard-coded default markup — with no error shown. A plumber could be quoted on electrician numbers and nobody would know.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>An audit script: list every price-book row with no tradie, every active tradie with no book, and any cross-tradie fallback path.</li>
+    <li>A migration that attaches orphan rows to the correct tradie (or deletes dead ones), then makes the tradie column required so it cannot recur.</li>
+    <li>A hard rule: if the price book does not match this tradie, stop and route to inspection with a logged reason — never silently fall back. Remove the "grab the oldest book" fallback.</li>
+    <li>A small accuracy/consistency test set for this week's target jobs, so later changes can be measured against the same baseline.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>Do this before calling anything else "accurate". New catalogues and renders are only useful once the price foundation is trustworthy.</p>
+  <h2 class="part">Done when</h2>
+  <p>The same clean request repeatedly returns the same grounded price, and a misconfigured tradie produces a clear error instead of a silent wrong price.</p>
+
+  <h1 class="section" id="wp2">WP2 — Materials pricing book, brand priming &amp; range pricing (items 2, 3, 4) — THE KEYSTONE</h1>
+  <h2 class="part">Introduction</h2>
+  <p>These are separate bullets on John's list, but they belong in one build because they all describe the same operator-owned product catalogue.</p>
+  <h2 class="part">What it is</h2>
+  <p>Give each operator their own product list, including the brand they prefer and the exact series/range they sell (Clipsal 2000 vs Iconic), with photos and their own prices.</p>
+  <h2 class="part">What's there now</h2>
+  <p>The codebase has shared materials and a tenant brand preference, but no full operator-owned catalogue: no range/series, no supplier, no product photo, and no per-operator pricing.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Create a tenant-owned materials/products table rather than relying only on shared rows.</li>
+    <li>Store category, brand, range/series, supplier, active flag, product photo, and operator-specific prices.</li>
+    <li>Extend preference handling so an operator can prefer both brand and range (e.g. Clipsal Iconic &rarr; Better, 2000 &rarr; Good).</li>
+    <li>Update material lookup so tenant-owned products reach the estimator and are preferred ahead of generic shared rows.</li>
+    <li><strong>Extend the price-checker</strong> so it accepts prices from this new table. (This is the trap from the Introduction — not optional.)</li>
+    <li>Keep the data model compatible with WP4 (rendering) and WP9 (mid-process options).</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>This is the keystone. If it is poorly modelled now, WP4, WP5 and WP9 all become messy. And if the price-checker is not extended in the same change, every branded quote gets dumped to inspection.</p>
+  <h2 class="part">Done when</h2>
+  <p>An operator can configure the products they actually use, the estimator picks the correct brand and range and it passes the price-checker, and the same catalogue can drive both the render and the mid-chat options.</p>
+
+  <h1 class="section" id="wp3">WP3 — Fixed bills of materials + accurate job-type sourcing (items 5, 6)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John wants the same job to price the same way every time, and a broader list of standard jobs so more requests can be handled confidently instead of pushed to inspection.</p>
+  <h2 class="part">What it is</h2>
+  <p>Define each standard job as a structured record plus a fixed list of required materials and quantities.</p>
+  <h2 class="part">What's there now</h2>
+  <p>A job/assembly catalogue exists (shared + tenant custom), but the bill of materials is loose prompt guidance, not a structured list — so the AI re-decides the parts every time, which is why prices wobble.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>A structured job-to-materials table with quantities and required vs optional parts.</li>
+    <li>Build quote lines from that table instead of letting the model freely decide each time.</li>
+    <li>Import John's researched job list (Perplexity / Gemini / Firecrawl) only after validating the source data and mapping it to the correct trade.</li>
+    <li>Repeat-run tests on representative jobs so bill-of-materials and total price stay stable over time.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>Sourcing the job list and building the software are different jobs — bad source data only makes wrong quotes happen more consistently. Also tell John: adding jobs does <strong>not</strong> "break the AI's learning" — there is no learning, the AI just reads the database.</p>
+  <h2 class="part">Done when</h2>
+  <p>A standard job produces the same required materials and a stable price across repeated runs, and new job types import without destabilising existing ones.</p>
+
+  <h1 class="section" id="wp4">WP4 — AI render of the exact product on the customer's photo (item 7) — the "wow"</h1>
+  <h2 class="part">Introduction</h2>
+  <p>This is the second thing John said will sell the product: the customer sees the actual quoted product on their own sink, wall, ceiling or room.</p>
+  <h2 class="part">What it is</h2>
+  <p>Use the customer's uploaded photo as the scene and the selected catalogue product as the visual reference.</p>
+  <h2 class="part">What's there now</h2>
+  <p>The app already generates Gemini previews from customer photos, but the product is text-driven (for example "Caroma Liano toilet") so Gemini only guesses what it looks like.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Link quote line items back to the selected catalogue product.</li>
+    <li>Pass the product photo together with the customer's scene photo to the image step, with the instruction "match this exact product".</li>
+    <li>Use the selected product consistently across the preview and the sample images.</li>
+    <li>Add checks so a quoted Clipsal Iconic product does not render as a generic or mismatched fitting.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>This depends on WP2. Without a real product catalogue photo, the model can only guess. Google Slides was a side comment on the call; ignore it, it is not needed.</p>
+  <h2 class="part">Done when</h2>
+  <p>A customer looking at a tap, toilet, downlight or power point preview can recognise the same product that is being quoted.</p>
+
+  <h1 class="section" id="wp5">WP5 — Different pricing when the customer supplies the product (item 8)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John specifically called out that some jobs should price differently when the customer supplies the item versus when the tradie supplies it.</p>
+  <h2 class="part">What it is</h2>
+  <p>Support two supply modes for the same job: tradie-supplied and customer-supplied.</p>
+  <h2 class="part">What's there now</h2>
+  <p>Shared materials carry some metadata, but there is no clear operator-level price difference between supply-and-install and install-only.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Add separate price fields for tradie-supplied and customer-supplied scenarios in the operator catalogue (WP2).</li>
+    <li>Capture the supply mode during intake or selection and carry it into the quote calculation.</li>
+    <li>Change quote wording so the customer can see when they are supplying the item ("Customer to supply [item] — must meet safety standards").</li>
+    <li>Make sure rendering (WP4) still uses the selected product when the customer has chosen one.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>Customer-supplied does not mean price-free. Labour, risk and any safety wording still need to be explicit.</p>
+  <h2 class="part">Done when</h2>
+  <p>The same product can produce the correct supply-and-install price or install-only price, and the quote clearly explains which scenario was used.</p>
+
+  <h1 class="section" id="wp6">WP6 — Calendar, urgency &amp; lock-in after deposit (item 9)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John wants the customer to feel urgency and to lock in either the inspection or the job after paying — so they commit instead of drifting away.</p>
+  <h2 class="part">What it is</h2>
+  <p>A flow that moves a customer from quote to held offer to booked work, with visible timing and a confirmed commitment.</p>
+  <h2 class="part">What's there now</h2>
+  <p>The app already has payment, booking pages, scheduled-at data and confirmation messages. It does not yet expose an urgency / held-price model, and paying the deposit does not reserve and lock a slot.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Define the urgency rule — for example, how long the quote or inspection price is held.</li>
+    <li>Show the hold / expiry clearly on the quote and in messages. This "price held until [date]" countdown is the cheap win — it needs no calendar — so do it first.</li>
+    <li>Model the handoff after deposit so payment leads into a clear booked or reserved state.</li>
+    <li>Extend availability handling only as far as the selected week's booking flow needs, rather than building a full calendar product all at once.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>A countdown without a real business rule is only decoration — decide what is actually being held and what happens when it expires. The full calendar is a multi-week job.</p>
+  <h2 class="part">Done when</h2>
+  <p>A customer can see the urgency, pay, and move into a clear reserved / booked state without the tradie manually patching the process together.</p>
+
+  <h1 class="section" id="wp7">WP7 — Setter function for non-conversions (item 10)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John wants a VA to follow up with people who received a quote but did not accept it.</p>
+  <h2 class="part">What it is</h2>
+  <p>A reliable follow-up queue for quotes that were sent but not converted.</p>
+  <h2 class="part">What's there now</h2>
+  <p>Some quote status fields exist, but there is no operational queue, and status is not reliably recorded (the data shows 0 accepted quotes) so today you cannot tell who did not accept.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Make the quote lifecycle reliable enough to distinguish sent, viewed, accepted and paid.</li>
+    <li>Add a needs-follow-up view filtered by age and non-conversion status.</li>
+    <li>Show the customer's details, quote summary, last activity and a direct path to contact them.</li>
+    <li>Leave room for later automation, but make the human VA workflow useful first.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>The follow-up list is only as good as the underlying status events. Fix event reliability before trusting the queue.</p>
+  <h2 class="part">Done when</h2>
+  <p>A VA can open the dashboard and immediately see which customers received quotes, did not accept, and should be contacted.</p>
+
+  <h1 class="section" id="wp8">WP8 — Cost per transaction / quote (item 11)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John wants to understand what each quote costs to produce so the business can see whether the workflow is profitable.</p>
+  <h2 class="part">What it is</h2>
+  <p>Roll up the variable cost of generating each quote into one stored figure with a component breakdown.</p>
+  <h2 class="part">What's there now</h2>
+  <p>The system performs AI, image, SMS and sometimes voice work, but there is no per-quote profitability number; only AI usage is logged, never converted to dollars.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Record the usage units needed for AI, image generation, SMS and voice.</li>
+    <li>Apply the current provider rates to convert those units into dollars. Note each quote makes about <strong>four</strong> image calls (1 preview + 3 samples) — a real cost, not a rounding error.</li>
+    <li>Store the total and the component breakdown against the quote.</li>
+    <li>Expose the cost in the dashboard so John can compare quote value against quote cost.</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>Keep provider rates centralised so future price changes do not require hunting through several code paths. Low risk and additive — do it in parallel.</p>
+  <h2 class="part">Done when</h2>
+  <p>Each quote has a visible total production cost and a useful breakdown by cost driver.</p>
+
+  <h1 class="section" id="wp9">WP9 — SMS / MMS to the client mid-process (item 12)</h1>
+  <h2 class="part">Introduction</h2>
+  <p>John asked for the customer to receive product photos or options during the conversation, not only after the quote is built — "do you want the Clipsal 2000 or the Clipsal Iconic?"</p>
+  <h2 class="part">What it is</h2>
+  <p>Show real operator-approved product options mid-conversation and record the customer's choice.</p>
+  <h2 class="part">What's there now</h2>
+  <p>The app already supports SMS flows, inbound MMS, photo-request links and WhatsApp fallback. What is missing is an outbound product-option step; today it sends text only.</p>
+  <h2 class="part">What you build</h2>
+  <ol>
+    <li>Define the moments in the conversation where a product choice should be offered.</li>
+    <li>Use the operator-owned catalogue from WP2 as the only source for the images and labels shown.</li>
+    <li>Choose the outbound channel — image message, or SMS with a choice page — based on what is reliable for the tenant's number. Real MMS does <strong>not</strong> work on Australian Twilio numbers.</li>
+    <li>Save the customer's selected option so it drives both quote pricing (WP2) and rendering (WP4).</li>
+  </ol>
+  <h2 class="part">Watch out</h2>
+  <p>Do not show generic products the tradie does not actually sell. Do not treat this as finished until the selected option flows through to both price and preview. Needs WP2 first.</p>
+  <h2 class="part">Done when</h2>
+  <p>The customer can choose between real products in the conversation, and the chosen product is the same one used in the quote and the preview.</p>
+
+  <h1 class="section" id="extra">Additional call items (not on John's numbered list)</h1>
+  <p>These were discussed on the Friday call but are not part of the pasted weekly task list. Keep them visible as candidate follow-ons and confirm with John before building.</p>
+  <ul>
+    <li><strong>Rough-range estimate</strong> when an exact price is not possible — "this usually costs $200–$400, pay $99 to confirm" — instead of a cold "book an inspection". The similar-past-quote machinery already exists to reuse.</li>
+    <li><strong>$199 &rarr; $99</strong> inspection price. Hard-coded in several places; find every occurrence, then move it to one setting.</li>
+    <li><strong>Simplify tiers Good / Better / Best &rarr; Good / Better.</strong> John said three options are confusing and not always right. Keep the old data column (do not delete history).</li>
+    <li><strong>Backup-AI resilience.</strong> Fine for the chat parts. Risky for the pricing step — a different AI may fail the price-checker and dump quotes to inspection. Keep pricing on the current setup until WP1's consistency test exists to prove a swap is safe.</li>
+  </ul>
+
+  <h1 class="section" id="decisions">Decisions only John can make</h1>
+  <ol>
+    <li>Do tradies type in their own materials catalogue, or do we scrape Reece / Clipsal and they prune it? (Same build either way — only affects onboarding effort.)</li>
+    <li>Confirm the additional call items: drop "Best", change $199 to $99, and the rough-range idea.</li>
+    <li>Mid-chat options (WP9): WhatsApp photo, or SMS plus a link page?</li>
+  </ol>
+
+  <h1 class="section" id="plan">Honest plan for the week</h1>
+  <p>Fourteen items in five days is not realistic at production quality. Suggested sequence, then the honest split so the scope conversation with John is clear.</p>
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>Work</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>WP1</td><td>Protect the accuracy foundation before layering on more features.</td></tr>
+      <tr><td>2</td><td>WP2 + WP3</td><td>Build the catalogue and fixed job structure that the rest depends on.</td></tr>
+      <tr><td>3</td><td>WP4 + WP5 + WP9</td><td>Use the catalogue to improve customer-facing product choice and visualisation.</td></tr>
+      <tr><td>4</td><td>WP6 + WP7</td><td>Strengthen conversion and follow-up after the quote exists.</td></tr>
+      <tr><td>Parallel</td><td>WP8</td><td>Track cost alongside the rest — additive and useful immediately.</td></tr>
+    </tbody>
+  </table>
+  <table>
+    <thead>
+      <tr><th>Will ship this week</th><th>Start, but won't fully finish</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <ul>
+            <li>WP1 — accuracy foundation + pricing-bug fix</li>
+            <li>WP2 — product catalogue + price-checker</li>
+            <li>WP3 — fixed bills of materials + consistency test</li>
+            <li>WP4 — real-photo render</li>
+            <li>WP8 — cost per quote</li>
+            <li>WP6 — the "price held until [date]" urgency countdown only</li>
+            <li>Additional items: Good/Better, $199 &rarr; $99</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>WP5 — supply-mode pricing (needs WP2 first)</li>
+            <li>WP9 — mid-chat product options (needs WP2 + channel decision)</li>
+            <li>WP7 — follow-up: ship status tracking + dashboard list only</li>
+            <li>WP6 — full calendar + deposit-locks-the-slot is a separate multi-week job</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p><strong>Bottom line for John:</strong> the two things that sell this — accurate prices and the photo "wow" — are both in the "will ship" column, but only if WP1 and WP2 are done first and the price-checker is extended in lockstep.</p>
+
+  <p class="foot">QuoteMate — Build Brief · Week of 18 May 2026 · Planning only, no code changed · WP numbering matches the Revised Word/PDF version.</p>
+
+</div>
+</body>
+</html>

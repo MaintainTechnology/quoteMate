@@ -90,28 +90,37 @@ Availability nudge → Follow-up engine → Job won → Calendar + CRM
 
 ---
 
-## Planned tech stack
+## Tech stack
+
+What's actually wired today:
 
 | Layer | Choice |
 |---|---|
-| Frontend + API | Next.js (App Router) on Vercel |
-| Auth, DB, storage, RLS | Supabase (Postgres + pgvector) |
-| Background workflows | Vercel Workflow (WDK) |
-| LLM | Anthropic Claude (Opus for reasoning, Haiku for low-latency routing) via Vercel AI Gateway |
+| Frontend + API | Next.js 16 (App Router, React 19) — Vercel (prod) / Railway (Docker) |
+| Auth, DB, storage | Supabase (Postgres 17 + pgvector), PKCE auth, `intake-photos` storage |
+| LLM | Anthropic Claude via the Vercel AI SDK — Opus 4.7 for intake + estimation, Sonnet 4.6 for SMS dialog |
 | Vision | Claude vision (job photos) |
-| Voice agent | Vapi (Deepgram STT, ElevenLabs TTS) |
-| SMS | Twilio (AU long codes) |
-| Payments | Stripe AU + Stripe Connect Express |
+| Image gen | Google Gemini (quote preview + per-tier sample images) |
+| Voice agent | Vapi (Deepgram STT, ElevenLabs TTS) — **live** |
+| SMS / WhatsApp | Twilio (AU long codes), SMS-first with WhatsApp fallback |
+| Payments | Stripe (test mode); per-tier deposit + $199 inspection. Connect Express: planned |
 | Email | Resend |
-| Analytics | PostHog |
-| Errors | Sentry |
-| PDF | react-pdf / Puppeteer |
+| Quote document | Mobile HTML page at `/q/[token]` (no PDF in v1) |
+
+Planned but not yet wired: Stripe Connect Express (marketplace fund-split), PostHog analytics, Sentry error tracking, the eval framework.
 
 ---
 
 ## Project status
 
-**Greenfield.** The repository currently contains the project brief, design assets, and this README. No application code has been written yet.
+**Built and running** (as of 2026-05-18). The application lives in [`quotemate-automation/`](quotemate-automation/); the repo root holds planning docs and design assets.
+
+- **Voice and SMS intake are both live end-to-end** — a customer calls or texts a tradie's QuoteMate number, the AI captures the job, Opus drafts a Good/Better/Best quote grounded strictly in that trade's pricing book, and the customer gets a mobile quote page with a Stripe deposit (or a $199 inspection for complex jobs).
+- **Multi-trade is live**: electrical (NSW) and plumbing (QLD) run on the same platform, with 5 pilot tenants active.
+- Current work: self-serve tradie onboarding (auto-provisioned number, pricing book, and AI brand voice per tradie).
+- Production: `quote-mate-rho.vercel.app`. Payments run in Stripe test mode.
+
+For the full engineering picture see [`CLAUDE.md`](CLAUDE.md); for the strategy and decision history see [`docs/strategy.md`](docs/strategy.md).
 
 Planning artifacts in [`assets/`](assets/):
 - `quotemate_experience_map.jpeg` — the customer + tradie wow-moment journey
@@ -121,16 +130,18 @@ Planning artifacts in [`assets/`](assets/):
 
 ## Roadmap
 
-The build is planned in five phases over roughly six months to a paid launch with a small cohort of pilot tradies.
+Originally planned as five phases to a paid pilot launch. Where the build actually landed:
 
-| Phase | Focus | Exit criterion |
+| Phase | Focus | Status |
 |---|---|---|
-| **0 — Validate** (2 wks) | Customer interviews, pricing-test on the $199 inspection fee, pre-sell pilots | ≥5 paid pilot commitments |
-| **1 — Tradie portal MVP** (4 wks) | Manual intake, AI quote draft, customer portal, Stripe deposit. *No voice agent yet.* | 3 pilot tradies, ≥5 real quotes each, ≥1 paid |
-| **2 — Pricing intelligence + inspection** (4 wks) | Pricing-book ingestion, RAG, confidence scoring, paid site-visit flow, Good / Better / Best | Avg tradie editing time < 3 min/quote |
-| **3 — Voice intake** (6 wks) | Vapi receptionist, per-trade prompts, mid-call SMS photo capture, post-call quote draft | 80% of calls produce a quote draft sent with < 5 min editing |
-| **4 — Conversion engine** (4 wks) | Availability nudge, SMS follow-up, calendar integration, basic CRM | +15% win-rate lift vs Phase 3 baseline |
-| **5 — Launch** | 50 tradies in the wedge segment, high-touch onboarding, second trade added | — |
+| **0 — Validate** | Customer interviews, $199 inspection-fee pricing test, pre-sell pilots | Done |
+| **1 — Tradie portal MVP** | Intake, AI quote draft, customer portal, Stripe deposit | Done |
+| **2 — Pricing intelligence + inspection** | Per-trade pricing book, RAG, confidence routing, paid site-visit, Good/Better/Best | Done |
+| **3 — Voice intake** | Vapi receptionist, per-trade prompts, SMS photo capture, post-call draft | Done (shipped earlier than planned) |
+| **3b — SMS intake** | Full SMS quoting agent, parity with voice path | Done |
+| **5 — Multi-trade + onboarding** | Plumbing alongside electrical; self-serve tradie onboarding | In progress (multi-trade live; onboarding building) |
+| **4 — Conversion engine** | Availability nudge, follow-up sequence, calendar, CRM | Partial (tradie notify + booking live; follow-up sequence not yet) |
+| Hardening | Stripe Connect Express, eval framework, multi-tenant RLS | Not yet started |
 
 **Initial wedge:** **electrical (NSW, residential)** — joined by **plumbing (Brisbane, residential)** in v5 (2026-05-11). Two parallel single-trade pilots keep each pricing book + assembly library focused before going broad. v1 scope is the "easy 5" auto-quoteable job types per trade:
 
@@ -146,14 +157,18 @@ Per-state license display (NECA for NSW electrical, QBCC for QLD plumbing; ESV r
 ```
 .
 ├── README.md                  # this file
+├── CLAUDE.md                  # engineering context (the accurate source of truth)
 ├── LICENSE                    # MIT
-├── .gitignore
-└── assets/
-    ├── quotemate_experience_map.jpeg
-    └── quotemate_flow_with_inspection.svg
+├── assets/                    # experience map + flow SVG + logo
+├── docs/                      # strategy, build guide, SOPs, progress, wireframe
+├── .claude/                   # vendored skills / agents / commands
+└── quotemate-automation/      # ◀── the application (Next.js 16)
+    ├── app/                   #   App Router pages + /api routes
+    ├── lib/                   #   estimate, intake, sms, preview, routing, onboard, …
+    ├── sql/                   #   schema + migrations
+    ├── scripts/               #   ops / diagnostic tooling
+    └── …                      #   Dockerfile, railway.json, vercel.json, tests
 ```
-
-Application code will be added under `app/`, `lib/`, `components/`, and `supabase/` as Phase 1 begins.
 
 ---
 
