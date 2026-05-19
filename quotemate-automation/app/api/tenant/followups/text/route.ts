@@ -15,6 +15,7 @@ import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { resolveFollowupTarget } from '@/lib/quote/followup-contact'
 import { normaliseAuMobile } from '@/lib/phone/au'
 import { friendlyTwilioError } from '@/lib/sms/twilio-error'
+import { humanizeJobType, FOLLOWUP_PIN_TTL_DAYS } from '@/lib/sms/followup-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -123,6 +124,53 @@ export async function POST(req: Request) {
   //    dashboard Chats history stays continuous. Never fail the send
   //    response because logging hiccuped. ──
   try {
+    const nowIso = new Date().toISOString()
+
+    // Pin WHICH quote this follow-up is about so a reply ("resend the
+    // quote", "how much again") is answered about THIS quote — not
+    // whatever the live thread had drifted to. Resolved server-side from
+    // the quote (ownership-scoped); never trusted from the request.
+    const { data: quoteRow } = await supabase
+      .from('quotes')
+      .select('share_token, selected_tier, total_inc_gst, intake_id')
+      .eq('id', quoteId)
+      .eq('tenant_id', tenant.id)
+      .maybeSingle()
+    let jobType: string | null = null
+    if (quoteRow?.intake_id) {
+      const { data: intakeRow } = await supabase
+        .from('intakes')
+        .select('job_type')
+        .eq('id', quoteRow.intake_id)
+        .maybeSingle()
+      jobType = (intakeRow?.job_type as string | null) ?? null
+    }
+    const appUrl = process.env.APP_URL?.replace(/\/$/, '') ?? null
+    const totalRaw = quoteRow?.total_inc_gst
+    const followupQuote = {
+      quote_id: quoteId,
+      share_token: (quoteRow?.share_token as string | null) ?? null,
+      job_label: humanizeJobType(jobType),
+      total_inc_gst:
+        typeof totalRaw === 'number'
+          ? totalRaw
+          : totalRaw != null && Number.isFinite(Number(totalRaw))
+            ? Number(totalRaw)
+            : null,
+      tier: (quoteRow?.selected_tier as string | null) ?? null,
+      quote_url:
+        appUrl && quoteRow?.share_token
+          ? `${appUrl}/q/${quoteRow.share_token}`
+          : null,
+      sent_at: nowIso,
+      // After this the pin is stale and ignored (lib/sms/followup-context
+      // isFollowupContextActive) so an old follow-up can't hijack an
+      // unrelated later conversation.
+      expires_at: new Date(
+        Date.now() + FOLLOWUP_PIN_TTL_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString(),
+    }
+
     const { data: prior } = await supabase
       .from('sms_conversations')
       .select('id')
@@ -133,11 +181,19 @@ export async function POST(req: Request) {
       .maybeSingle()
 
     let conversationId = prior?.id as string | undefined
-    const nowIso = new Date().toISOString()
     if (conversationId) {
+      // Pin goes in the DEDICATED followup_quote column — NOT
+      // conversation_state — so /api/sms/inbound's slot-merge writes
+      // (which replace conversation_state wholesale) can never clobber
+      // it. Survives the whole conversation, bounded by expires_at.
       await supabase
         .from('sms_conversations')
-        .update({ status: 'open', last_message_at: nowIso, updated_at: nowIso })
+        .update({
+          status: 'open',
+          last_message_at: nowIso,
+          updated_at: nowIso,
+          followup_quote: followupQuote,
+        })
         .eq('id', conversationId)
     } else {
       const { data: created } = await supabase
@@ -149,6 +205,7 @@ export async function POST(req: Request) {
           conversation_type: 'customer_quote',
           status: 'open',
           last_message_at: nowIso,
+          followup_quote: followupQuote,
         })
         .select('id')
         .single()

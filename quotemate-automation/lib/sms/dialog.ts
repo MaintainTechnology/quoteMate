@@ -552,6 +552,25 @@ prevent the quote from being sent.
 UNIVERSAL (every job — must be in the transcript before 'finish'):
 ${UNIVERSAL_MUST_ASK.map(f => `  - ${f}`).join('\n')}
 
+★ FOLLOW-UP QUOTE CONTEXT BLOCK (when present in the user prompt):
+The dispatcher may inject a "FOLLOW-UP QUOTE CONTEXT" block when the
+tradie just sent this customer a follow-up about a quote they already
+received. When that block is present:
+
+  - It tells you WHICH quote a vague reference points to. If the customer
+    says "resend the quote", "how much again", "what was the price",
+    "is that still good", "send it through", or refers to "the
+    quote"/"that quote" WITHOUT describing a new job, they mean THE quote
+    named in that block. Reply with its link (and figure if asked).
+  - Do NOT start a fresh intake or re-quote from scratch for that
+    reference, and NEVER invent or change the price — the figure in the
+    block is the already-sent quote and the link is authoritative.
+  - If they want to proceed / book / pay, point them to that link.
+  - ONLY if the customer clearly describes a DIFFERENT, new job (work
+    other than the one the block names) do you start a new request — the
+    follow-up was just a nudge; normal flow resumes for genuinely new
+    work.
+
 ★ KNOWN CUSTOMER BLOCK (when present in the user prompt):
 The dispatcher may inject a "KNOWN CUSTOMER" block listing fields the
 database already has for this phone number (first_name, suburb, address,
@@ -1055,6 +1074,49 @@ function customServicesDirective(
   return lines.join('\n')
 }
 
+// Catalogue/custom services the tradie switched OFF in their Services tab.
+// Inverse of customServicesDirective: instead of making ENABLED services
+// in-scope, this makes DISABLED ones an explicit, polite "we don't offer
+// that" — NOT the $199 inspection fallback. Without it an OFF electrical
+// extra like "Hardwire oven" falls through to the hardcoded Rule 4/6
+// ("oven/cooktop -> $199 inspection"), so the customer gets sold a paid
+// inspection for work the tradie doesn't even do. Names only — matching is
+// by meaning; the AI needs no prices/descriptions to decline. Bounded so a
+// big OFF list can't blow the prompt budget.
+const MAX_LISTED_DECLINED_SERVICES = 40
+
+function declinedServicesDirective(
+  names: ReadonlyArray<string> | undefined,
+): string {
+  if (!names || names.length === 0) return ''
+  const listed = names.slice(0, MAX_LISTED_DECLINED_SERVICES)
+  return [
+    'DECLINED SERVICES (this tradie does NOT offer these — authoritative,',
+    'like the TENANT TRADE SCOPE block this OVERRIDES the system prompt',
+    'defaults). The tradie switched these OFF in their Services tab. They',
+    'are OUT of scope: do NOT auto-quote them, and do NOT offer the $199',
+    'inspection for them. This OVERRIDES Rule 4/6 ("out-of-scope electrical',
+    'work -> $199 inspection") AND the easy-5 auto-quote for any customer',
+    'request that matches one of these:',
+    ...listed.map((n) => `      - ${n}`),
+    "When the customer's request CLEARLY matches a declined service and",
+    'they have NOT also asked for in-scope work: set action=\'ask\' (NOT',
+    "'escalate_inspection', NOT 'finish'). In ONE short Aussie SMS, politely",
+    'say that specific job is not something we take on, then pivot to the',
+    'work we DO cover (the TENANT TRADE SCOPE / easy-5 list). Do NOT offer a',
+    'paid inspection and do NOT draft a quote. Example:',
+    '  "Sorry mate, oven installs aren\'t something we take on. We do cover',
+    '   downlights, GPOs, fans, smoke alarms & outdoor lights though —',
+    '   anything there I can help with?"',
+    'If the customer ALSO clearly asked for in-scope work in the same',
+    "message, handle the in-scope work normally and just note we don't do",
+    'the declined part — do NOT end or derail the whole conversation.',
+    'Matching is by meaning, not exact words. If a name somehow appears in',
+    'BOTH the TENANT SERVICES (enabled) block above AND here, the ENABLED',
+    'block WINS — treat it as offered.',
+  ].join('\n')
+}
+
 // Maps the PhotoLinkHint to a directive for Haiku (Rule 10).
 function photoLinkDirective(hint: PhotoLinkHint): string {
   switch (hint) {
@@ -1120,6 +1182,27 @@ export async function decideNextTurn(args: {
    * Empty / undefined → no custom-services block (legacy behaviour).
    */
   customAssemblies?: ReadonlyArray<CustomServiceScope>
+  /**
+   * Catalogue + custom services the tenant switched OFF in their Services
+   * tab, resolved exactly like /api/tenant/me (an explicit
+   * tenant_service_offerings row wins, else shared_assemblies.default_enabled;
+   * disabled tenant_custom_assemblies included). Names only. Drives the
+   * DECLINED SERVICES block so an OFF service produces a polite "we don't
+   * offer that" instead of the hardcoded $199-inspection fallback. The
+   * route excludes any name already in `customAssemblies` (enabled wins).
+   * Empty / undefined → no declined block (legacy behaviour).
+   */
+  declinedServices?: ReadonlyArray<string>
+  /**
+   * Optional "FOLLOW-UP QUOTE CONTEXT" block. Present when this inbound
+   * is (probably) a reply to a manual follow-up the tradie sent about a
+   * specific existing quote. Pins which quote a vague reference points to
+   * so "resend the quote" is answered about THAT quote rather than
+   * whatever the live thread had drifted to. Formatted by
+   * lib/sms/followup-context.ts:formatFollowupContext. Empty/undefined →
+   * dropped by the .filter(Boolean) below (legacy behaviour).
+   */
+  followupContext?: string | null
 }): Promise<TurnDecision> {
   // Build the memory block for the prompt. Prefer the state-based block
   // (PR-B) when state has slots; fall back to the legacy customerContext
@@ -1156,11 +1239,20 @@ export async function decideNextTurn(args: {
         // the tradie explicitly offers. Empty string when none → dropped
         // by the .filter(Boolean) below.
         customServicesDirective(args.customAssemblies),
+        // Services the tradie switched OFF. Placed AFTER the enabled
+        // custom-services block so the enabled list wins any name
+        // collision; overrides Rule 4/6's $199 fallback for OFF services
+        // so the customer gets a polite "we don't do that" + pivot.
+        declinedServicesDirective(args.declinedServices),
         `PHOTO LINK STATE: ${args.photoLink ?? 'not_applicable'}`,
         photoLinkDirective(args.photoLink ?? 'not_applicable'),
         // Memory injection — state-based when PR-B's conversation_state
         // is present, legacy customerContext block when not.
         memoryBlock,
+        // Follow-up quote context — pins which existing quote a vague
+        // reply ("resend the quote") refers to. Empty string when this
+        // turn isn't tied to a follow-up → dropped by .filter(Boolean).
+        args.followupContext ?? '',
         `CONVERSATION HISTORY (oldest first):`,
         formatHistory(args.history),
         ``,

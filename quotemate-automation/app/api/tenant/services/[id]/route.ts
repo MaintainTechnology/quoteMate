@@ -82,6 +82,9 @@ export async function PATCH(
     }
     fields.trade = parsed.data.trade
   }
+  if (parsed.data.category !== undefined) {
+    fields.category = emptyToNull(parsed.data.category)
+  }
   if (parsed.data.name !== undefined) fields.name = parsed.data.name
   if (parsed.data.description !== undefined) {
     fields.description = emptyToNull(parsed.data.description)

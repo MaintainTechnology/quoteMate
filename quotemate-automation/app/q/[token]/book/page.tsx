@@ -83,7 +83,7 @@ function StepStrip({ active }: { active: 1 | 2 | 3 }) {
     { n: '03', label: 'Confirmed' },
   ]
   return (
-    <div className="mb-10 flex flex-wrap gap-x-6 gap-y-2 border-b border-ink-line pb-5">
+    <div className="mb-6 flex flex-wrap gap-x-6 gap-y-2 border-b border-ink-line pb-4">
       {steps.map((s, i) => {
         const step = i + 1
         const isActive = step === active
@@ -229,7 +229,7 @@ export default async function BookingPage(props: {
         </div>
       </header>
 
-      <div className="relative z-10 mx-auto max-w-3xl px-5 py-12 sm:px-6 sm:py-16">
+      <div className="relative z-10 mx-auto max-w-5xl px-5 py-7 sm:px-6 sm:py-9">
         {content}
       </div>
 
@@ -327,14 +327,14 @@ function GoogleBookingOption({
   if (!googleUrl) return null
   const who = tradieName ?? 'the tradie'
   return (
-    <div className="mt-10 border-t border-ink-line pt-8">
+    <div className="mt-6 border-t border-ink-line pt-5">
       <span className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-text-dim">
         Or book direct
       </span>
-      <p className="mt-3 text-base font-semibold text-text-pri">
+      <p className="mt-2 text-sm font-semibold text-text-pri">
         Prefer to book straight into {who}&apos;s calendar?
       </p>
-      <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-text-sec">
+      <p className="mt-1 max-w-[58ch] text-xs leading-relaxed text-text-sec">
         Opens {who}&apos;s Google booking page. With this option your deposit is
         sorted with {who} directly — it won&apos;t go through the screen above.
       </p>
@@ -342,7 +342,7 @@ function GoogleBookingOption({
         href={googleUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-4 inline-flex items-center gap-2 border border-ink-line px-5 py-3 text-sm font-semibold uppercase tracking-wider text-text-pri transition-colors hover:border-accent hover:text-accent"
+        className="mt-3 inline-flex items-center gap-2 border border-ink-line px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-text-pri transition-colors hover:border-accent hover:text-accent"
       >
         Book on {who}&apos;s calendar ↗
       </a>
@@ -432,15 +432,14 @@ function PickState({
       <span className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-text-dim">
         Step 01 — Choose a time
       </span>
-      <h1 className="mt-6 text-[clamp(2.25rem,5.5vw,3.5rem)] font-extrabold uppercase leading-none tracking-[-0.035em]">
+      <h1 className="mt-3 text-[clamp(1.5rem,3.5vw,2.25rem)] font-extrabold uppercase leading-none tracking-[-0.035em]">
         Pick a time that <span className="text-accent">works</span>.
       </h1>
-      <p className="mt-5 max-w-[60ch] text-base leading-relaxed text-text-sec">
-        These are {tradieName ? `${tradieName}'s` : "your tradie's"} next
-        available times. Choose one, then pay your deposit to lock it in —
-        that&apos;s the last step.
+      <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-text-sec">
+        {tradieName ? `${tradieName}'s` : "Your tradie's"} next available times —
+        pick one, then pay your deposit to lock it in (last step).
       </p>
-      <div className="mt-10">
+      <div className="mt-6">
         <SlotPicker token={token} slots={slots} tier={tier} />
       </div>
       <GoogleBookingOption googleUrl={googleUrl} tradieName={tradieName} />

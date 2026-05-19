@@ -1,0 +1,26 @@
+[
+  {
+    "trade": "electrical",
+    "assembly_name": "Install LED downlight",
+    "material_category": "downlight",
+    "quantity": 6,
+    "required": true,
+    "sort": 1
+  },
+  {
+    "trade": "electrical",
+    "assembly_name": "Install LED downlight",
+    "material_category": "sundry",
+    "quantity": 1,
+    "required": true,
+    "sort": 2
+  },
+  {
+    "trade": "plumbing",
+    "assembly_name": "Replace kitchen mixer tap",
+    "material_category": "tap",
+    "quantity": 1,
+    "required": true,
+    "sort": 1
+  }
+]

@@ -7,6 +7,7 @@
 //   • The schema itself is pure — easy to import + assert against.
 
 import { z } from 'zod'
+import { CATEGORY_ENUM_TUPLE } from '@/lib/estimate/categories'
 
 export const TRADE_ENUM = z.enum(['electrical', 'plumbing'])
 export const STATE_ENUM = z.enum(['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'])
@@ -93,6 +94,12 @@ export const UpdateSchema = z.object({
 // inspection_triggers — Pass 2 surface).
 export const CustomServiceSchema = z.object({
   trade: TRADE_ENUM,
+  // Optional explicit grounding category (migration 029). Validated
+  // against the single source of truth in @/lib/estimate/categories so
+  // this list can never drift from the validator's. Empty / omitted →
+  // the row falls back to name-regex categorisation (the safe default —
+  // a tradie who doesn't know categories is never forced to pick one).
+  category: z.enum(CATEGORY_ENUM_TUPLE).optional().or(z.literal('')),
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(500).optional().or(z.literal('')),
   default_unit: z
@@ -130,6 +137,60 @@ export type CustomServiceOutput = z.output<typeof CustomServiceSchema>
 export const CustomServicePatchSchema = CustomServiceSchema.partial()
 export type CustomServicePatchInput = z.input<typeof CustomServicePatchSchema>
 export type CustomServicePatchOutput = z.output<typeof CustomServicePatchSchema>
+
+// WP2 — create/update payload for a single tenant_material_catalogue row
+// (migration 028). Used by POST /api/tenant/catalogue and
+// PATCH /api/tenant/catalogue/[id]. `category` aligns with the grounding
+// validator's tags so a tenant catalogue row grounds exactly like a
+// shared one. Empty strings on optional text fields are normalised to
+// null by the route (mirrors the services route's emptyToNull).
+export const TIER_ENUM = z.enum(['good', 'better', 'best'])
+export const MaterialCatalogueSchema = z.object({
+  trade: TRADE_ENUM,
+  category: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(2).max(120),
+  brand: z.string().trim().max(60).optional().or(z.literal('')),
+  range_series: z.string().trim().max(60).optional().or(z.literal('')),
+  supplier: z.string().trim().max(60).optional().or(z.literal('')),
+  unit: z.string().trim().min(1).max(30).optional().or(z.literal('')),
+  unit_price_ex_gst: z.coerce.number().min(0).max(100_000),
+  customer_supply_price_ex_gst: z.coerce
+    .number()
+    .min(0)
+    .max(100_000)
+    .optional()
+    .or(z.null()),
+  tier_hint: TIER_ENUM.optional().or(z.literal('')),
+  image_path: z.string().trim().max(300).optional().or(z.literal('')),
+  active: z.boolean().optional(),
+})
+export type MaterialCatalogueInput = z.input<typeof MaterialCatalogueSchema>
+export type MaterialCatalogueOutput = z.output<typeof MaterialCatalogueSchema>
+
+export const MaterialCataloguePatchSchema = MaterialCatalogueSchema.partial()
+export type MaterialCataloguePatchInput = z.input<typeof MaterialCataloguePatchSchema>
+export type MaterialCataloguePatchOutput = z.output<typeof MaterialCataloguePatchSchema>
+
+// Tenant-owned bill-of-materials line (migration 031). One row = "this
+// job needs this much of this material category". Used by POST
+// /api/tenant/bom and PATCH /api/tenant/bom/[id]. The job is a
+// shared_assemblies row; assembly_id is validated at runtime against
+// the catalogue (and the tradie's trades) by the route.
+export const TenantBomLineSchema = z.object({
+  assembly_id: z.string().uuid(),
+  trade: TRADE_ENUM,
+  material_category: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(200).optional().or(z.literal('')),
+  quantity: z.coerce.number().positive().max(10_000),
+  required: z.boolean().optional(),
+  sort: z.coerce.number().int().min(0).max(999).optional(),
+})
+export type TenantBomLineInput = z.input<typeof TenantBomLineSchema>
+export type TenantBomLineOutput = z.output<typeof TenantBomLineSchema>
+
+export const TenantBomLinePatchSchema = TenantBomLineSchema.partial()
+export type TenantBomLinePatchInput = z.input<typeof TenantBomLinePatchSchema>
+export type TenantBomLinePatchOutput = z.output<typeof TenantBomLinePatchSchema>
 
 export type UpdateSchemaInput = z.input<typeof UpdateSchema>
 export type UpdateSchemaOutput = z.output<typeof UpdateSchema>

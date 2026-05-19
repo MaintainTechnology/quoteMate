@@ -26,7 +26,8 @@ create table if not exists shared_assemblies (
   default_unit text,
   default_unit_price_ex_gst numeric(10,2),
   default_labour_hours numeric(6,2),
-  default_exclusions text
+  default_exclusions text,
+  category text  -- explicit grounding category (migration 029); NULL → categorise() name regex
 );
 
 create table if not exists shared_materials (

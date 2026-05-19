@@ -213,22 +213,28 @@ async function loadCandidatePrices(
   const materialsQuery = supabase
     .from('shared_materials')
     .select('name, default_unit_price_ex_gst, trade')
+  // select('*') (not an explicit column list) so a pre-029 prod where
+  // `category` doesn't exist yet can't turn into a PostgREST
+  // missing-column error → null data → ZERO assembly candidates → every
+  // quote dumped to inspection. Missing column just yields
+  // r.category===undefined → null → name-regex fallback. Same pattern as
+  // tools.ts makeLookupAssembly. Makes code/migration deploy order safe.
   const assembliesQuery = supabase
     .from('shared_assemblies')
-    .select('name, default_unit_price_ex_gst, trade')
+    .select('*')
 
   const customAssembliesPromise = tenantId
     ? (() => {
         let q = supabase
           .from('tenant_custom_assemblies')
-          .select('name, default_unit_price_ex_gst, trade')
+          .select('*') // see assembliesQuery note — deploy-order-safe
           .eq('tenant_id', tenantId)
           .eq('enabled', true)
           .eq('always_inspection', false)
         if (trade) q = q.eq('trade', trade)
         return q
       })()
-    : Promise.resolve({ data: [] as Array<{ name: string; default_unit_price_ex_gst: number | string; trade: string }> })
+    : Promise.resolve({ data: [] as Array<{ name: string; default_unit_price_ex_gst: number | string; trade: string; category: string | null }> })
 
   // WP2 TRAP-FIX (lockstep with tools.ts makeLookupMaterial): lookupMaterial
   // now returns operator-owned tenant_material_catalogue rows (migration
@@ -278,7 +284,14 @@ async function loadCandidatePrices(
       ...(materials ?? []).map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
       ...tenantMaterialCandidates,
     ],
-    allAssemblies.map((r: any) => ({ name: r.name, price: r.default_unit_price_ex_gst })),
+    // Migration 029: pass the explicit row category through. NULL on
+    // pre-029 prod or un-backfilled rows → buildCandidatePrices falls
+    // back to name-regex categorisation (identical to old behaviour).
+    allAssemblies.map((r: any) => ({
+      name: r.name,
+      price: r.default_unit_price_ex_gst,
+      category: r.category ?? null,
+    })),
     pricingBook,
   )
 }
@@ -427,6 +440,24 @@ async function buildBomHint(
     const { data: asm, error: aerr } = await aq.limit(5)
     if (aerr || !asm || asm.length === 0) return null
     const ids = asm.map((a: any) => a.id)
+    const tenantId = (intake?.tenant_id as string | null) ?? null
+
+    // Prefer this tradie's OWN recipe (tenant_assembly_bom, migration
+    // 031) over the shared baseline. Absent table (prod pre-031) →
+    // supabase returns {data:null} (no throw) → [] → falls back to
+    // shared, so this is purely additive / no behaviour change.
+    if (tenantId) {
+      const { data: ownBom } = await supabase
+        .from('tenant_assembly_bom')
+        .select('material_category, quantity, required, description, sort')
+        .eq('tenant_id', tenantId)
+        .in('assembly_id', ids)
+        .order('sort', { ascending: true })
+      if (ownBom && ownBom.length > 0) {
+        return formatBomHint(ownBom as BomHintRow[])
+      }
+    }
+
     const { data: bom, error: berr } = await supabase
       .from('shared_assembly_bom')
       .select('material_category, quantity, required, description, sort')

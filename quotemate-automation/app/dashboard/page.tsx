@@ -20,6 +20,7 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { CATEGORIES } from '@/lib/estimate/categories'
 import {
   LayoutDashboard,
   FileText,
@@ -27,6 +28,9 @@ import {
   User,
   DollarSign,
   Wrench,
+  Package,
+  Calculator,
+  ClipboardList,
   LogOut,
   PhoneCall,
   type LucideProps,
@@ -92,6 +96,9 @@ type ServiceOffering = {
    *  inspection." The LLM tools skip these rows for pricing so
    *  customer matches force inspection routing. */
   always_inspection: boolean
+  /** Migration 029 — explicit grounding category. null on shared rows
+   *  and on custom rows left to auto-detect from the name. */
+  category?: string | null
 }
 
 // `EditingService` (the inline create/edit form state) is declared
@@ -184,6 +191,9 @@ type Tab =
   | 'account'
   | 'pricing'
   | 'services'
+  | 'catalogue'
+  | 'estimating'
+  | 'recipes'
   | 'quotes'
   | 'chats'
   | 'followups'
@@ -454,6 +464,9 @@ export default function DashboardPage() {
                 onDeleteCustom={deleteCustomService}
               />
             )}
+            {tab === 'catalogue' && <CatalogueTab accessToken={accessToken} />}
+            {tab === 'estimating' && <EstimatingTab accessToken={accessToken} />}
+            {tab === 'recipes' && <RecipesTab accessToken={accessToken} />}
             {tab === 'quotes' && <QuotesTab data={data} />}
             {tab === 'followups' && (
               <FollowupsTab accessToken={accessToken} />
@@ -653,6 +666,9 @@ function buildNav(quoteCount: number): NavItem[] {
     { tab: 'account', label: 'Account', icon: User },
     { tab: 'pricing', label: 'Pricing', icon: DollarSign },
     { tab: 'services', label: 'Services', icon: Wrench },
+    { tab: 'catalogue', label: 'Catalogue', icon: Package },
+    { tab: 'estimating', label: 'Estimating', icon: Calculator },
+    { tab: 'recipes', label: 'Recipes', icon: ClipboardList },
   ]
 }
 
@@ -2576,6 +2592,7 @@ function ServicesTab({
                                 default_exclusions: svc.default_exclusions ?? '',
                                 always_inspection: svc.always_inspection,
                                 enabled: svc.enabled,
+                                category: svc.category ?? '',
                               })
                             }
                             className="inline-flex items-center gap-1.5 border border-ink-line text-text-sec hover:border-accent/60 hover:text-accent font-mono font-bold uppercase tracking-[0.14em] text-[0.65rem] px-3 py-1.5 transition-colors"
@@ -2875,6 +2892,7 @@ type EditingService =
       default_exclusions?: string
       always_inspection?: boolean
       enabled?: boolean
+      category?: string
     }
   | {
       mode: 'edit'
@@ -2888,6 +2906,7 @@ type EditingService =
       default_exclusions: string
       always_inspection: boolean
       enabled: boolean
+      category: string
     }
 
 function CustomServiceForm({
@@ -2920,6 +2939,11 @@ function CustomServiceForm({
   )
   const [alwaysInspection, setAlwaysInspection] = useState(
     initial.mode === 'edit' ? initial.always_inspection : false,
+  )
+  // Explicit grounding category (migration 029). '' = auto-detect from
+  // the service name (the safe default — see lib/estimate/categories).
+  const [category, setCategory] = useState(
+    initial.mode === 'edit' ? (initial.category ?? '') : '',
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2956,6 +2980,9 @@ function CustomServiceForm({
         default_labour_hours: hours,
         default_exclusions: exclusions.trim(),
         always_inspection: alwaysInspection,
+        // '' is accepted by CustomServiceSchema (→ null → name-regex
+        // fallback). Sent on every submit so an edit can also CLEAR it.
+        category,
       }
       await onSubmit(payload)
     } catch (err: any) {
@@ -3015,6 +3042,25 @@ function CustomServiceForm({
           placeholder="Mount, terminate, test on existing circuit"
           className="w-full bg-ink-base border border-ink-line text-text-pri px-3 py-2 text-sm focus:outline-none focus:border-accent resize-y"
         />
+      </FormField>
+
+      <FormField
+        label="Grounding category"
+        hint="How the AI matches this service when pricing a quote. Leave on auto-detect unless the AI keeps sending this job to a $199 inspection."
+      >
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="Grounding category for this service"
+          className="w-full bg-ink-base border border-ink-line text-text-pri px-3 py-2 text-sm focus:outline-none focus:border-accent"
+        >
+          <option value="">Auto-detect from name (recommended)</option>
+          {CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
       </FormField>
 
       <div className="grid sm:grid-cols-3 gap-3">
@@ -3564,6 +3610,882 @@ function fmtAUD(n: number | null): string {
 function fmtJobType(j: string | null): string {
   if (!j) return 'Job'
   return j.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+// ─── WP2 · Operator product catalogue tab ─────────────────────────
+// Self-contained (mirrors FollowupsTab): takes the bearer accessToken,
+// does its own fetches against /api/tenant/catalogue. Lets a tradie
+// list / add / on-off toggle / delete their branded products. The
+// brand+range -> tier mapping the estimator uses is shown per row.
+type CatalogueRow = {
+  id: string
+  trade: string
+  category: string
+  name: string
+  brand: string | null
+  range_series: string | null
+  supplier: string | null
+  unit: string | null
+  unit_price_ex_gst: number | string
+  customer_supply_price_ex_gst: number | string | null
+  tier_hint: 'good' | 'better' | 'best' | null
+  active: boolean
+}
+
+function CatalogueTab({ accessToken }: { accessToken: string | null }) {
+  const [rows, setRows] = useState<CatalogueRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formErr, setFormErr] = useState<string | null>(null)
+  const blankForm = {
+    trade: 'electrical',
+    category: '',
+    name: '',
+    brand: '',
+    range_series: '',
+    supplier: '',
+    unit_price_ex_gst: '',
+    tier_hint: '',
+  }
+  const [form, setForm] = useState({ ...blankForm })
+
+  const load = useCallback(async () => {
+    if (!accessToken) {
+      setError('Not signed in')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/tenant/catalogue', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      const json = (await res.json()) as { catalogue: CatalogueRow[] }
+      setRows(json.catalogue)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function toggleActive(row: CatalogueRow) {
+    if (!accessToken) return
+    setBusyId(row.id)
+    const next = !row.active
+    setRows((p) => (p ? p.map((r) => (r.id === row.id ? { ...r, active: next } : r)) : p))
+    try {
+      const res = await fetch(`/api/tenant/catalogue/${row.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next }),
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+    } catch (e) {
+      setRows((p) => (p ? p.map((r) => (r.id === row.id ? { ...r, active: row.active } : r)) : p))
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function remove(row: CatalogueRow) {
+    if (!accessToken) return
+    if (!window.confirm(`Delete "${row.name}" from your catalogue?`)) return
+    setBusyId(row.id)
+    try {
+      const res = await fetch(`/api/tenant/catalogue/${row.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      setRows((p) => (p ? p.filter((r) => r.id !== row.id) : p))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function create() {
+    if (!accessToken) return
+    setSaving(true)
+    setFormErr(null)
+    try {
+      const res = await fetch('/api/tenant/catalogue', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trade: form.trade,
+          category: form.category.trim(),
+          name: form.name.trim(),
+          brand: form.brand.trim() || undefined,
+          range_series: form.range_series.trim() || undefined,
+          supplier: form.supplier.trim() || undefined,
+          unit_price_ex_gst: form.unit_price_ex_gst,
+          tier_hint: form.tier_hint || undefined,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      setForm({ ...blankForm, trade: form.trade })
+      setShowForm(false)
+      await load()
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const money = (v: number | string | null) => {
+    if (v == null || v === '') return null
+    const n = typeof v === 'string' ? parseFloat(v) : v
+    return Number.isFinite(n) ? `$${n.toFixed(2)}` : null
+  }
+  const set = (k: keyof typeof blankForm, v: string) => setForm((f) => ({ ...f, [k]: v }))
+
+  if (loading) {
+    return (
+      <div className="font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim py-10">
+        Loading catalogue…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="bg-ink-card border-l-2 border-l-warning border-y border-r border-ink-line p-6">
+        <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-warning mb-2">
+          Couldn&apos;t load catalogue
+        </div>
+        <p className="text-sm text-text-sec">{error}</p>
+      </div>
+    )
+  }
+
+  const list = rows ?? []
+  const groups = new Map<string, CatalogueRow[]>()
+  for (const r of list) {
+    const key = `${r.trade} · ${r.category}`
+    const arr = groups.get(key) ?? []
+    arr.push(r)
+    groups.set(key, arr)
+  }
+
+  return (
+    <div className="bg-ink-card border border-ink-line p-6 sm:p-7">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-text-pri font-extrabold uppercase tracking-tight text-base sm:text-lg">
+            Product catalogue
+          </h2>
+          <p className="mt-1 text-xs text-text-dim leading-snug max-w-xl">
+            Your real branded products and prices. The AI quotes these ahead of generic items and
+            maps brand + range to a tier (e.g. Clipsal Iconic → Better, Clipsal 2000 → Good).
+            Off rows are never offered. {list.length} product{list.length === 1 ? '' : 's'}.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setShowForm((s) => !s)
+            setFormErr(null)
+          }}
+          className="shrink-0 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-3 py-2 border border-accent/50 text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+        >
+          {showForm ? '× Cancel' : '+ Add product'}
+        </button>
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void create()
+          }}
+          className="mt-5 border border-ink-line bg-ink-deep p-4 grid gap-3 sm:grid-cols-2"
+        >
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Trade</span>
+            <select
+              value={form.trade}
+              onChange={(e) => set('trade', e.target.value)}
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            >
+              <option value="electrical">electrical</option>
+              <option value="plumbing">plumbing</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Category</span>
+            <input
+              value={form.category}
+              onChange={(e) => set('category', e.target.value)}
+              placeholder="e.g. gpo, downlight, tap"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Product name</span>
+            <input
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="e.g. Clipsal Iconic GPO"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Brand</span>
+            <input
+              value={form.brand}
+              onChange={(e) => set('brand', e.target.value)}
+              placeholder="Clipsal"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Range / series</span>
+            <input
+              value={form.range_series}
+              onChange={(e) => set('range_series', e.target.value)}
+              placeholder="Iconic / 2000"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Supplier</span>
+            <input
+              value={form.supplier}
+              onChange={(e) => set('supplier', e.target.value)}
+              placeholder="Reece / Bunnings"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Price ex-GST</span>
+            <input
+              value={form.unit_price_ex_gst}
+              onChange={(e) => set('unit_price_ex_gst', e.target.value)}
+              inputMode="decimal"
+              placeholder="42"
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Tier (optional)</span>
+            <select
+              value={form.tier_hint}
+              onChange={(e) => set('tier_hint', e.target.value)}
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            >
+              <option value="">Auto (from brand/range)</option>
+              <option value="good">good</option>
+              <option value="better">better</option>
+              <option value="best">best</option>
+            </select>
+          </label>
+          {formErr && (
+            <p className="sm:col-span-2 text-xs text-warning">{formErr}</p>
+          )}
+          <div className="sm:col-span-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-4 py-2.5 bg-accent text-white hover:bg-accent-press transition-colors cursor-pointer disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : 'Add to catalogue'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {list.length === 0 ? (
+        <p className="mt-6 text-sm text-text-sec">
+          No catalogue products yet. Add your first so the AI quotes your real products and prices.
+        </p>
+      ) : (
+        <div className="mt-6 space-y-5">
+          {[...groups.entries()].map(([key, items]) => (
+            <div key={key}>
+              <div className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-accent font-bold pb-1">
+                {key}
+              </div>
+              <div className="space-y-2">
+                {items.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`border px-4 py-3 flex items-start justify-between gap-4 ${
+                      r.active ? 'border-accent/60 bg-accent/5' : 'border-ink-line bg-ink-card'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className={`font-semibold text-sm ${r.active ? 'text-text-pri' : 'text-text-sec'}`}>
+                        {r.name}
+                      </div>
+                      <div className="mt-1 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {money(r.unit_price_ex_gst) && <span>{money(r.unit_price_ex_gst)} ex-GST</span>}
+                        {money(r.customer_supply_price_ex_gst) && (
+                          <span>cust-supply {money(r.customer_supply_price_ex_gst)}</span>
+                        )}
+                        {(r.brand || r.range_series) && (
+                          <span className="text-text-dim/80">
+                            {[r.brand, r.range_series].filter(Boolean).join(' ')}
+                          </span>
+                        )}
+                        {r.supplier && <span className="text-text-dim/70">{r.supplier}</span>}
+                        {r.tier_hint && (
+                          <span className="px-2 py-0.5 border border-accent/40 text-accent">
+                            {r.tier_hint}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-3">
+                      <span
+                        role="switch"
+                        aria-checked={r.active}
+                        aria-label={`${r.name} — ${r.active ? 'active, click to turn off' : 'off, click to turn on'}`}
+                        tabIndex={0}
+                        onClick={() => busyId !== r.id && toggleActive(r)}
+                        onKeyDown={(e) => {
+                          if ((e.key === 'Enter' || e.key === ' ') && busyId !== r.id) {
+                            e.preventDefault()
+                            void toggleActive(r)
+                          }
+                        }}
+                        className="inline-flex items-center cursor-pointer group select-none"
+                      >
+                        <span
+                          className={`relative inline-block h-5 w-10 border transition-colors ${
+                            r.active
+                              ? 'border-accent bg-accent/20'
+                              : 'border-ink-line bg-ink-base group-hover:border-text-dim'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-[1px] h-[14px] w-[14px] transition-transform ${
+                              r.active
+                                ? 'translate-x-[22px] bg-accent'
+                                : 'translate-x-[2px] bg-text-dim group-hover:bg-text-sec'
+                            }`}
+                          />
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => remove(r)}
+                        disabled={busyId === r.id}
+                        className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim hover:text-warning transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── WP3 · Recipes editor — the tradie's own bills of materials ───
+// Each tradie's OWN parts list per job (tenant_assembly_bom, migration
+// 031). Add / edit quantity / toggle required / remove — all from the
+// dashboard, no scripts. Self-contained (mirrors CatalogueTab).
+type BomLineRow = {
+  id: string
+  assembly_id: string
+  trade: string
+  material_category: string
+  description: string | null
+  quantity: number | string
+  required: boolean
+  sort: number
+}
+type AsmOpt = { id: string; name: string; trade: string }
+
+function RecipesTab({ accessToken }: { accessToken: string | null }) {
+  const [assemblies, setAssemblies] = useState<AsmOpt[]>([])
+  const [lines, setLines] = useState<BomLineRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string>('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [formErr, setFormErr] = useState<string | null>(null)
+  const [draftQty, setDraftQty] = useState<Record<string, string>>({})
+  const blank = { material_category: '', quantity: '1', required: true, description: '' }
+  const [form, setForm] = useState({ ...blank })
+
+  const load = useCallback(async () => {
+    if (!accessToken) {
+      setError('Not signed in')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/tenant/bom', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      const json = (await res.json()) as { assemblies: AsmOpt[]; lines: BomLineRow[] }
+      setAssemblies(json.assemblies)
+      setLines(json.lines)
+      setSelectedId((cur) => cur || (json.assemblies[0]?.id ?? ''))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const selectedAsm = assemblies.find((a) => a.id === selectedId) ?? null
+  const jobLines = (lines ?? [])
+    .filter((l) => l.assembly_id === selectedId)
+    .sort((a, b) => a.sort - b.sort)
+
+  async function addLine() {
+    if (!accessToken || !selectedAsm) return
+    setSaving(true)
+    setFormErr(null)
+    try {
+      const res = await fetch('/api/tenant/bom', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assembly_id: selectedAsm.id,
+          trade: selectedAsm.trade,
+          material_category: form.material_category.trim(),
+          quantity: form.quantity,
+          required: form.required,
+          description: form.description.trim() || undefined,
+          sort: jobLines.length + 1,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string
+        message?: string
+        line?: BomLineRow
+      }
+      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      setForm({ ...blank })
+      await load()
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function patchLine(id: string, fields: Record<string, unknown>) {
+    if (!accessToken) return
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/tenant/bom/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      const json = (await res.json()) as { line: BomLineRow }
+      setLines((p) => (p ? p.map((l) => (l.id === id ? json.line : l)) : p))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function deleteLine(id: string) {
+    if (!accessToken) return
+    if (!window.confirm('Remove this part from the recipe?')) return
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/tenant/bom/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      setLines((p) => (p ? p.filter((l) => l.id !== id) : p))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim py-10">
+        Loading recipes…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="bg-ink-card border-l-2 border-l-warning border-y border-r border-ink-line p-6">
+        <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-warning mb-2">
+          Couldn&apos;t load recipes
+        </div>
+        <p className="text-sm text-text-sec">{error}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-ink-card border border-ink-line p-6 sm:p-7">
+      <h2 className="text-text-pri font-extrabold uppercase tracking-tight text-base sm:text-lg">
+        Recipes — your parts list per job
+      </h2>
+      <p className="mt-1 text-xs text-text-dim leading-snug max-w-xl">
+        Define the parts a job always needs so the same job is quoted the same way every time.
+        These are <strong>yours</strong> — editing them never affects other tradies. A job with
+        no recipe here falls back to the standard baseline.
+      </p>
+
+      <div className="mt-5 flex flex-col gap-1 max-w-md">
+        <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Job</span>
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="bg-ink-deep border border-ink-line px-3 py-2 text-sm text-text-pri"
+        >
+          {assemblies.length === 0 && <option value="">No jobs available</option>}
+          {assemblies.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name} ({a.trade})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedAsm && (
+        <div className="mt-6">
+          <div className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-accent font-bold pb-2">
+            {selectedAsm.name} — recipe
+          </div>
+
+          {jobLines.length === 0 ? (
+            <p className="text-sm text-text-sec">
+              No recipe yet for this job. Add the parts it always needs below.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {jobLines.map((l) => {
+                const qv = draftQty[l.id] ?? String(Number(l.quantity))
+                return (
+                  <div
+                    key={l.id}
+                    className="border border-ink-line bg-ink-deep px-4 py-3 flex items-center justify-between gap-4 flex-wrap"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm text-text-pri font-medium">{l.material_category}</div>
+                      {l.description && (
+                        <div className="text-xs text-text-dim mt-0.5">{l.description}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <label className="flex items-center gap-1.5 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+                        qty
+                        <input
+                          value={qv}
+                          inputMode="decimal"
+                          onChange={(e) => setDraftQty((d) => ({ ...d, [l.id]: e.target.value }))}
+                          onBlur={() => {
+                            const n = parseFloat(qv)
+                            if (Number.isFinite(n) && n > 0 && n !== Number(l.quantity)) {
+                              void patchLine(l.id, { quantity: n })
+                            }
+                          }}
+                          className="w-16 bg-ink-card border border-ink-line px-2 py-1 text-sm text-text-pri"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => patchLine(l.id, { required: !l.required })}
+                        disabled={busyId === l.id}
+                        className={`font-mono text-[0.55rem] uppercase tracking-[0.15em] px-2 py-1 border transition-colors cursor-pointer disabled:opacity-50 ${
+                          l.required
+                            ? 'border-accent/40 text-accent'
+                            : 'border-ink-line text-text-dim'
+                        }`}
+                      >
+                        {l.required ? 'required' : 'optional'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteLine(l.id)}
+                        disabled={busyId === l.id}
+                        className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim hover:text-warning transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void addLine()
+            }}
+            className="mt-4 border border-ink-line bg-ink-deep p-4 grid gap-3 sm:grid-cols-2"
+          >
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Material category</span>
+              <input
+                value={form.material_category}
+                onChange={(e) => setForm((f) => ({ ...f, material_category: e.target.value }))}
+                placeholder="e.g. downlight, sundry, tap"
+                className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Quantity</span>
+              <input
+                value={form.quantity}
+                inputMode="decimal"
+                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+                className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+              />
+            </label>
+            <label className="flex flex-col gap-1 sm:col-span-2">
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Description (optional)</span>
+              <input
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="e.g. clips + connectors"
+                className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-text-sec">
+              <input
+                type="checkbox"
+                checked={form.required}
+                onChange={(e) => setForm((f) => ({ ...f, required: e.target.checked }))}
+              />
+              Required part (always quoted)
+            </label>
+            {formErr && <p className="sm:col-span-2 text-xs text-warning">{formErr}</p>}
+            <div className="sm:col-span-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-4 py-2.5 bg-accent text-white hover:bg-accent-press transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {saving ? 'Adding…' : '+ Add part to this recipe'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── WP3 · "How each job is estimated" (read-only) ────────────────
+// Per shared assembly that has a structured bill of materials, shows
+// the BOM + the EFFECTIVE labour-hours & markup, with a badge saying
+// whether each came from the global default or this tradie's local
+// override. Pure read — mirrors CatalogueTab's fetch/auth pattern.
+type EstimationJob = {
+  assembly_id: string
+  name: string
+  trade: string
+  hourly_rate: number | null
+  bom: Array<{
+    material_category: string
+    quantity: number
+    required: boolean
+    description: string | null
+  }>
+  effective: {
+    enabled: boolean
+    labour_hours: { value: number; source: 'local' | 'global' }
+    markup_pct: { value: number; source: 'local' | 'global' }
+    global_labour_hours: number
+    global_markup_pct: number
+  }
+}
+
+function SourceBadge({ source }: { source: 'local' | 'global' }) {
+  return source === 'local' ? (
+    <span className="px-1.5 py-0.5 border border-accent/40 text-accent font-mono text-[0.55rem] uppercase tracking-[0.15em]">
+      your override
+    </span>
+  ) : (
+    <span className="px-1.5 py-0.5 border border-ink-line text-text-dim font-mono text-[0.55rem] uppercase tracking-[0.15em]">
+      global default
+    </span>
+  )
+}
+
+function EstimatingTab({ accessToken }: { accessToken: string | null }) {
+  const [jobs, setJobs] = useState<EstimationJob[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    if (!accessToken) {
+      setError('Not signed in')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/tenant/estimation', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      const json = (await res.json()) as { jobs: EstimationJob[] }
+      setJobs(json.jobs)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (loading) {
+    return (
+      <div className="font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim py-10">
+        Loading estimation breakdown…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="bg-ink-card border-l-2 border-l-warning border-y border-r border-ink-line p-6">
+        <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-warning mb-2">
+          Couldn&apos;t load estimation breakdown
+        </div>
+        <p className="text-sm text-text-sec">{error}</p>
+      </div>
+    )
+  }
+
+  const list = jobs ?? []
+
+  return (
+    <div className="bg-ink-card border border-ink-line p-6 sm:p-7">
+      <h2 className="text-text-pri font-extrabold uppercase tracking-tight text-base sm:text-lg">
+        How each job is estimated
+      </h2>
+      <p className="mt-1 text-xs text-text-dim leading-snug max-w-xl">
+        For every job with a fixed bill of materials, this shows the parts the AI quotes and the
+        labour &amp; markup it uses — and whether each value is the global default or your own
+        local override. Read‑only.
+      </p>
+
+      {list.length === 0 ? (
+        <p className="mt-6 text-sm text-text-sec">
+          No jobs have a structured bill of materials yet. Once the validated job/BOM list is
+          loaded, every standard job will show its fixed parts and pricing here.
+        </p>
+      ) : (
+        <div className="mt-6 space-y-3">
+          {list.map((j) => (
+            <div key={j.assembly_id} className="border border-ink-line bg-ink-deep p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="font-semibold text-sm text-text-pri">{j.name}</div>
+                <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim/80">
+                  {j.trade}
+                  {!j.effective.enabled && ' · disabled for you'}
+                </span>
+              </div>
+
+              <div className="mt-3">
+                <div className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim mb-1">
+                  Bill of materials
+                </div>
+                <ul className="text-sm text-text-sec space-y-0.5">
+                  {j.bom.map((b, i) => (
+                    <li key={i}>
+                      • {b.quantity} × {b.material_category}
+                      {b.description ? ` ${b.description}` : ''}
+                      {b.required ? '' : ' (optional)'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="flex items-center gap-2 text-sm text-text-sec">
+                  <span className="text-text-dim">Labour:</span>
+                  <span className="text-text-pri font-medium">
+                    {j.effective.labour_hours.value} hr
+                  </span>
+                  <SourceBadge source={j.effective.labour_hours.source} />
+                  {j.hourly_rate != null && (
+                    <span className="text-text-dim/70 font-mono text-[0.65rem]">
+                      @ ${j.hourly_rate}/hr
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-text-sec">
+                  <span className="text-text-dim">Markup:</span>
+                  <span className="text-text-pri font-medium">
+                    {j.effective.markup_pct.value}%
+                  </span>
+                  <SourceBadge source={j.effective.markup_pct.source} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function FollowupsTab({ accessToken }: { accessToken: string | null }) {
@@ -4616,6 +5538,12 @@ function tabLabel(t: Tab): string {
       return 'Chats'
     case 'followups':
       return 'Follow-ups'
+    case 'catalogue':
+      return 'Catalogue'
+    case 'estimating':
+      return 'Estimating'
+    case 'recipes':
+      return 'Recipes'
   }
 }
 

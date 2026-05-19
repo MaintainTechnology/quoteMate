@@ -244,6 +244,9 @@ export async function GET(req: Request) {
     is_custom: true,
     always_inspection: (a.always_inspection as boolean | null) ?? false,
     enabled: (a.enabled as boolean | null) ?? true,
+    // Migration 029 — surface the explicit grounding category so the
+    // dashboard edit form can pre-fill it. null → "auto-detect from name".
+    category: (a.category ?? null) as string | null,
   }))
 
   // Final unified list: shared first (anchors the dashboard at the

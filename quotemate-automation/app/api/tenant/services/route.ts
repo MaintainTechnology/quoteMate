@@ -95,6 +95,9 @@ export async function POST(req: Request) {
   const row = {
     tenant_id: tenant.id,
     trade: parsed.data.trade,
+    // Explicit grounding category (migration 029). '' / omitted → null →
+    // validator falls back to name regex.
+    category: emptyToNull(parsed.data.category),
     name: parsed.data.name,
     description: emptyToNull(parsed.data.description),
     default_unit: parsed.data.default_unit?.trim() || 'each',

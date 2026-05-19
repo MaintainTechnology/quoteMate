@@ -18,6 +18,7 @@ import {
 } from '@/lib/sms/twilio-validator'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
+import { formatActiveFollowupContext } from '@/lib/sms/followup-context'
 import { isQuoteInflight, DONE_INFLIGHT_WINDOW_MS } from '@/lib/sms/inflight'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteInFlightSms, buildQuoteFailureSms } from '@/lib/sms/templates'
@@ -1065,6 +1066,115 @@ export async function POST(req: Request) {
         }
       }
 
+      // ─── Tenant DECLINED services (toggle OFF → polite "we don't do
+      // that", NOT the $199 inspection fallback) ──────────────────────
+      // Mirrors the /api/tenant/me resolution: a catalogue service is OFF
+      // when an explicit tenant_service_offerings row says enabled=false
+      // OR there is no row and shared_assemblies.default_enabled is false;
+      // disabled tenant_custom_assemblies count too. Without feeding these
+      // in, an OFF electrical extra like "Hardwire oven" falls through to
+      // the hardcoded Rule 4/6 ("oven/cooktop -> $199 inspection") and the
+      // customer gets sold a paid inspection for work the tradie doesn't
+      // do. Names only; names already in the ENABLED list above are
+      // dropped (enabled wins). Fail-soft: a DB hiccup here must never
+      // block the customer's reply.
+      let declinedServices: string[] | undefined
+      if (tenant?.id) {
+        try {
+          const tTrades: string[] =
+            Array.isArray(tenant.trades) && tenant.trades.length > 0
+              ? tenant.trades
+              : tenant.trade
+                ? [tenant.trade]
+                : []
+          if (tTrades.length > 0) {
+            const [sharedRes, offeringRes, disabledCustomRes] = await Promise.all([
+              supabase
+                .from('shared_assemblies')
+                .select('id, name, default_enabled')
+                .in('trade', tTrades),
+              supabase
+                .from('tenant_service_offerings')
+                .select('assembly_id, enabled')
+                .eq('tenant_id', tenant.id),
+              supabase
+                .from('tenant_custom_assemblies')
+                .select('name')
+                .eq('tenant_id', tenant.id)
+                .eq('enabled', false)
+                .in('trade', tTrades),
+            ])
+            const offeringMap = new Map<string, boolean>(
+              (offeringRes.data ?? []).map((o) => [
+                o.assembly_id as string,
+                o.enabled as boolean,
+              ]),
+            )
+            const sharedOff = (sharedRes.data ?? [])
+              .filter((a) => {
+                const id = a.id as string
+                const resolved = offeringMap.has(id)
+                  ? (offeringMap.get(id) as boolean)
+                  : ((a.default_enabled as boolean | null) ?? true)
+                return resolved === false
+              })
+              .map((a) => a.name as string)
+            const customOff = (disabledCustomRes.data ?? []).map(
+              (a) => a.name as string,
+            )
+            // Drop anything already offered — `customAssemblies` holds the
+            // ENABLED catalogue-extra + custom names fed to the dialog
+            // above, and that block wins any name collision.
+            const enabledNames = new Set(
+              (customAssemblies ?? []).map((c) => c.name.trim().toLowerCase()),
+            )
+            const seen = new Set<string>()
+            const merged = [...sharedOff, ...customOff].filter((n) => {
+              const k = n.trim().toLowerCase()
+              if (!k || enabledNames.has(k) || seen.has(k)) return false
+              seen.add(k)
+              return true
+            })
+            if (merged.length > 0) {
+              declinedServices = merged
+              console.log('[sms/inbound:after] declined services in dialog scope', {
+                tenantId: tenant.id,
+                count: merged.length,
+              })
+            }
+          }
+        } catch (e) {
+          console.warn('[sms/inbound:after] declined-services fetch failed — continuing without them', {
+            tenantId: tenant.id,
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
+
+      // Follow-up quote pin — read the DEDICATED followup_quote column
+      // (migration 030), NOT conversation_state. The slot-merge writes
+      // replace conversation_state wholesale, so a pin stashed there got
+      // wiped on the first reply; this column is immune to that and the
+      // pin survives the whole conversation, bounded by its own
+      // expires_at. Best-effort — never blocks the turn.
+      let followupCtxBlock = ''
+      try {
+        const { data: convFresh } = await supabase
+          .from('sms_conversations')
+          .select('followup_quote')
+          .eq('id', conversation.id)
+          .maybeSingle()
+        followupCtxBlock = formatActiveFollowupContext(
+          (convFresh as { followup_quote?: unknown } | null)?.followup_quote,
+          Date.now(),
+        )
+      } catch (e) {
+        console.warn(
+          '[sms/inbound:after] follow-up context read failed — continuing',
+          { message: e instanceof Error ? e.message : String(e) },
+        )
+      }
+
       let decision: Awaited<ReturnType<typeof decideNextTurn>>
       try {
         decision = await decideNextTurn({
@@ -1076,6 +1186,10 @@ export async function POST(req: Request) {
           // garbage disposal, etc.) — makes them in-scope so the dialog
           // quotes/inspects them instead of refusing as wrong-trade.
           customAssemblies,
+          // Services the tradie switched OFF — produce a polite "we don't
+          // do that" + pivot instead of the hardcoded $199-inspection
+          // fallback for OFF catalogue extras like "Hardwire oven".
+          declinedServices,
           // PR-B: per-conversation slot state is the new source of truth.
           // The dialog prompt + deterministic scrub both read from this.
           conversationState,
@@ -1088,6 +1202,9 @@ export async function POST(req: Request) {
           // dialog prefers conversationState when it has slots; these are
           // fallbacks for callers that haven't migrated yet.
           customerContext: formatCustomerContext(customer),
+          // Pins which quote a vague reply ("resend the quote") refers to
+          // when this inbound is a reply to a manual follow-up.
+          followupContext: followupCtxBlock,
           knownFields: customer ? {
             firstName: customer.first_name,
             suburb: customer.suburb,

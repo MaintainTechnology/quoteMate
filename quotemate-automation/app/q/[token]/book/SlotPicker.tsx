@@ -45,6 +45,21 @@ export function SlotPicker({
     })
     .sort((a, b) => Date.parse(a) - Date.parse(b))
 
+  // Group by calendar day so the whole fortnight fits on one screen:
+  // one compact block per day, times as small chips, blocks flow into a
+  // responsive multi-column grid (no long scroll of tall cards).
+  // `visible` is already date-sorted, so groups + chips stay in order.
+  const groups: { day: string; items: { iso: string; time: string }[] }[] = []
+  for (const iso of visible) {
+    const { day, time } = formatSlot(iso)
+    let g = groups.find((x) => x.day === day)
+    if (!g) {
+      g = { day, items: [] }
+      groups.push(g)
+    }
+    g.items.push({ iso, time })
+  }
+
   async function onConfirm() {
     if (!picked) return
     setStatus('submitting')
@@ -89,44 +104,45 @@ export function SlotPicker({
 
   return (
     <div>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {visible.map((iso) => {
-          const { day, time } = formatSlot(iso)
-          const isPicked = picked === iso
-          return (
-            <li key={iso}>
-              <button
-                type="button"
-                onClick={() => setPicked(iso)}
-                disabled={locked}
-                className={`w-full border p-4 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  isPicked
-                    ? 'border-accent bg-accent text-white'
-                    : 'border-ink-line bg-ink-card text-text-pri hover:border-accent/60'
-                } ${locked ? 'cursor-not-allowed opacity-50' : ''}`}
-                aria-pressed={isPicked}
-              >
-                <div
-                  className={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.16em] ${
-                    isPicked ? 'text-white/80' : 'text-text-dim'
-                  }`}
-                >
-                  {day}
-                </div>
-                <div className="mt-1.5 text-xl font-extrabold tracking-tight">
-                  {time}
-                </div>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {groups.map((g) => (
+          <div
+            key={g.day}
+            className="border border-ink-line bg-ink-card p-3"
+          >
+            <div className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-text-dim">
+              {g.day}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {g.items.map(({ iso, time }) => {
+                const isPicked = picked === iso
+                return (
+                  <button
+                    key={iso}
+                    type="button"
+                    onClick={() => setPicked(iso)}
+                    disabled={locked}
+                    aria-pressed={isPicked}
+                    className={`border px-3 py-2 text-sm font-bold tracking-tight transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      isPicked
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-ink-line text-text-pri hover:border-accent/60'
+                    } ${locked ? 'cursor-not-allowed opacity-50' : ''}`}
+                  >
+                    {time}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
 
       <button
         type="button"
         onClick={onConfirm}
         disabled={!picked || locked}
-        className={`mt-8 inline-flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm font-semibold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        className={`mt-6 inline-flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm font-semibold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent ${
           !picked || locked
             ? 'cursor-not-allowed border border-ink-line bg-ink-card text-text-dim'
             : 'bg-accent text-white hover:bg-accent-press'

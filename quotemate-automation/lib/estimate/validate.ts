@@ -21,6 +21,13 @@
 // priced from a "downlight" row at the same dollar amount × different
 // markup. Now we require category overlap as well.
 
+// Grounding categories are the SINGLE SOURCE OF TRUTH in ./categories
+// (also consumed by the custom-service Zod schema + the dashboard form).
+// Re-exported so existing `import { type Category } from './validate'`
+// callers keep working unchanged.
+import { isCategory, type Category } from './categories'
+export type { Category } from './categories'
+
 export type PricingBookForValidation = {
   hourly_rate: number | string
   apprentice_rate: number | string
@@ -76,28 +83,10 @@ function n(v: number | string): number {
 // tag appears on both sides.
 // ─────────────────────────────────────────────────────────────────
 
-export type Category =
-  // ── Electrical (v3) ─────────────────────────────
-  | 'downlight'
-  | 'gpo'
-  | 'smoke_alarm'
-  | 'fan'
-  | 'outdoor_light'
-  | 'rcbo'
-  | 'oven_cooktop'
-  | 'ev_charger'
-  | 'switchboard'
-  // ── Plumbing (v5 multi-trade) ──────────────────
-  | 'drain'        // hand-rod / jet-blast clear of blocked drain
-  | 'hot_water'    // HWS replacement (electric / gas / heat pump)
-  | 'tap'          // tap repair, tap replace, mixer, washer
-  | 'toilet'       // toilet suite install, cistern repair
-  | 'cctv'         // CCTV drain camera inspection
-  | 'gas'          // gas appliance connection, gas leak detection
-  | 'prv'          // pressure reduction valve install
-  // ── Shared ───────────────────────────────────────
-  | 'sundry'       // disposal, terminals, fittings, seals, tape, etc.
-  | 'general'
+// `Category` is imported + re-exported from ./categories above — that
+// array is the single source of truth (validator + Zod schema + form).
+// To add a category, add ONE line there; categorise() below then needs a
+// matching keyword regex (and a collision-guard test) for the LINE side.
 
 /** Extract category tags from arbitrary product-name or line-description text. */
 export function categorise(text: string): Set<Category> {
@@ -106,7 +95,10 @@ export function categorise(text: string): Set<Category> {
 
   // ── Electrical ──────────────────────────────────────────────────
   // Outdoor first — "outdoor IP-rated LED light" must beat the bare-LED rule.
-  if (/\b(outdoor|exterior|deck|weatherproof|ip[-\s]?rated|garden|patio|wall\s*pack)\b/.test(t)) {
+  // Floodlights / security-sensor lights are unambiguously outdoor — fold
+  // them into outdoor_light so "Install motion sensor flood light" (mig
+  // 021) and the line Opus writes for it share a tag.
+  if (/\b(outdoor|exterior|deck|weatherproof|ip[-\s]?rated|garden|patio|wall\s*pack|flood\s*light|floodlight)\b/.test(t)) {
     cats.add('outdoor_light')
   }
   if (/\bdownlight/.test(t)) cats.add('downlight')
@@ -125,6 +117,15 @@ export function categorise(text: string): Set<Category> {
   if (/\b(switchboard|switch\s*board|main\s*board|distribution\s*board)\b/.test(t)) {
     cats.add('switchboard')
   }
+  // ── Electrical catalogue extras (migration 021) — tight keywords so
+  //    they can't false-match an existing category. ─────────────────
+  if (/\b(fault[-\s]?find(?:ing)?|diagnostic|diagnose)\b/.test(t)) cats.add('fault_find')
+  if (/\b(led\s*strip|strip\s*light(?:ing)?|cove\s*light(?:ing)?)\b/.test(t)) cats.add('strip_light')
+  // security/surveillance camera — deliberately NOT bare "cctv" (that is
+  // the plumbing drain-camera tag below; keeping them distinct stops an
+  // electrical camera price grounding a plumbing CCTV line).
+  if (/\b(security\s*camera|surveillance\s*camera|cctv\s*camera)\b/.test(t)) cats.add('security_camera')
+  if (/\b(doorbell|door\s*bell|intercom)\b/.test(t)) cats.add('doorbell_intercom')
 
   // ── Plumbing (v5) ───────────────────────────────────────────────
   // CCTV first — "CCTV drain inspection" must beat the bare-drain rule.
@@ -143,6 +144,15 @@ export function categorise(text: string): Set<Category> {
     cats.add('gas')
   }
   if (/\b(pressure[-\s]?reduction\s*valve|\bprv\b|pressure\s*valve)/.test(t)) cats.add('prv')
+  // ── Plumbing catalogue extras (migration 021) — tight keywords. ──
+  if (/\bdish\s*washer\b/.test(t)) cats.add('dishwasher')
+  if (/\b(rain\s*water\s*tank|rainwater\s*tank)\b/.test(t)) cats.add('rainwater_tank')
+  if (/\b(water\s*filter|filtration|whole[-\s]?house\s*(?:water\s*)?filter)\b/.test(t)) {
+    cats.add('water_filter')
+  }
+  // leak DETECTION only — "gas leak" stays in the gas tag above, never here.
+  if (/\bleak\s*detect(?:ion|or)?\b/.test(t)) cats.add('leak_detection')
+  if (/\b(shower\s*head|showerhead|shower\s*rose)\b/.test(t)) cats.add('shower')
 
   // ── Shared sundries (both trades) ───────────────────────────────
   if (/\b(sundries|sundry|terminals|consumables|miscellaneous|extras|disposal|removal\s*of\s*old|fittings\s*and\s*seals|pipe\s*tape|plumbing\s*sundries|teflon|ptfe)\b/.test(t)) {
@@ -300,6 +310,20 @@ export function validateQuoteGrounding(
   return failures.length === 0 ? { valid: true } : { valid: false, failures }
 }
 
+/** Raw DB row fed into the candidate builder. `category`, when set, is an
+ *  EXPLICIT validator category carried on the row itself
+ *  (shared_assemblies.category / tenant_custom_assemblies.category,
+ *  migration 029). It is ADDED to the name-derived tags, never replaces
+ *  them — so the column can only ever make grounding recognise the
+ *  CORRECT category for a row whose name the regex misses; it can never
+ *  remove a tag and regress a row that already grounds today. */
+export type RawCandidateRow = {
+  name: string
+  price: number | string | null | undefined
+  category?: string | null
+}
+
+
 /**
  * Build the candidate-price set used by validateQuoteGrounding.
  * For each raw DB row (name + price), expand into multiple realistic
@@ -308,8 +332,8 @@ export function validateQuoteGrounding(
  * extracted category tags so semantic grounding can be enforced.
  */
 export function buildCandidatePrices(
-  rawMaterialRows: Array<{ name: string; price: number | string | null | undefined }>,
-  rawAssemblyRows: Array<{ name: string; price: number | string | null | undefined }>,
+  rawMaterialRows: RawCandidateRow[],
+  rawAssemblyRows: RawCandidateRow[],
   pricingBook: PricingBookForValidation,
 ): CandidatePrices {
   // MARKUP POLICY (relaxed 2026-05-13):
@@ -339,12 +363,17 @@ export function buildCandidatePrices(
 
   const multipliers = Array.from(standardMarkups).map((pct) => 1 + pct / 100)
 
-  const expand = (rows: Array<{ name: string; price: number | string | null | undefined }>): CandidatePrice[] => {
+  const expand = (rows: RawCandidateRow[]): CandidatePrice[] => {
     const out: CandidatePrice[] = []
     for (const row of rows) {
       const raw = Number(row.price)
       if (!Number.isFinite(raw)) continue
       const categories = categorise(row.name ?? '')
+      // Migration 029: fold in the row's EXPLICIT category (additive —
+      // never drops a name-derived tag, so a row that grounds today keeps
+      // grounding; this only ADDS the correct tag for names the regex
+      // misses, e.g. "Install whole-house water filter").
+      if (isCategory(row.category)) categories.add(row.category)
       for (const m of multipliers) {
         out.push({
           price: +(raw * m).toFixed(2),
