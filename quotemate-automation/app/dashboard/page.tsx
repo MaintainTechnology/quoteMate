@@ -3659,6 +3659,7 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
     image_path: '',
     tier_hint: '',
     is_preferred: '',
+    unit: 'each',
   }
   const [form, setForm] = useState({ ...blankForm })
 
@@ -3751,6 +3752,7 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
           brand: form.brand.trim() || undefined,
           range_series: form.range_series.trim() || undefined,
           supplier: form.supplier.trim() || undefined,
+          unit: form.unit || undefined,
           unit_price_ex_gst: form.unit_price_ex_gst,
           customer_supply_price_ex_gst: form.customer_supply_price_ex_gst || undefined,
           cost_price_ex_gst: form.cost_price_ex_gst || undefined,
@@ -3905,6 +3907,24 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
             />
           </label>
           <label className="flex flex-col gap-1">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Unit</span>
+            <select
+              value={form.unit}
+              onChange={(e) => set('unit', e.target.value)}
+              className="bg-ink-card border border-ink-line px-3 py-2 text-sm text-text-pri"
+            >
+              <option value="each">each</option>
+              <option value="m">per metre (m)</option>
+              <option value="pack">per pack</option>
+              <option value="set">per set</option>
+              <option value="pair">per pair</option>
+              <option value="hr">per hour (hr)</option>
+            </select>
+            <span className="text-[0.65rem] text-text-dim leading-snug">
+              How the price below is measured — &ldquo;each&rdquo; for fittings, &ldquo;per metre&rdquo; for cable/pipe.
+            </span>
+          </label>
+          <label className="flex flex-col gap-1">
             <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">Price ex-GST</span>
             <input
               value={form.unit_price_ex_gst}
@@ -4029,7 +4049,12 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
                           {r.name}
                         </div>
                         <div className="mt-1 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {money(r.unit_price_ex_gst) && <span>{money(r.unit_price_ex_gst)} ex-GST</span>}
+                          {money(r.unit_price_ex_gst) && (
+                            <span>
+                              {money(r.unit_price_ex_gst)}
+                              {r.unit && r.unit !== 'each' ? ` / ${r.unit}` : ''} ex-GST
+                            </span>
+                          )}
                           {money(r.customer_supply_price_ex_gst) && (
                             <span>cust-supply {money(r.customer_supply_price_ex_gst)}</span>
                           )}
