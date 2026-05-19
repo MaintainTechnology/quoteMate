@@ -145,10 +145,12 @@ export function buildProductOptionsSms(
   const [a, b] = options
   const label = categoryLabel(category)
   const compose = (n1: string, n2: string) =>
-    `Quick one — which ${label} would you like?\n` +
+    `This'll be quick — we've got a couple of ${label} options in our ` +
+    `catalogue for you to choose from. Tap to see the photos & prices ` +
+    `and pick one: ${chooseUrl}\n` +
     `1. ${n1} (Good) — ${money(a.price_ex_gst)}\n` +
     `2. ${n2} (Better) — ${money(b.price_ex_gst)}\n` +
-    `Reply 1 or 2. See photos: ${chooseUrl}`
+    `Or just reply 1 or 2.`
 
   let msg = compose(a.name, b.name)
   if (msg.length <= 320) return msg
