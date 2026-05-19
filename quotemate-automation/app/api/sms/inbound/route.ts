@@ -20,7 +20,11 @@ import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
 import { formatActiveFollowupContext } from '@/lib/sms/followup-context'
 import { buildGpoInspectionOverride } from '@/lib/sms/gpo-guard'
-import { resolveEnabledSharedAssembliesForDialog } from '@/lib/sms/service-scope'
+import {
+  resolveEnabledSharedAssembliesForDialog,
+  type ServiceOfferingScopeRow,
+  type SharedAssemblyScopeRow,
+} from '@/lib/sms/service-scope'
 import { isQuoteInflight, DONE_INFLIGHT_WINDOW_MS } from '@/lib/sms/inflight'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteInFlightSms, buildQuoteFailureSms } from '@/lib/sms/templates'
@@ -1127,8 +1131,8 @@ export async function POST(req: Request) {
                 .eq('tenant_id', tenant.id),
             ])
             const extras = resolveEnabledSharedAssembliesForDialog(
-              (sharedRes.data ?? []) as any[],
-              (offeringRes.data ?? []) as any[],
+              (sharedRes.data ?? []) as SharedAssemblyScopeRow[],
+              (offeringRes.data ?? []) as ServiceOfferingScopeRow[],
             )
             if (extras && extras.length > 0) {
               const seen = new Set(

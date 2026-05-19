@@ -69,9 +69,6 @@ ALWAYS inspection_required=true for these plumbing job_types:
   gas_fitting          — gas appliance connection or leak (gas-licence work)
   burst_pipe           — burst/split pipe (access + make-good unknown)
   bathroom_renovation  — rough-in + fit-off, multi-fixture, multi-visit
-  cctv_inspection      — standalone CCTV (often paired with drain repair)
-  prv_install          — pressure-reduction valve (mostly auto-quoteable, but
-                         escalate if intake mentions whole-house re-pipe)
 
 Map customer language to job_type:
   "drain is blocked" / "slow drain" / "gurgling" / "water sitting in sink"
@@ -167,19 +164,25 @@ Always inspection_required=true: gas_fitting (any), burst_pipe, bathroom_renovat
 and any plumbing job that mentions hidden pipework, water damage, or access through
 concrete/tile.` : `Surface real risks (only when the caller's own words trigger them):
 - burning smell, buzzing, sparks → mark inspection_required=true, urgency=emergency
-- tripping breakers, recurring faults → mark inspection_required=true
+- tripping breakers / recurring faults → inspection_required=false when
+  the request is for a diagnostic call-out; repairs are quoted after diagnosis
 - water damage near electrical fixtures → add to risks + inspection_required=true
 - pre-1970 properties → flag asbestos / lead-paint risk on cabling work
 - unknown switchboard age or ceramic fuses → recommend inspection
 - difficult access (high ceilings, raked ceilings, no roof access, brick/concrete walls)
 - mains, underground cabling, three-phase work → always inspection_required=true
 
+Fault finding / breaker tripping is a priced diagnostic call-out when no
+burning, sparks, shock, water, switchboard, mains, or load risk is stated.
+
 Auto-quote candidates (inspection_required=false) when scope is clear and photos look clean:
 downlights, power_points, ceiling_fans, smoke_alarms, outdoor_lighting.
 
-Always inspection_required=true: switchboard, ev_charger, fault_finding, renovation, and
-any oven_cooktop / power_points / outdoor_lighting job that mentions new circuits, mains,
-or switchboard work.`}`,
+Always inspection_required=true: switchboard, renovation, rewire, mains/underground/
+three-phase work, and any oven_cooktop / power_points / outdoor_lighting job that
+mentions a new circuit, mains, or switchboard work. EV charger and fault finding
+are inspection_required=false when they map to an enabled priced service row and
+no explicit safety/load/switchboard risk is stated.`}`,
     messages: [{
       role: 'user',
       content: [

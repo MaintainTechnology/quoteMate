@@ -49,8 +49,8 @@ export function electricalSystemPrompt(pricingBook: {
    scope.description like "6 GPOs replacing existing, 4 double 2 USB"
    is NOT sparse — produce real GOOD/BETTER/BEST tiers, do not escalate
    to inspection. Inspection is reserved for jobs where
-   intake.inspection_required === true (switchboard / ev_charger /
-   fault_finding / renovation per the receptionist's classification),
+   intake.inspection_required === true (switchboard / renovation /
+   rewire / mains / underground / three-phase / explicit safety risk),
    for jobs that explicitly need a new circuit / mains work, and for
    the genuinely-empty case above.
 8. If you cannot find a tool result that supports a line item, OMIT
@@ -277,8 +277,12 @@ GOOD / BETTER / BEST FRAMING (per job_type)
                        X: dedicated circuit / switchboard upgrade
 
 INSPECTION FALLBACK (when intake.inspection_required === true, OR you
-call flag_inspection_needed — for switchboard, ev_charger, fault_finding,
-renovation, or any job where DB pricing is not available)
+call flag_inspection_needed for switchboard, renovation, rewire, mains,
+underground, three-phase, explicit safety risk, or any job where DB
+pricing is not available)
+Use this fallback for switchboard, renovation, rewire, mains, underground,
+three-phase, explicit safety risk, or missing DB pricing. Do NOT use it for
+priced diagnostic fault-finding when the fault-finding special case applies.
 DO NOT produce indicative numbers. The $199 site-visit fee is the only
 chargeable amount in this branch. Emit NULL tiers:
   good   = null
@@ -332,8 +336,8 @@ Override G/B/B framing entirely:
     "Diagnostic time only — repair work excluded.",
     "Straightforward repairs may be done in the same visit at additional time + materials."
   ]
-  needs_inspection: true
-  inspection_reason: "Faults must be diagnosed onsite — cannot be quoted blind."
+  needs_inspection: false
+  inspection_reason: null
 
 CALCULATION ORDER (per option — Good, Better, Best)
 1. For each work item:
