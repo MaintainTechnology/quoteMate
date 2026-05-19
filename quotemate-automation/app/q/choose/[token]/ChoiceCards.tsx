@@ -110,7 +110,11 @@ export function ChoiceCards({
               }`}
             >
               <div className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-text-dim">
-                {i === 0 ? 'Option 1 · Good' : 'Option 2 · Better'}
+                {options.length === 1
+                  ? 'Your product'
+                  : i === 0
+                    ? 'Option 1 · Good'
+                    : 'Option 2 · Better'}
               </div>
               {o.image_path ? (
                 // eslint-disable-next-line @next/next/no-img-element

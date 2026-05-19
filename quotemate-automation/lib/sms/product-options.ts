@@ -21,7 +21,6 @@
 // ════════════════════════════════════════════════════════════════════
 
 import {
-  resolveTierForBrandRange,
   normaliseCategory,
   type TenantMaterial,
 } from '@/lib/estimate/catalogue'
@@ -60,15 +59,18 @@ export interface ProductChoiceState {
 }
 
 /**
- * Pick TWO operator-owned options for a category — a cheaper "Good" and
- * a premium "Better". Operator catalogue ONLY. Prefers is_preferred
- * within a tier. Returns null when fewer than 2 distinct usable
- * products exist (never show a 1-option "choice").
+ * Pick the operator-owned options for a category to offer the customer.
+ * Operator catalogue ONLY. Returns:
+ *   • 2 options (cheaper "Good" + premium "Better") when ≥2 exist,
+ *   • 1 option when the tradie only has ONE product for the category
+ *     (still offered — the customer confirms it),
+ *   • null when there are NONE.
+ * Prefers is_preferred on the price tie-break.
  */
 export function selectProductOptions(
   rows: TenantMaterial[],
   category: string,
-): [ProductOption, ProductOption] | null {
+): ProductOption[] | null {
   const cat = normaliseCategory(category)
   if (!cat) return null
 
@@ -83,7 +85,7 @@ export function selectProductOptions(
         ) === i,
     )
 
-  if (usable.length < 2) return null
+  if (usable.length === 0) return null
 
   const toOpt = (r: TenantMaterial, tier: 'good' | 'better'): ProductOption => ({
     catalogue_id: String(r.id),
@@ -105,19 +107,10 @@ export function selectProductOptions(
     return (b.is_preferred === true ? 1 : 0) - (a.is_preferred === true ? 1 : 0)
   })
 
-  // Good = cheapest. Better = the dearest DISTINCT product. If every
-  // row is the same price, still return the two most distinct (first
-  // vs last) so the customer gets a real 2-way choice.
   const good = sorted[0]
   const better = sorted[sorted.length - 1]
-  if (good === better) return null
-
-  // If the operator pinned tiers explicitly, respect their labelling
-  // for which is "better" (premium), but keep cheaper-as-Good ordering
-  // so price always reads low → high to the customer.
-  const goodTier =
-    resolveTierForBrandRange(good.brand, good.range_series, good.tier_hint ?? null) ?? 'good'
-  void goodTier
+  // Only one distinct product → offer it as the single option.
+  if (good === better) return [toOpt(good, 'good')]
   return [toOpt(good, 'good'), toOpt(better, 'better')]
 }
 
@@ -138,12 +131,31 @@ function money(n: number): string {
  * names are trimmed before the message is allowed to overflow.
  */
 export function buildProductOptionsSms(
-  options: [ProductOption, ProductOption],
+  options: ProductOption[],
   chooseUrl: string,
   category: string,
 ): string {
-  const [a, b] = options
   const label = categoryLabel(category)
+  const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+
+  // Single option — the tradie stocks one product for this job. Offer
+  // it for confirmation rather than skipping.
+  if (options.length === 1) {
+    const o = options[0]
+    const composeOne = (n: string) =>
+      `Quick one — for your ${label} we use: ${n} — ${money(o.price_ex_gst)}. ` +
+      `Tap to see the photo: ${chooseUrl}\n` +
+      `Reply "yes" (or 1) to lock it in.`
+    let m = composeOne(o.name)
+    if (m.length <= 320) return m
+    for (const cap of [40, 30, 22, 16]) {
+      m = composeOne(trim(o.name, cap))
+      if (m.length <= 320) return m
+    }
+    return m.slice(0, 320)
+  }
+
+  const [a, b] = options
   const compose = (n1: string, n2: string) =>
     `Quick one — 2 ${label} options in our catalogue. Tap for photos ` +
     `+ to pick: ${chooseUrl}\n` +
@@ -153,8 +165,6 @@ export function buildProductOptionsSms(
 
   let msg = compose(a.name, b.name)
   if (msg.length <= 320) return msg
-  // Trim names progressively so the link + instruction always survive.
-  const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
   for (const cap of [40, 30, 22, 16]) {
     msg = compose(trim(a.name, cap), trim(b.name, cap))
     if (msg.length <= 320) return msg
@@ -177,12 +187,12 @@ export function buildChoiceHoldSms(): string {
 }
 
 /** The option we'd recommend when the customer doesn't want to choose
- *  ("you pick"). The "Better" option (index 1) — the premium one the
- *  offer SMS labels (Better). Pure. */
+ *  ("you pick"). The dearest/"Better" option, or the only one when the
+ *  tradie stocks a single product. Pure. */
 export function recommendedOption(
-  options: [ProductOption, ProductOption],
+  options: ProductOption[],
 ): ProductOption {
-  return options[1] ?? options[0]
+  return options[options.length - 1] ?? options[0]
 }
 
 // "Don't make me choose — you pick / whatever you recommend" signals.
@@ -201,11 +211,32 @@ const DEFER_RE =
  */
 export function interpretChoiceReply(
   body: string,
-  options: [ProductOption, ProductOption],
+  options: ProductOption[],
 ): ProductOption | null {
   const t = (body ?? '').trim().toLowerCase()
   if (!t) return null
   const [a, b] = options
+
+  // Single-option offer ("we use X — reply yes"): accept any clear
+  // affirmative, a name match, or a defer phrase → that one product.
+  // An explicit "no/nope/not that" → null (let the dialog handle it).
+  if (options.length === 1) {
+    if (/\b(no|nope|nah|not (that|this|it)|don'?t want)\b/.test(t)) return null
+    const nameHit =
+      t.length <= 60 &&
+      [a.name, a.brand, a.range_series]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase())
+        .some((h) => h.length >= 3 && (t.includes(h) || h.includes(t)))
+    if (
+      /^(1|yes|yep|yeah|yup|ok(ay)?|sure|sounds good|go( ahead)?|do it|that one|please|confirm|lock it in|👍)\b/.test(t) ||
+      nameHit ||
+      DEFER_RE.test(t)
+    ) {
+      return a
+    }
+    return null
+  }
 
   // If BOTH a "1" and a "2" appear, it's a question ("1 or 2?"), not a
   // pick — bail to the normal dialog. \b2\b deliberately does NOT match
@@ -268,18 +299,17 @@ export function applyChoiceSelection(
   if (!choice) return null
   if (choice.status === 'chosen') return choice // idempotent success
   const opts = choice.options
-  if (!Array.isArray(opts) || opts.length < 2) return null
-  const pair: [ProductOption, ProductOption] = [opts[0], opts[1]]
+  if (!Array.isArray(opts) || opts.length < 1) return null
 
   let picked: ProductOption | null = null
   const id = (input.catalogueId ?? '').trim()
   if (input.defer === true) {
     // "Let the tradie choose" (page button) → the recommended option.
-    picked = recommendedOption(pair)
+    picked = recommendedOption(opts)
   } else if (id) {
     picked = opts.find((o) => o.catalogue_id === id) ?? null
   } else if (input.reply != null) {
-    picked = interpretChoiceReply(input.reply, pair)
+    picked = interpretChoiceReply(input.reply, opts)
   }
   if (!picked) return null
 

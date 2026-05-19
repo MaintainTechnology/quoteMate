@@ -42,17 +42,22 @@ describe('selectProductOptions', () => {
     expect(names).not.toContain('Disabled Tap')
     expect(names).not.toContain('A Toilet')
   })
-  it('returns null when fewer than two distinct products exist', () => {
-    expect(selectProductOptions([taps[0]], 'tap')).toBeNull()
+  it('offers the SINGLE product when the tradie only has one (not null)', () => {
+    const r = selectProductOptions([taps[0]], 'tap')
+    expect(r).toHaveLength(1)
+    expect(r![0].name).toBe('Clipsal 2000 Tap')
+    expect(r![0].tier).toBe('good')
+  })
+  it('returns null only when there are NO products for the category', () => {
     expect(selectProductOptions(taps, 'fan')).toBeNull()
     expect(selectProductOptions([], 'tap')).toBeNull()
   })
-  it('de-dupes by product name', () => {
+  it('de-dupes by product name → single option when only one distinct', () => {
     const dup: TenantMaterial[] = [
       { id: 'a', category: 'tap', name: 'Same Tap', unit_price_ex_gst: 100, active: true },
       { id: 'b', category: 'tap', name: 'same tap', unit_price_ex_gst: 200, active: true },
     ]
-    expect(selectProductOptions(dup, 'tap')).toBeNull()
+    expect(selectProductOptions(dup, 'tap')).toHaveLength(1)
   })
   it('prefers is_preferred when prices tie', () => {
     const tie: TenantMaterial[] = [
@@ -235,5 +240,33 @@ describe('chosenProductFromChoice', () => {
     expect(chosenProductFromChoice(null)).toBeNull()
     expect(chosenProductFromChoice({ ...base(), status: 'pending' })).toBeNull()
     expect(chosenProductFromChoice({ ...base(), chosen_catalogue_id: 'nope' })).toBeNull()
+  })
+})
+
+describe('single-option offer (tradie stocks ONE product)', () => {
+  const one = selectProductOptions([taps[0]], 'tap')! // [Clipsal 2000 Tap $120]
+
+  it('SMS offers the one product for confirmation (not "1 or 2")', () => {
+    const sms = buildProductOptionsSms(one, 'https://qm.co/q/choose/z', 'tap')
+    expect(sms).toContain('Clipsal 2000 Tap')
+    expect(sms).toContain('$120')
+    expect(sms).toContain('https://qm.co/q/choose/z')
+    expect(sms).toMatch(/reply "yes"/i)
+    expect(sms).not.toMatch(/1\. [\s\S]*2\. /) // no two-option list
+    expect(sms.length).toBeLessThanOrEqual(320)
+  })
+  it('interpretChoiceReply: affirmative / name / defer → the one; "no" → null', () => {
+    for (const r of ['yes', '1', 'yep', 'sounds good', 'do it', 'Clipsal', 'you pick']) {
+      expect(interpretChoiceReply(r, one)?.catalogue_id).toBe('P-good')
+    }
+    expect(interpretChoiceReply('no thanks not that', one)).toBeNull()
+    expect(interpretChoiceReply('what colour is it?', one)).toBeNull()
+  })
+  it('applyChoiceSelection records the single option via reply or defer', () => {
+    const choice: ProductChoiceState = {
+      category: 'tap', token: 't', status: 'pending', options: one,
+    }
+    expect(applyChoiceSelection(choice, { reply: 'yes' }, 'NOW')?.chosen_catalogue_id).toBe('P-good')
+    expect(applyChoiceSelection(choice, { defer: true }, 'NOW')?.chosen_catalogue_id).toBe('P-good')
   })
 })

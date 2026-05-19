@@ -1654,7 +1654,7 @@ export async function POST(req: Request) {
               category,
             )
             if (!options) {
-              console.log('[sms/inbound:after] WP9 OFFER — fewer than 2 options, skipping', {
+              console.log('[sms/inbound:after] WP9 OFFER — no catalogue products for this category, skipping', {
                 conversationId,
                 category,
               })
