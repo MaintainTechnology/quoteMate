@@ -11,7 +11,9 @@ import { buildIncompleteCallSms, buildIntakeRecoverySms, buildPhotoRequestSms, b
 import { findOrCreateCustomer, updateCustomerFromIntake } from '@/lib/customers/lookup'
 import {
   describeChosenProductDirective,
+  chosenProductFromChoice,
   type ProductChoiceState,
+  type ChosenProduct,
 } from '@/lib/sms/product-options'
 
 // WP9 — feed a mid-chat product pick into the estimate. Flag-gated;
@@ -71,6 +73,10 @@ export async function POST(req: Request) {
   // after() is skipped in that case to avoid sending the customer two links.
   let photoRequestAlreadySent = false
   let callerNumber: string | null = null
+  // WP9 — the customer's mid-chat product pick (structured), captured in
+  // the SMS branch and force-applied to the quote before insert so the
+  // chosen product + its catalogue price + photo actually drive it.
+  let chosenProductForIntake: ChosenProduct | null = null
   let photoRequestToken: string | null = null
   // v6 multi-tenant: stamp the intake (and downstream quote) with the
   // tenant who owns the destination number the customer contacted.
@@ -124,15 +130,17 @@ export async function POST(req: Request) {
     // Flag-gated + best-effort: OFF or no pick ⇒ transcript unchanged.
     if (WP9_ENABLED) {
       try {
-        const directive = describeChosenProductDirective(
-          (convo.product_choice ?? null) as ProductChoiceState | null,
-        )
+        const pc = (convo.product_choice ?? null) as ProductChoiceState | null
+        const directive = describeChosenProductDirective(pc)
         if (directive) {
           transcript = `Customer product selection (authoritative):\n  - ${directive}\n\n` + transcript
           log.step('WP9 — chosen product injected into intake transcript', {
             conversationId,
           })
         }
+        // Capture the structured pick → force-applied to the draft below
+        // (deterministic, not just a hint).
+        chosenProductForIntake = chosenProductFromChoice(pc)
       } catch (e) {
         log.err('WP9 product-choice injection failed (non-fatal)', e as Error)
       }
@@ -380,6 +388,19 @@ export async function POST(req: Request) {
     trade: intake.trade,
     tenant_id: tenantId,
   })
+  // WP9 — carry the structured pick on the intake (scope jsonb, no
+  // migration) so the estimator can DETERMINISTICALLY force the chosen
+  // product + its catalogue price + photo into the quote. Best-effort;
+  // null when nothing chosen ⇒ scope unchanged.
+  if (WP9_ENABLED && chosenProductForIntake) {
+    // scope is jsonb (loosely read downstream by run.ts) — the extra
+    // key is intentional; cast past the structured IntakeSchema type.
+    intake.scope = {
+      ...(intake.scope ?? {}),
+      chosen_product: chosenProductForIntake,
+    } as any
+  }
+
   const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
     call_id: callId,                  // null for SMS rows; that's OK
     customer_id: customer?.id ?? null,

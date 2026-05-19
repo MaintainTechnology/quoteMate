@@ -14,6 +14,7 @@ import {
   normaliseCategory,
   categoryHasCatalogueProduct,
   enrichLinesWithCatalogue,
+  applyChosenProduct,
   type TenantMaterial,
 } from './catalogue'
 
@@ -258,5 +259,54 @@ describe('enrichLinesWithCatalogue (WP4 — link Opus lines to products)', () =>
     const twice = enrichLinesWithCatalogue(once.draft, catalogue)
     expect(twice.linked).toBe(0) // already linked → idempotent
     expect(once.draft.good.line_items[0].catalogue_id).toBe('P-1')
+  })
+})
+
+describe('applyChosenProduct (WP9 — chosen product gates the quote)', () => {
+  const chosen = { catalogue_id: 'P-89', name: 'Black Fireflies', price_ex_gst: 89, image_path: 'bf.jpg' }
+
+  it('forces the headline line to the chosen product + catalogue price + photo, recomputing totals', () => {
+    const draft = {
+      good: {
+        subtotal_ex_gst: 999,
+        line_items: [
+          { description: 'Generic LED downlight', source: 'material', quantity: 6, unit: 'each', unit_price_ex_gst: 40, total_ex_gst: 240 },
+          { description: 'Labour', source: 'labour', quantity: 2, unit: 'hr', unit_price_ex_gst: 110, total_ex_gst: 220 },
+        ],
+      },
+    }
+    const r = applyChosenProduct(draft, chosen)
+    expect(r.applied).toEqual(['good'])
+    const mat = r.draft.good.line_items[0]
+    expect(mat.description).toBe('Black Fireflies')
+    expect(mat.unit_price_ex_gst).toBe(89) // catalogue price, not 40
+    expect(mat.quantity).toBe(6) // qty preserved
+    expect(mat.total_ex_gst).toBe(534) // 89 * 6
+    expect(mat.catalogue_id).toBe('P-89')
+    expect(mat.image_path).toBe('bf.jpg') // WP4 render uses this
+    expect(r.draft.good.subtotal_ex_gst).toBe(754) // 534 + 220 labour
+  })
+
+  it('skips sundry lines and never touches labour', () => {
+    const draft = {
+      better: {
+        line_items: [
+          { description: 'Plumbing sundries', source: 'material', quantity: 1, unit_price_ex_gst: 12, total_ex_gst: 12 },
+          { description: 'Generic downlight', source: 'material', quantity: 2, unit_price_ex_gst: 30, total_ex_gst: 60 },
+          { description: 'Labour', source: 'labour', quantity: 1, unit_price_ex_gst: 110, total_ex_gst: 110 },
+        ],
+      },
+    }
+    const r = applyChosenProduct(draft, chosen)
+    expect(r.draft.better.line_items[0].description).toBe('Plumbing sundries')
+    expect(r.draft.better.line_items[1].description).toBe('Black Fireflies')
+    expect(r.draft.better.line_items[2].source).toBe('labour')
+  })
+
+  it('is a no-op for inspection drafts, no chosen, or bad price', () => {
+    const d = { good: { line_items: [{ description: 'x', source: 'material', quantity: 1, unit_price_ex_gst: 1, total_ex_gst: 1 }] } }
+    expect(applyChosenProduct({ needs_inspection: true, good: d.good }, chosen).applied).toEqual([])
+    expect(applyChosenProduct(d, null).applied).toEqual([])
+    expect(applyChosenProduct(d, { ...chosen, price_ex_gst: NaN }).applied).toEqual([])
   })
 })

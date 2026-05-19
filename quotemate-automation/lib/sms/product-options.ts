@@ -303,3 +303,32 @@ export function describeChosenProductDirective(
     `. Quote THIS exact product for the ${choice.category} and price it from the operator catalogue.`
   )
 }
+
+/** The customer's chosen product as structured data — stashed on the
+ *  intake so the estimator can DETERMINISTICALLY force this exact
+ *  product + its catalogue price + photo into the quote (not just hint
+ *  at it). null when nothing was chosen. Pure. */
+export interface ChosenProduct {
+  catalogue_id: string
+  name: string
+  price_ex_gst: number
+  image_path: string | null
+  category: string
+}
+export function chosenProductFromChoice(
+  choice: ProductChoiceState | null | undefined,
+): ChosenProduct | null {
+  if (!choice || choice.status !== 'chosen' || !choice.chosen_catalogue_id) return null
+  const o =
+    (choice.options ?? []).find((x) => x.catalogue_id === choice.chosen_catalogue_id) ?? null
+  if (!o || !o.name) return null
+  const price = Number(o.price_ex_gst)
+  if (!Number.isFinite(price) || price < 0) return null
+  return {
+    catalogue_id: o.catalogue_id,
+    name: o.name,
+    price_ex_gst: +price.toFixed(2),
+    image_path: o.image_path ?? null,
+    category: choice.category,
+  }
+}

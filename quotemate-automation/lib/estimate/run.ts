@@ -10,6 +10,7 @@ import {
   formatBomHint,
   effectiveAssembly,
   enrichLinesWithCatalogue,
+  applyChosenProduct,
   type CatalogueHintRow,
   type BomHintRow,
   type TenantMaterial,
@@ -277,6 +278,35 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
         err?.message ?? String(err),
       )
     }
+
+    // WP9 — if the customer picked a specific product mid-chat, FORCE it
+    // (name + its catalogue price + photo) into every priced tier's
+    // headline line. Deterministic, not a hint. Runs AFTER grounding;
+    // the price is the operator's own catalogue price (the WP2-grounded
+    // legitimate price the customer literally selected) so this is
+    // consistent with the money model — same post-draft adjustment
+    // pattern as applyMinLabourFloor. Flag-gated + best-effort.
+    if (process.env.WP9_PRODUCT_OPTIONS === '1') {
+      try {
+        const chosen = (intake?.scope as { chosen_product?: any } | null)?.chosen_product
+        if (chosen) {
+          const r = applyChosenProduct(draft, chosen)
+          if (r.applied.length > 0) {
+            cacheLog.ok('WP9 — chosen product forced into the quote', {
+              product: chosen?.name,
+              price: chosen?.price_ex_gst,
+              tiers: r.applied,
+            })
+          }
+        }
+      } catch (err: any) {
+        cacheLog.err(
+          'WP9 chosen-product apply failed (non-fatal — quote unaffected)',
+          err?.message ?? String(err),
+        )
+      }
+    }
+
     return { draft }
   }
 

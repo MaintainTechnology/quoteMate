@@ -452,3 +452,73 @@ export function enrichLinesWithCatalogue(
   }
   return { draft, linked }
 }
+
+// ── WP9 — force the customer's mid-chat pick into the quote ─────────
+// When a customer chose a specific operator product, the quote MUST
+// show THAT product at THAT catalogue price with THAT photo — not a
+// generic line. enrichLinesWithCatalogue only *links by name*; this
+// goes further and overwrites the headline material line of each
+// priced tier with the chosen product. Runs AFTER grounding: the price
+// is the operator's own catalogue price (the WP2-guaranteed legitimate
+// price the customer literally selected), so this is consistent with
+// the money model — same "adjust the locked draft" pattern as
+// applyMinLabourFloor. Pure; unit-tested. No-op when nothing chosen.
+
+export interface ChosenProductInput {
+  catalogue_id: string
+  name: string
+  price_ex_gst: number
+  image_path?: string | null
+}
+export interface ApplyChosenResult {
+  draft: any
+  /** Tiers whose headline line was set to the chosen product. */
+  applied: string[]
+}
+
+const SUNDRY_RE = /sundr|seal|tape|\bclip\b|terminal|^fittings,/i
+
+export function applyChosenProduct(
+  draft: any,
+  chosen: ChosenProductInput | null | undefined,
+): ApplyChosenResult {
+  if (!draft || draft.needs_inspection === true || !chosen) return { draft, applied: [] }
+  const price = Number(chosen.price_ex_gst)
+  if (!Number.isFinite(price) || price < 0 || !chosen.name) return { draft, applied: [] }
+  const unitPrice = +price.toFixed(2)
+  const applied: string[] = []
+
+  for (const tierKey of ['good', 'better', 'best'] as const) {
+    const tier = draft[tierKey] as
+      | { line_items?: Array<Record<string, any>>; subtotal_ex_gst?: number | string }
+      | null
+      | undefined
+    if (!tier || !Array.isArray(tier.line_items) || tier.line_items.length === 0) continue
+    const items = tier.line_items
+    const notLabour = (li: any) => li && li.source !== 'labour' && li.source !== 'call_out'
+    // Prefer the headline (non-sundry) material line; else any material line.
+    let idx = items.findIndex(
+      (li) => notLabour(li) && !SUNDRY_RE.test(String(li?.description ?? '')),
+    )
+    if (idx < 0) idx = items.findIndex((li) => notLabour(li))
+    if (idx < 0) continue
+
+    const li = items[idx]
+    const qty = Number(li.quantity)
+    const q = Number.isFinite(qty) && qty > 0 ? qty : 1
+    li.description = chosen.name
+    li.unit = li.unit || 'each'
+    li.quantity = q
+    li.unit_price_ex_gst = unitPrice
+    li.total_ex_gst = +(unitPrice * q).toFixed(2)
+    li.source = 'material'
+    li.catalogue_id = chosen.catalogue_id
+    if (chosen.image_path) li.image_path = chosen.image_path
+
+    tier.subtotal_ex_gst = +items
+      .reduce((s, x) => s + (Number(x?.total_ex_gst) || 0), 0)
+      .toFixed(2)
+    applied.push(tierKey)
+  }
+  return { draft, applied }
+}

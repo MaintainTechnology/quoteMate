@@ -11,6 +11,7 @@ import {
   applyChoiceSelection,
   categoryForJobType,
   describeChosenProductDirective,
+  chosenProductFromChoice,
   type ProductOption,
   type ProductChoiceState,
 } from './product-options'
@@ -183,5 +184,29 @@ describe('describeChosenProductDirective', () => {
     expect(
       describeChosenProductDirective({ ...chosen(), status: 'pending', chosen_catalogue_id: null }),
     ).toBeNull()
+  })
+})
+
+describe('chosenProductFromChoice', () => {
+  const base = (): ProductChoiceState => ({
+    category: 'tap',
+    token: 't',
+    status: 'chosen',
+    options: selectProductOptions(taps, 'tap')!,
+    chosen_catalogue_id: 'P-better',
+    chosen_name: 'Caroma Liano Tap',
+  })
+  it('returns the chosen product with its catalogue price + photo', () => {
+    const p = chosenProductFromChoice(base())!
+    expect(p.catalogue_id).toBe('P-better')
+    expect(p.name).toBe('Caroma Liano Tap')
+    expect(p.price_ex_gst).toBe(150) // the catalogue price, not generic
+    expect(p.image_path).toBe('b.jpg')
+    expect(p.category).toBe('tap')
+  })
+  it('is null when not chosen / no matching option / bad price', () => {
+    expect(chosenProductFromChoice(null)).toBeNull()
+    expect(chosenProductFromChoice({ ...base(), status: 'pending' })).toBeNull()
+    expect(chosenProductFromChoice({ ...base(), chosen_catalogue_id: 'nope' })).toBeNull()
   })
 })
