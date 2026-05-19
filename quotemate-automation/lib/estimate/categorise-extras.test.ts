@@ -16,6 +16,7 @@ import {
   validateQuoteGrounding,
   type Category,
 } from './validate'
+import { applyMinLabourFloor } from './min-labour'
 
 const pricingBook = {
   hourly_rate: 110,
@@ -236,5 +237,55 @@ describe('electrical follow-up (mig 033) — a fully-priced extra grounds, no fo
       candidates,
     )
     expect(res.valid).toBe(true)
+  })
+})
+
+// The QM-Peppers screenshot bug, end to end: "Replace 2 existing double
+// GPOs in the bedroom" — priced ($22/0.3h) but only 0.6h labour, so it
+// fell under the min-labour floor and (sometimes) the GPO line missed the
+// semantic check (core row had category=NULL). Migration 036 gives the
+// row an explicit 'gpo' category; min-labour.ts tops the tier to the
+// floor. Together: this auto-quotes instead of dumping to $199.
+describe('mig 036 + min-labour floor — the 2-GPO screenshot scenario auto-quotes', () => {
+  // 2 double GPOs @ 22×1.28 = 28.16; only 0.6h labour (2×0.3h).
+  const twoGpoDraft = () => ({
+    needs_inspection: false,
+    good: {
+      label: 'Standard',
+      subtotal_ex_gst: 56.32 + 66,
+      line_items: [
+        { description: 'Replace 2 existing double GPOs in the bedroom', unit: 'each', quantity: 2, unit_price_ex_gst: 28.16, total_ex_gst: 56.32 },
+        { description: 'Labour', unit: 'hr', quantity: 0.6, unit_price_ex_gst: 110, total_ex_gst: 66 },
+      ],
+    },
+    better: null,
+    best: null,
+  })
+  const candidates = () =>
+    buildCandidatePrices(
+      [],
+      [{ name: 'Replace double GPO', price: 22, category: 'gpo' }], // mig 036
+      pricingBook,
+    )
+
+  it('WITHOUT the min-labour floor it fails (0.6h < 2h) → would inspect', () => {
+    const res = validateQuoteGrounding(twoGpoDraft(), pricingBook, candidates())
+    expect(res.valid).toBe(false)
+  })
+
+  it('WITH the floor applied first, the same job GROUNDS (no inspection)', () => {
+    const draft = twoGpoDraft()
+    const { adjustedTiers } = applyMinLabourFloor(draft, pricingBook)
+    expect(adjustedTiers).toContain('good') // 0.6h → topped to 2h
+    const res = validateQuoteGrounding(draft, pricingBook, candidates())
+    expect(res.valid).toBe(true)
+  })
+
+  it('explicit gpo category is not a bypass — a downlight line at the same price still fails', () => {
+    const draft = twoGpoDraft()
+    draft.good.line_items[0].description = 'Install 6 LED downlights'
+    applyMinLabourFloor(draft, pricingBook)
+    const res = validateQuoteGrounding(draft, pricingBook, candidates())
+    expect(res.valid).toBe(false)
   })
 })
