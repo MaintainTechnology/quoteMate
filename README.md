@@ -26,7 +26,7 @@ Existing job-management tools (ServiceM8, Tradify, AroFlo) handle scheduling and
 
 1. **Captures the job for you** — a dedicated AI receptionist answers the call and asks the right job-specific questions. The moment the call ends, the customer gets an SMS with a one-tap link to add photos — optional, races the quote draft, lifts confidence when it arrives.
 2. **Drafts the quote** — an AI engine generates a structured quote (scope, line items, labour, materials, exclusions, risks) using the tradie's own pricing book and prior quote history.
-3. **Routes by confidence** — high-confidence jobs go straight to the customer; medium ones wait for a quick tradie review; complex ones trigger a paid site inspection.
+3. **Routes by confidence** — quotable jobs auto-send to the customer immediately with the tradie notified to review after the fact; complex ones trigger a paid site inspection instead.
 4. **Sends a polished customer experience** — mobile-first, branded quote with Good / Better / Best options and a one-tap deposit button.
 5. **Closes the loop** — availability nudges, SMS follow-ups, calendar booking on accept.
 
@@ -38,7 +38,7 @@ Existing job-management tools (ServiceM8, Tradify, AroFlo) handle scheduling and
 
 QuoteMate routes every job into one of two paths based on whether the tradie can quote it remotely.
 
-**Standard flow** — the tradie reviews the AI-drafted quote, edits if needed, sends it to the customer, and the customer accepts and pays a deposit through the portal. The flow ends with the job confirmed and on the calendar.
+**Standard flow** — the AI drafts the quote and sends it to the customer the moment it's ready; the tradie is notified and can edit before acceptance. The customer accepts and pays a deposit through the portal. The flow ends with the job confirmed and on the calendar.
 
 **Inspection flow** — when remote scoping isn't enough, the tradie creates a paid site-visit request. The customer pays a $199 inspection fee (refundable on accepted quote), the tradie attends in person, then completes the full quote in QuoteMate before rejoining the standard send/accept/deposit path.
 
@@ -64,9 +64,8 @@ Intake Engine        → scope, photos, address, urgency, confidence score
 Estimation Engine    → scope of works + labour + materials + risks
    ↓
 Confidence-based routing
-   ├─ HIGH:    auto-quote sent to customer
-   ├─ MEDIUM:  tradie validates, then sends
-   └─ LOW:     paid site-visit triggered
+   ├─ HIGH/MED: quote auto-sent to customer; tradie notified to review
+   └─ LOW:      paid $199 site-visit triggered instead
    ↓
 Mobile customer portal (Good / Better / Best + deposit)
    ↓
@@ -116,7 +115,7 @@ Planned but not yet wired: Stripe Connect Express (marketplace fund-split), Post
 **Built and running** (as of 2026-05-18). The application lives in [`quotemate-automation/`](quotemate-automation/); the repo root holds planning docs and design assets.
 
 - **Voice and SMS intake are both live end-to-end** — a customer calls or texts a tradie's QuoteMate number, the AI captures the job, Opus drafts a Good/Better/Best quote grounded strictly in that trade's pricing book, and the customer gets a mobile quote page with a Stripe deposit (or a $199 inspection for complex jobs).
-- **Multi-trade is live**: electrical (NSW) and plumbing (QLD) run on the same platform, with 5 pilot tenants active.
+- **Multi-trade is live**: electrical (NSW) and plumbing (QLD) run on the same platform, with 4 pilot tenants active.
 - Current work: self-serve tradie onboarding (auto-provisioned number, pricing book, and AI brand voice per tradie).
 - Production: `quote-mate-rho.vercel.app`. Payments run in Stripe test mode.
 

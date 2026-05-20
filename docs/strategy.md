@@ -553,4 +553,142 @@ The voice-first AI receptionist is a fundraise pitch, not a v1 product. **If you
   - QBCC compliance audit fails → harden QLD PDF rendering before any further multi-trade growth
   - Third trade gets pitched → stop bolting trades on per-pilot and refactor to a trade-registry pattern
 
+- **v6** (2026-05-20): **drift reconciliation — what shipped vs what this doc said would ship.**
+
+  **Why this entry exists:**
+
+  CLAUDE.md flagged three documented decisions in this strategy doc as
+  contradicted by the running system. Per the project rule ("if work
+  demands a change, add a new iteration entry before changing the
+  decisions table"), this entry records the drift so future readers can
+  see the running system as canon and treat §1–§12 as historical.
+
+  This entry **records reality**; it does not justify it. The strategic
+  rationale for shipping voice and auto-send earlier than v3/v5 said
+  needs to be added by whoever made those product calls (pilot tradie
+  feedback, the John 12-point list referenced in the engineering memory,
+  etc.). Future-Claude reading this: when in doubt, treat §1–§12 as
+  v2 history; treat CLAUDE.md + this entry as ground truth.
+
+  **What shipped, contradicting prior iterations:**
+
+  | Decision in v2/v3/v4/v5 | Running system as of 2026-05-20 |
+  |---|---|
+  | "v1 is portal-first. Voice agent is deferred to v3 (~month 7)" (§2) | Voice intake **shipped in v1** via Vapi (`/api/vapi/webhook` → intake → estimate → quote SMS). Persona "jon". Deepgram STT + ElevenLabs TTS. |
+  | "Receptionist Agent (voice — full Vapi/Retell stack) — Phase 5 premium tier" (§5) | Same as above — voice is the v1 path, not a Phase 5 tier. |
+  | "No auto-send in v1 — tradie human-in-loop on every send" (v3/v5) | `lib/routing/decide.ts` records `tradie_review` as the routing decision but **every drafted quote auto-sends to the customer today (Path B)**. The two investor-pack commits `ad72ab8` and `602915e` explicitly moved to auto-send-to-customer / tradie-reviews-after. |
+  | "Eval framework before prompt iteration: 100 hold-out (intake → quote) pairs, 5-dim rubric" (§6, every iteration) | **Not built.** Prompts iterate without delta measurement. The parity harness `scripts/test-sms-parity.mjs` (70 assertions) covers SMS↔voice intake parity, not quote quality. |
+
+  **What also shipped beyond the strategy doc, but doesn't contradict it:**
+
+  - **SMS intake** (full dialog agent, `/api/sms/inbound`, all 5 phases done — `docs/markdown/sms-progress.md`).
+  - **Multi-trade** (v5 already recorded — electrical + plumbing).
+  - **v6 self-serve onboarding** (`/signup`, `/onboard/*`, Twilio + Vapi auto-provisioning behind `*_PROVISIONING_ENABLED` flags).
+  - **Vercel AI SDK direct to Anthropic** (`ANTHROPIC_API_KEY`), not via Vercel AI Gateway as v2/v3 docs implied.
+  - **Google Gemini for image generation** (preview + per-tier sample images) — not in the v2 stack table.
+
+  **Asset gap acknowledged (not yet fixed):**
+
+  - `assets/quotemate_flow_with_inspection.svg` (STEP 5 "Tradie reviews quote") still depicts the pre-auto-send model. README.md's "How it works" prose was updated this iteration to match Path B (lines 27, 41, 67-69), but the SVG is a binary asset and needs a designer pass — leaving it annotated as historical until then.
+
+  **Outstanding debt unchanged from v5:**
+
+  - **Stripe Connect Express still not wired.** `tenants.stripe_connect_account_id` is null for every tenant; `payments` has 0 rows. The marketplace funds-split decision (§9, Phase 4 plan) is still owed.
+  - **Multi-tenant RLS still policy-less.** RLS-on with no policies for some tables; RLS-off entirely for `tenants/customers/sms_*/tenant_*` — meaning the public anon key currently allows `SELECT *` against those. Phase 1 plan written this iteration: see [`quotemate-automation/docs/rls-design.md`](../quotemate-automation/docs/rls-design.md). Apply before scaling past tenant #5.
+  - **Eval framework** still not built (see drift table above).
+
+  **What was confirmed unchanged from v5:**
+
+  - 4-agent architecture (Drafter, Reviewer, Inspection Coordinator, Conversion Engine).
+  - Build-with-tradie pricing book (the WP2 operator material catalogue is the keystone here — migrations 028, 034 shipped tenant-owned brand/range/cost rows; see memory `project_wp1_pricing_book_fix`).
+  - Strict-grounding rule binding on every line item.
+  - Good/Better/Best tier shape, $199 paid-inspection fallback, Stripe test mode + Mobile HTML quote page (no PDF).
+  - Electrical + plumbing are the boundary — third trade requires a new entry.
+
+  **Trigger for the next iteration:**
+
+  - Stripe Connect Express ships → record the funds-split design choice (platform fee shape, Connect Express vs Standard, dispute handling).
+  - First tenant signs up that brings active-tenant count to 5 → record the RLS Phase 1 apply (and whether the Phase 2 tenant-scoped policies followed).
+  - First eval-rubric run → record the framework that finally lands and the baseline scores.
+  - John (or whoever drove the voice + auto-send pivots) supplies the strategic rationale → backfill it into this v6 entry rather than starting a v7.
+
+- **v7** (2026-05-20): **catalogue-as-template — pre-populated services, master supplier catalogue, per-tenant G/B/B ladder.**
+
+  **Why this entry exists:**
+
+  Jon toured the live dashboard (Catalogue → Recipes → Estimation → Services tabs) and described how he expected it to work for a brand-new tradie. Three quotes:
+
+  > "I can imagine that we would load the whole clips or catalogue, and then the traders could select the items that they use"
+  > "We offer standard services and standard product catalogues and they just toggle on and off these catalogues — everything is pre-populated for them"
+  > "They can localise whether they have a preferred Good/Better/Best option"
+
+  This is **not a request for new capability** — the schema for almost all of it is already shipped (migrations 022, 023, 028, 031, 034). It is a request that the **default tradie experience** match a "stocked template they tick" model rather than a "blank tabs they configure" model. This entry records the decision to deliver that and the phased plan.
+
+  **What's already in place (no new schema needed):**
+
+  - `tenant_material_catalogue` (028 + 034) — brand, range_series, supplier, tier_hint, is_preferred, cost_price, image, active toggle, description.
+  - `tenant_assembly_bom` (031) — per-tenant editable recipe book; estimator already prefers it over shared baseline.
+  - `tenant_assembly_overrides` (028) — per-tenant labour_hours / markup overrides.
+  - `tenant_material_preferences` (022) — preferred brand per category.
+  - `shared_assembly_bom` (028) — global structured BOMs.
+  - `lib/estimate/catalogue.ts` — `chooseMaterial()` scores tenant rows ahead of shared; `catalogueCandidateRows()` feeds tenant catalogue into the grounding validator (the WP2 "trap" is solved); `formatCatalogueHint()` + `formatBomHint()` are live soft prompt hints; `enrichLinesWithCatalogue()` + `applyChosenProduct()` stamp catalogue_id/image post-grounding.
+  - Dashboard tabs Catalogue / Recipes / Estimation / Services all exist and write through.
+
+  **The real gaps Jon was reacting to:**
+
+  1. **No master supplier catalogue.** Catalogue tab is empty by default. Tradies hand-type SKUs instead of ticking from a pre-loaded library.
+  2. **Services pre-population is implicit.** `/api/tenant/me` defaults a missing row to enabled=true. CRM counts therefore lie about what's "configured" vs "default".
+  3. **No G/B/B ladder picker.** Tier is per-product (`tier_hint`); there's no "for downlights → my Good is X, my Better is Y, my Best is Z" data shape, only inference.
+  4. **Two competing "is this on?" surfaces.** `tenant_service_offerings.enabled` (Services-tab → estimator) AND `tenant_assembly_overrides.enabled` (Estimation-tab badge only — write-orphaned column). The latter is never written by any UI, so the Estimation tab can show "enabled" while the AI is actually declining the service.
+  5. **No bulk-import / "stock the essentials" defaults** to get a new tradie from signup to first quote in <5 min.
+  6. **Free-text catalogue categories** — silent join failures between Catalogue and Recipe when the tradie typos a category. Multiplies in severity once the catalogue grows 10x.
+
+  **Phased delivery plan:**
+
+  | # | Phase | New schema | Money-path | Effort |
+  |---|---|---|---|---|
+  | 0 | Consolidate `enabled` surfaces — Services-tab is single source of truth; Estimation tab reads from `tenant_service_offerings`; drop `enabled` from `AssemblyOverride` type. **Preserves the deliberate decline-on-OFF semantics recorded in memory `project_services_toggle_off_decline`** (Services-tab OFF still routes SMS to polite decline, not the legacy $199 fallback). | none | no | 1 day |
+  | 1 | Extract the (already-shipped) explicit seeding from `/api/onboard/activate` into a reusable helper; backfill the 4 activated tenants whose offerings rows are incomplete (94 → ~160 expected); add "Standard services on by default — untick what you don't do" banner. Safety-net fallback in `/api/tenant/me` (uses per-assembly `default_enabled` from migration 021) is sound — kept as belt-and-braces. | none | indirect (CRM truthfulness) | 1–2 days |
+  | 2a | `supplier_catalogue` table + `supplier_catalogue_id` link on `tenant_material_catalogue`; seed ~300 SKUs (Clipsal Iconic/2000, HPM, SAL, Versalux; Caroma, Methven, Phoenix, Rheem, Rinnai, Bosch) | mig 041 + 042 *(planned numbers; latest applied is 040 = RLS Phase 1)* | yes (catalogue feeds validator) | 3 days |
+  | 6 | Controlled-vocabulary categories. **Already shipped pre-v7** via `lib/estimate/categories.ts` (single source of truth, drift-guarded by `categories.test.ts`) — the CatalogueTab dropdown imports `CATEGORIES` directly. ⚠ Known issue uncovered while validating: supplier_catalogue (mig 041) uses granular material-category vocab (`tapware_basin`, `hws_gas`) while CATEGORIES uses coarse grounding vocab (`tap`, `hot_water`). The bridge is needed in Phase 2b's "Add to my catalogue" action — map granular → grounding on copy, retain link via `supplier_catalogue_id`. | none | no | 0 days (pre-shipped); vocab mismatch becomes a Phase 2b deliverable |
+  | 2b | CatalogueTab "Browse supplier catalogue" mode — filters, multi-select, "Add N to my catalogue" | none | no | 3–4 days |
+  | 2c | "Already in your catalogue" badging via the link; supplier-refresh foundation (no UI yet) | none | no | 1 day |
+  | 2d | **"Stock the essentials for my trade" 1-click button** — auto-adds ~30 SKUs across most-quoted categories. Without this, 2a/b/c is a configuration tax | none | indirect | 2 days |
+  | 3 | `tenant_tier_ladder (tenant_id, category, tier, catalogue_id)`; wire `chooseMaterial()` to give ladder hits +10, prepend explicit ladder section in `formatCatalogueHint()`; per-category G/B/B picker UI | mig 043 *(planned number)* | yes (estimator priority) | 1 week |
+  | 4 | Per-assembly labour/markup override editor on Estimation tab + PATCH `/api/tenant/estimation/[assemblyId]` | none | yes (math input) | 3–5 days |
+
+  **What's explicitly OUT of scope for v7:**
+
+  - **Phase 5 (bulk CSV import + supplier refresh UI)** — deferred until a pilot tradie asks for it. The "Stock the essentials" button (Phase 2d) covers ~80% of new-tradie onboarding without CSV.
+  - **Licensed supplier feeds** (Clipsal/Reece APIs) — hand-curated ~300 SKUs is fine through pilot. Revisit when a tradie asks for a brand we don't carry or the manual quarterly refresh starts decaying.
+  - **Stripe Connect Express** — still flagged debt from v6; v7 doesn't touch the money flow.
+  - **RLS Phase 2 tenant-scoped policies** — Phase 1 (migration 040) shipped; v7 adds new tables (`supplier_catalogue` is global/read-only; `tenant_tier_ladder` is tenant-scoped) which must be added to the RLS apply list but Phase 2 policies are not bundled into v7.
+  - **Eval framework** — still flagged debt; v7 doesn't substitute for it. Each money-path migration in v7 must re-run `scripts/test-sms-parity.mjs` + the catalogue-trap tests, but that's regression coverage, not quality measurement.
+
+  **What's confirmed unchanged from v6:**
+
+  - 4-agent architecture, strict-grounding rule, G/B/B framing, $199 inspection fallback.
+  - Electrical + plumbing are still the boundary — no third trade.
+  - Auto-send-to-customer remains the Path B reality recorded in v6; v7 does not revisit that.
+  - Tenant-owned data physically partitioned in separate tables (`tenant_*`) — `supplier_catalogue` is a NEW table for global supplier SKUs (read-only to tradies), distinct from `shared_materials` (generic fallback library) and `tenant_material_catalogue` (operator-owned).
+
+  **Risk model (carried through every phase):**
+
+  - The "zero-config tradie still gets a quote" guarantee is non-negotiable. Every new tenant-controlled dimension falls back gracefully — partial ladder → keyword inference; no override → global default; no supplier link → existing tenant_material_catalogue flow.
+  - Every money-path migration (2a, 3) runs `scripts/test-sms-parity.mjs` + `lib/estimate/catalogue-trap.test.ts` + `lib/estimate/catalogue-hints.test.ts` before the next phase starts.
+  - Per-migration prod-apply gate confirmed with operator (Anant) — no batch applies.
+  - Each phase is independently shippable; abandoning v7 mid-delivery never leaves the system worse than v6.
+
+  **Trigger for the next iteration:**
+
+  - A pilot tradie asks for a brand outside the seeded ~300 SKUs → log a supplier-catalogue expansion entry; consider whether hand-curation still scales or a feed is warranted.
+  - Catalogue-link refresh becomes a real workflow (more than 1 tenant needs it) → record Phase 5 (bulk import + supplier-refresh banner) as a v8 entry rather than smuggling it into v7.
+  - Stripe Connect Express finally ships → its own iteration entry (still owed from v5/v6).
+  - First eval-rubric run lands → its own entry (still owed from every prior iteration).
+  - **Any phase in the v7 table ships → backfill the actual migration number and note any scope deviation in this entry.** The 041/042/043 placeholders are nominal; whichever migration number ends up applied is what should appear here, so future readers see history not aspiration. (This is the lesson v6 learned the hard way about v3/v4/v5 drift.)
+
+  **Note on prior debt status (correction to v6's outstanding-debt list):**
+
+  - RLS Phase 1 has now SHIPPED as migration 040 between v6 and v7 — v6 line 597 says "Phase 1 plan written this iteration" but the apply followed. Phase 2 tenant-scoped policies still outstanding (v7 is out of scope for them).
+
 - *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics, full multi-tenancy refactor).
