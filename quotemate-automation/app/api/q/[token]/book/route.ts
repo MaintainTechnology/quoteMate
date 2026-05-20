@@ -25,7 +25,7 @@ import { createClient } from '@supabase/supabase-js'
 import { pipelineLog } from '@/lib/log/pipeline'
 import { BOOKING_STATE } from '@/lib/quote/hold'
 
-export const maxDuration = 30
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

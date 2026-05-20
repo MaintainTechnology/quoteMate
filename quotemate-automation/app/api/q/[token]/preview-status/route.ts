@@ -22,7 +22,7 @@ const supabase = createClient(
 )
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 15
+export const maxDuration = 300
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params

@@ -12,7 +12,7 @@ import { notifyBookingConfirmed } from '@/lib/quote/booking-notify'
 import { advanceQuoteStatus } from '@/lib/quote/lifecycle'
 import type Stripe from 'stripe'
 
-export const maxDuration = 30
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

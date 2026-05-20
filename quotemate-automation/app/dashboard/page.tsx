@@ -3719,6 +3719,10 @@ function BrowseSupplierPanel({
   const [tradeFilter, setTradeFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [brandFilter, setBrandFilter] = useState<string>('all')
+  // Per-row expand/collapse — present = expanded. We use a Set instead of
+  // a Map<bool> so a row is either present (expanded) or absent (collapsed);
+  // no stale `false` entries to garbage-collect.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   // Load the supplier rows + already-stocked link set once on mount.
   // Re-runs after a successful bulk-add (parent calls onAdded which
@@ -3760,6 +3764,15 @@ function BrowseSupplierPanel({
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -3956,48 +3969,160 @@ function BrowseSupplierPanel({
         {filtered.map((r) => {
           const stocked = alreadyStocked.has(r.id)
           const isSelected = selected.has(r.id)
+          const isExpanded = expanded.has(r.id)
           return (
-            <label
+            <div
               key={r.id}
-              className={`flex items-start gap-3 border px-3 py-2 cursor-pointer transition-colors ${
+              className={`border transition-colors ${
                 isSelected
                   ? 'border-accent bg-accent/5'
                   : stocked
-                    ? 'border-ink-line bg-ink-card/40 opacity-70'
+                    ? 'border-ink-line bg-ink-card/40 opacity-80'
                     : 'border-ink-line hover:border-accent/40'
               }`}
             >
-              <input
-                type="checkbox"
-                disabled={stocked}
-                checked={isSelected}
-                onChange={() => toggleSelect(r.id)}
-                className="mt-1 cursor-pointer disabled:cursor-not-allowed"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-sm text-text-pri font-medium">{r.name}</span>
-                  {r.tier_hint && (
-                    <span className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-text-dim border border-ink-line px-1.5 py-0.5">
-                      {r.tier_hint}
-                    </span>
-                  )}
-                  {stocked && (
-                    <span className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-accent border border-accent/40 px-1.5 py-0.5">
-                      ✓ in your catalogue
-                    </span>
-                  )}
-                </div>
-                <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim mt-1">
-                  {r.brand}
-                  {r.range_series ? ` · ${r.range_series}` : ''} · {r.category} ·
-                  {r.supplier_label ? ` ${r.supplier_label} · ` : ' '}
-                  {fmtMoney(r.default_unit_price_ex_gst)} ex GST RRP
-                </div>
+              {/* Compact top row — checkbox + name + summary + expand chevron.
+                 We keep the checkbox in its own <label> so it remains an
+                 accessible click target without the chevron bubbling. */}
+              <div className="flex items-start gap-3 px-3 py-2">
+                <label className="flex items-start gap-3 cursor-pointer flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    disabled={stocked}
+                    checked={isSelected}
+                    onChange={() => toggleSelect(r.id)}
+                    className="mt-1 cursor-pointer disabled:cursor-not-allowed"
+                    aria-label={`Select ${r.name}`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-sm text-text-pri font-medium">{r.name}</span>
+                      {r.tier_hint && (
+                        <span className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-text-dim border border-ink-line px-1.5 py-0.5">
+                          {r.tier_hint}
+                        </span>
+                      )}
+                      {stocked && (
+                        <span className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-accent border border-accent/40 px-1.5 py-0.5">
+                          ✓ in your catalogue
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim mt-1">
+                      {r.brand}
+                      {r.range_series ? ` · ${r.range_series}` : ''} · {r.category} ·
+                      {r.supplier_label ? ` ${r.supplier_label} · ` : ' '}
+                      {fmtMoney(r.default_unit_price_ex_gst)} ex GST RRP
+                    </div>
+                  </div>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(r.id)}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? `Hide details for ${r.name}` : `Show details for ${r.name}`}
+                  className="shrink-0 mt-0.5 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim hover:text-accent transition-colors cursor-pointer px-2 py-1"
+                >
+                  {isExpanded ? '▲ Hide' : '▼ Details'}
+                </button>
               </div>
-            </label>
+
+              {/* Expanded details — mirrors the My Catalogue field set
+                 (Trade, Category, Name, Brand, Range, Supplier, Unit, RRP,
+                 Tier, Description, Image). Three fields exist only on the
+                 tenant side (customer-supply price, cost price, is_preferred)
+                 — they're called out at the bottom so the tradie knows what
+                 they'll set after "Add to my catalogue". */}
+              {isExpanded && (
+                <div className="px-3 pb-3 pt-1 border-t border-ink-line/60 bg-ink-deep/40">
+                  <div className="grid gap-4 sm:grid-cols-[auto_1fr] mt-3">
+                    {/* Product image — left column. Falls back to a typed
+                        placeholder when supplier hasn't supplied a URL. */}
+                    <div className="w-28 h-28 sm:w-32 sm:h-32 border border-ink-line bg-ink-card/40 flex items-center justify-center overflow-hidden">
+                      {r.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={r.image_url}
+                          alt={r.name}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <span className="font-mono text-[0.55rem] uppercase tracking-[0.14em] text-text-dim text-center px-2">
+                          no photo
+                          <br />
+                          on file
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <SupplierField label="Trade" value={r.trade} mono />
+                      <SupplierField label="Category" value={r.category} mono />
+                      <SupplierField label="Brand" value={r.brand} />
+                      <SupplierField label="Range / series" value={r.range_series} />
+                      <SupplierField label="Supplier" value={r.supplier_label} />
+                      <SupplierField label="Unit" value={r.default_unit} mono />
+                      <SupplierField
+                        label="Supplier RRP ex-GST"
+                        value={fmtMoney(r.default_unit_price_ex_gst)}
+                      />
+                      <SupplierField label="Tier" value={r.tier_hint ?? null} mono />
+                    </div>
+                  </div>
+                  {r.description && (
+                    <div className="mt-3">
+                      <div className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-text-dim mb-1">
+                        Description
+                      </div>
+                      <div className="text-sm text-text-sec leading-snug">{r.description}</div>
+                    </div>
+                  )}
+                  {/* Footer note — the three tradie-only fields that don't
+                     exist on supplier rows. Surfacing this explicitly stops
+                     the tradie wondering "where's the cost price?" — it's
+                     a field they fill in once the row lands in My Catalogue. */}
+                  <div className="mt-4 border-l-2 border-l-accent/40 pl-3 py-1">
+                    <div className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-accent mb-1">
+                      You&rsquo;ll set after &ldquo;Add to my catalogue&rdquo;
+                    </div>
+                    <div className="text-xs text-text-sec leading-snug">
+                      Your sell price (defaults to RRP — editable) · customer-supply price (install-only) ·
+                      cost price (your margin insight) · &ldquo;preferred&rdquo; flag · your own photo upload.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// Compact key/value row used inside the expanded supplier-card details.
+// Centralised so the eight fields render with identical typography +
+// fallback (em-dash for nulls). Kept local — the only consumer is the
+// Browse Supplier Catalogue expanded view above.
+function SupplierField({
+  label,
+  value,
+  mono,
+}: {
+  label: string
+  value: string | null | undefined
+  mono?: boolean
+}) {
+  const shown = value !== null && value !== undefined && String(value).trim() !== ''
+  return (
+    <div className="min-w-0">
+      <div className="font-mono text-[0.55rem] uppercase tracking-[0.15em] text-text-dim mb-0.5">
+        {label}
+      </div>
+      <div
+        className={`${mono ? 'font-mono text-[0.75rem]' : 'text-sm'} text-text-pri leading-snug truncate`}
+        title={shown ? String(value) : undefined}
+      >
+        {shown ? String(value) : <span className="text-text-dim/60">—</span>}
       </div>
     </div>
   )

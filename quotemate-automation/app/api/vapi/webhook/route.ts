@@ -6,7 +6,7 @@ import { withRetry } from '@/lib/util/retry'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { buildQuoteFailureSms } from '@/lib/sms/templates'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

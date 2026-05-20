@@ -23,7 +23,7 @@ import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { buildPhotoRequestSms } from '@/lib/sms/templates'
 import { generateShareToken } from '@/lib/stripe/checkout'
 
-export const maxDuration = 30
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

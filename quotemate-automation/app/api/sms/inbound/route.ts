@@ -187,10 +187,15 @@ function guessFirstName(turns: ConversationTurn[]): string | undefined {
   return undefined
 }
 
-// Allow the after() block enough time for Haiku + Twilio + DB writes.
-// Vercel Hobby = 60s ceiling; Pro = 300s. The inline path returns 200
-// in <500ms so Twilio is happy regardless.
-export const maxDuration = 60
+// Allow the after() block enough time for the full SMS pipeline:
+// slot extraction (Haiku) + dialog (Haiku/Sonnet) + possibly intake
+// structure (Opus 4.7) + estimator draft (Opus + RAG + tools) + image
+// gen + Twilio dispatch + DB writes. Worst-case "finish" turn ran ~200s
+// in stress tests; 60s killed it mid-pipeline (returning power users
+// with slot-extraction retries cleared the budget before step 6).
+// Vercel Pro serverless cap = 300s; Fluid Compute = 800s. The inline
+// path still returns TwiML in <500ms so Twilio is happy regardless.
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

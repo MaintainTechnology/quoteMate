@@ -6,7 +6,7 @@ import { pipelineLog } from '@/lib/log/pipeline'
 import { generatePreviewImage } from '@/lib/preview/generate'
 import { generateSampleImages } from '@/lib/preview/samples'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const MAX_FILES = 5
 const MAX_SIZE = 5 * 1024 * 1024
