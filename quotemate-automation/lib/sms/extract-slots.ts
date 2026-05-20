@@ -59,6 +59,15 @@ export const SlotsSchema = z.object({
   ]).nullable().optional(),
   replace_or_new: z.enum(['replace', 'new']).nullable().optional(),
   colour: z.string().nullable().optional(),
+  // WP5 — supply mode for the fitting/product. Set ONLY when the
+  // customer has clearly stated which way it goes ("I'll supply", "I
+  // bought it" / "you supply", "can you provide"). The dialog uses
+  // this to ack live ("got it, you'll supply the X"); the intake
+  // structurer also reads from the transcript and writes the same
+  // value to intake.scope.specs.supplied_by — this slot is the FAST
+  // path so a clarifying-question answer doesn't sit idle for one
+  // dialog turn.
+  supplied_by: z.enum(['tradie', 'customer']).nullable().optional(),
   // True when the customer affirmed a verification summary ("yep", "correct",
   // "all good"). The dialog policy reads this to decide finish vs ask.
   verified: z.boolean().nullable().optional(),
@@ -218,6 +227,7 @@ EXTRACTION RULES:
        "flat plaster or raked?" / "ceiling type?"     → ceiling_type
        "warm white / cool white / tri-colour…?"       → colour
        "replacing existing or new install?"           → replace_or_new
+       "supplied by you, or by us?" / "you supplying or us?" → supplied_by
        "Sound right?" / "just to confirm…?"           → verified (on affirm)
 
      DO NOT reclassify the customer's reply into a different slot unless
@@ -364,6 +374,22 @@ EXTRACTION RULES:
       - "warm white" → "warm white"; "cool white" → "cool white";
         "tri-colour", "tri-color", "tricolour" → "tri-colour";
         "dimmable" → "dimmable"; "smart" → "smart"; "no preference" → "standard"
+  10b. SUPPLIED_BY (WP5 — who provides the fitting/unit itself):
+      - Set ONLY when the customer's words are explicit about supply.
+      - 'customer' (the customer is supplying):
+        "I'll supply", "I'll buy it", "I have my own", "I've already got
+        one", "I'm providing the X", "I bought it already", "we'll
+        supply the fan", "got my own".
+      - 'tradie' (the customer wants the tradie to supply):
+        "you supply", "can you provide one", "include the unit",
+        "supply and install", "with a new fan/tap/etc", "we want one
+        supplied".
+      - Agent context: a question like "are you supplying the X yourself,
+        or would you like us to supply it?" → the customer's reply
+        ALMOST ALWAYS sets this slot. "I'll buy it" → 'customer';
+        "supply it for me" / "yes please" → 'tradie'.
+      - DO NOT infer from a generic affirmation; the words must be about
+        WHO PROVIDES THE ITEM.
   11. VERIFIED: true ONLY when the customer affirms a verification summary the
       agent just sent. Triggers: "yep", "yes", "correct", "that's right",
       "perfect", "all good", "spot on", "sounds good", "no worries", "yeah".

@@ -71,6 +71,36 @@ export async function GET(req: Request) {
     .order('sort', { ascending: true })
   if (lErr) return Response.json({ error: lErr.message }, { status: 500 })
 
+  // Shared baseline lines (migration 028 — `shared_assembly_bom`). The
+  // Recipes UI surfaces these as an editable starting point for jobs the
+  // tradie hasn't customised yet ("Customise this recipe" forks the
+  // baseline into tenant_assembly_bom). Resilient: missing table / error
+  // ⇒ baselines={} so the UI just falls back to the legacy empty form.
+  const assemblyIds = (assemblies ?? []).map((a) => a.id as string)
+  let baselinesByAssembly: Record<string, BaselineLine[]> = {}
+  if (assemblyIds.length > 0) {
+    const { data: baselineRows } = await supabase
+      .from('shared_assembly_bom')
+      .select('assembly_id, material_category, description, quantity, required, sort')
+      .in('assembly_id', assemblyIds)
+      .order('assembly_id', { ascending: true })
+      .order('sort', { ascending: true })
+    baselinesByAssembly = (baselineRows ?? []).reduce(
+      (acc: Record<string, BaselineLine[]>, r) => {
+        const k = r.assembly_id as string
+        ;(acc[k] ??= []).push({
+          material_category: r.material_category as string,
+          description: (r.description as string | null) ?? null,
+          quantity: Number(r.quantity),
+          required: !!r.required,
+          sort: Number(r.sort ?? 0),
+        })
+        return acc
+      },
+      {},
+    )
+  }
+
   // Which material categories this tradie actually has a priced, active
   // product for (their Catalogue). The Recipes UI uses this to badge each
   // line "priced from your catalogue" vs "no product — generic price", so
@@ -96,8 +126,17 @@ export async function GET(req: Request) {
     ok: true,
     assemblies: assemblies ?? [],
     lines: lines ?? [],
+    baselines: baselinesByAssembly,
     catalogue_categories: catalogueCategories,
   })
+}
+
+type BaselineLine = {
+  material_category: string
+  description: string | null
+  quantity: number
+  required: boolean
+  sort: number
 }
 
 // ─── POST /api/tenant/bom ──────────────────────────────────────────

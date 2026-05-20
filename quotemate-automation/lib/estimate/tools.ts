@@ -232,7 +232,10 @@ function makeLookupMaterial(tenantId: string | null) {
       'UNIONed in and ranked ahead of the generic shared catalogue. ' +
       'ALWAYS pass `trade` ("electrical" or "plumbing") — the DB carries both ' +
       'and unfiltered queries may return cross-trade matches. ' +
-      'For electrical jobs, when intake.scope.specs has values, PASS THEM THROUGH. ' +
+      'When intake.scope.specs has values, PASS THEM THROUGH. ' +
+      'IMPORTANT — supply mode (WP5): if intake.scope.specs.supplied_by is "customer", ALWAYS pass `supplied_by: "customer"` to this tool. ' +
+      'Tenant catalogue rows then return their install-only price (customer_supply_price_ex_gst) and stamp `is_customer_supply: true` — use that price for the line item and prefix the description with "Customer to supply — ". ' +
+      'If supplied_by is "tradie" or unset, the row returns the standard supply-and-install price (today\'s behaviour). ' +
       'Example: lookupMaterial({ query: "warm white dimmable LED downlight", trade: "electrical", color_temp: "warm_white", dimmable: true }) ' +
       'returns only warm-white-capable, dimmable electrical downlights, ranked best-match-first.',
     inputSchema: z.object({
@@ -257,6 +260,17 @@ function makeLookupMaterial(tenantId: string | null) {
       // Operator-owned catalogue (migration 028). Absent table (prod
       // pre-028) → supabase-js returns {data:null} (no throw) → [] →
       // shared-only, identical to pre-WP2 behaviour.
+      //
+      // WP5 — supply-mode pricing. When the caller passes
+      // `supplied_by: 'customer'` AND the tenant row has a non-null
+      // `customer_supply_price_ex_gst`, the row's effective price flips
+      // to that install-only number. is_customer_supply=true is stamped
+      // so the prompt / line-item builder can mark the line as
+      // "Customer to supply …". When the column is null we fall through
+      // to the standard unit_price_ex_gst (no regression for tenants who
+      // never filled it in). When supplied_by is unset or 'tradie', the
+      // row's price is always the tradie-supply price — today's
+      // behaviour, untouched.
       let tenantRows: any[] = []
       if (tenantId) {
         let tq = supabase
@@ -268,11 +282,20 @@ function makeLookupMaterial(tenantId: string | null) {
         if (trade) tq = tq.eq('trade', trade)
         tq = applyPropertyFilters(tq, filters)
         const tRes = await tq.limit(FETCH_LIMIT)
-        tenantRows = (tRes.data ?? []).map((r: any) => ({
-          ...r,
-          default_unit_price_ex_gst: r.unit_price_ex_gst,
-          is_tenant: true,
-        }))
+        const wantCustomerSupply = filters.supplied_by === 'customer'
+        tenantRows = (tRes.data ?? []).map((r: any) => {
+          const csPrice =
+            typeof r.customer_supply_price_ex_gst === 'string'
+              ? parseFloat(r.customer_supply_price_ex_gst)
+              : r.customer_supply_price_ex_gst
+          const useCs = wantCustomerSupply && Number.isFinite(csPrice) && csPrice > 0
+          return {
+            ...r,
+            default_unit_price_ex_gst: useCs ? csPrice : r.unit_price_ex_gst,
+            is_tenant: true,
+            is_customer_supply: useCs,
+          }
+        })
       }
 
       // Tenant rows first so the reranker can promote them; the reranker

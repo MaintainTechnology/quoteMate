@@ -196,7 +196,7 @@ PRICING BOOK (passed in)
   licence_state       = ${pricingBook.licence_state ?? '(unset)'}
 
 YOUR TOOLS — exact signatures
-  lookup_assembly({ query, trade: 'plumbing' })
+  lookup_assembly({ query, trade: 'plumbing', supplied_by? })
     → returns up to 5 rows from shared_assemblies (plumbing only):
       { id, trade, name, description, default_unit, default_unit_price_ex_gst,
         default_labour_hours, default_exclusions }
@@ -204,12 +204,26 @@ YOUR TOOLS — exact signatures
     "install gas HWS", "heat pump HWS", "tap washer replacement", "tap replacement",
     "toilet suite install", "toilet cistern repair", "PRV install".
 
-  lookup_material({ query, trade: 'plumbing' })
+  lookup_material({ query, trade: 'plumbing', supplied_by? })
     → returns up to 5 rows from shared_materials (plumbing only):
       { id, trade, name, brand, unit, default_unit_price_ex_gst }
     Use for products: "Electric HWS 250L", "Rheem Stellar", "Rinnai Infinity",
     "Reclaim Energy heat pump", "Caroma toilet suite", "Phoenix mixer",
     "cistern internals", "plumbing sundries".
+
+  SUPPLY-MODE PASSTHROUGH (WP5): when intake.scope.specs.supplied_by is set,
+  pass it through to BOTH tools — the lookup then returns the install-only
+  price (customer_supply_price_ex_gst for tenant rows; the customer-supply
+  variant for shared rows) and stamps is_customer_supply on the row. Use
+  THAT price for the line item, and follow the LINE_ITEM SHAPE WP5 rule
+  below.
+
+    intake.scope.specs.supplied_by ────► lookup_*({ ..., supplied_by: <value> })
+
+  Example: customer says "I'll supply my own Caroma Liano toilet suite":
+    lookup_material({ query: "Caroma Liano toilet suite", trade: "plumbing", supplied_by: "customer" })
+    → returns the row with the install-only price (no tradie markup on the suite)
+    → labour, callout, sundries and risk still bill in full.
 
   apply_markup({ basePrice: number, markupPct?: number })
     → returns { final, markupPct }
@@ -265,8 +279,31 @@ LINE_ITEM SHAPE (each entry inside good/better/best.line_items)
   "unit":              "each" | "hr" | "lm",
   "unit_price_ex_gst": N,
   "total_ex_gst":      N,
-  "source":            "assembly:UUID" | "material:UUID" | "labour" | "callout"
+  "source":            "assembly:UUID" | "material:UUID" | "labour" | "callout",
+  "supplied_by":       "tradie" | "customer"  // OPTIONAL — set only when customer supplies the product (WP5)
+  "safety_note":       "string"               // OPTIONAL — required when supplied_by="customer" (see WP5 rule)
 }
+
+WP5 — SUPPLY MODE (when the customer supplies the product themselves)
+When intake.scope.specs.supplied_by === "customer":
+  1. Pass \`supplied_by: "customer"\` to lookup_material / lookup_assembly.
+  2. The tool returns the INSTALL-ONLY price for the product (no tradie
+     markup on a product the customer supplies). Use that price as-is.
+  3. Prefix the line description: "Customer to supply — <product name>".
+  4. Set \`supplied_by: "customer"\` on the line item.
+  5. Set \`safety_note\` to: "Must meet AS/NZS plumbing standards
+     (WaterMark certification for fittings in contact with potable water,
+     AS/NZS 3500). Plumber verifies compliance on site; any non-compliant
+     unit triggers a return visit at the standard hourly rate." Tailor
+     wording lightly per product (e.g. "AGA-certified" for gas appliances,
+     "WaterMark Level 1" for tapware) but keep it short.
+  6. Labour, callout, sundries and risk lines stay UNCHANGED — the
+     customer is paying full labour + risk; only the product cost is
+     stripped out. assumptions[] should mention the customer-supply
+     arrangement so it's explicit.
+
+When intake.scope.specs.supplied_by is "tradie" or unset, behave as today
+(supply-and-install price, no supplied_by / safety_note on line items).
 
 GOOD / BETTER / BEST FRAMING (per plumbing job_type)
   blocked_drain      → G: hand rod (1.0hr)

@@ -293,13 +293,19 @@ describe("evaluateIntakeQuality — same gate for voice + SMS", () => {
       job_type: "downlights",
     }), "empty");
   });
-  it("LOW + job_type='other' → 'empty'", () => {
+  // Updated 2026-05-19: LOW + job_type='other' is NO LONGER a fail when
+  // name + scope are usable. The change followed the "bug zapper"
+  // incident — custom tenant assemblies (insect zapper, induction
+  // cooktop, etc.) legitimately have job_type='other'; the dialog has
+  // already gathered enough info and the grounding validator handles
+  // the can-we-price decision downstream. See lib/intake/quality.ts.
+  it("LOW + job_type='other' → 'usable' when name+scope present (post-bug-zapper)", () => {
     assert.equal(quality.evaluateIntakeQuality({
       confidence: "LOW",
       caller: { name: "Mike" },
       scope: { description: "valid scope description here" },
       job_type: "other",
-    }), "empty");
+    }), "usable");
   });
   it("LOW + all critical fields populated → 'usable'", () => {
     assert.equal(quality.evaluateIntakeQuality({

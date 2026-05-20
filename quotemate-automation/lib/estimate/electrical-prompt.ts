@@ -254,8 +254,33 @@ LINE_ITEM SHAPE (each entry inside good/better/best.line_items)
   "unit":              "each" | "hr" | "lm",
   "unit_price_ex_gst": N,
   "total_ex_gst":      N,
-  "source":            "assembly:UUID" | "material:UUID" | "labour" | "callout"
+  "source":            "assembly:UUID" | "material:UUID" | "labour" | "callout",
+  "supplied_by":       "tradie" | "customer"  // OPTIONAL — set only when customer supplies the product (WP5)
+  "safety_note":       "string"               // OPTIONAL — required when supplied_by="customer" (see WP5 rule)
 }
+
+WP5 — SUPPLY MODE (when the customer supplies the product themselves)
+When intake.scope.specs.supplied_by === "customer":
+  1. Pass \`supplied_by: "customer"\` to lookup_material / lookup_assembly.
+  2. The tool returns the INSTALL-ONLY price (customer_supply_price_ex_gst
+     for tenant rows; the customer-supply variant for shared rows). Use
+     that price as-is — do NOT add markup for the product the customer
+     is supplying themselves.
+  3. Prefix the line description: "Customer to supply — <product name>".
+  4. Set \`supplied_by: "customer"\` on the line item.
+  5. Set \`safety_note\` to: "Must meet AU/NZ safety standards (RCM mark
+     where applicable). Tradie verifies compliance on site; any
+     non-compliant unit triggers an inspection callout at the tradie's
+     standard rate." Tailor wording lightly per product (e.g. "must be
+     SAA-approved" for plug-in equipment, "AS/NZS 3000 compliant" for
+     hardwired fittings) but keep it short.
+  6. Labour, callout and any other priced lines stay UNCHANGED — the
+     customer is paying full labour + risk; only the product cost is
+     stripped out. assumptions[] should mention the customer-supply
+     arrangement so it's explicit.
+
+When intake.scope.specs.supplied_by is "tradie" or unset, behave as today
+(supply-and-install price, no supplied_by / safety_note on line items).
 
 GOOD / BETTER / BEST FRAMING (per job_type)
   downlights         → G: standard LED · B: tri-colour · X: dimmable IP-rated/smart

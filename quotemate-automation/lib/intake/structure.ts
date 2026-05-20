@@ -92,7 +92,16 @@ Map customer language to job_type:
     → bathroom_renovation + inspection_required=true
 
 DO NOT populate scope.specs.* fields (color_temp, dimmable, smart,
-weatherproof, supplied_by) for plumbing intakes — those are electrical-only.
+weatherproof) for plumbing intakes — those are electrical-only.
+
+  scope.specs.supplied_by — WP5, applies to plumbing (taps, toilets,
+  shower heads, dishwashers, garbage disposals, water filters, gas
+  appliances, hot water units, rainwater tanks):
+    "I have my own" / "I'll supply" / "I bought it already"
+    "I'm providing the unit"                         → 'customer'
+    "you supply" / "can you provide" / "we want one"
+    "include the unit" / "with a new one"            → 'tradie'
+    not mentioned                                    → omit
 ` : `TRADE: ELECTRICAL (NSW/NECA pilot — v3)
 
 SPEC EXTRACTION — populate scope.specs.* from the caller's own words
@@ -126,9 +135,13 @@ hallucination class we are trying to eliminate.
     not mentioned but indoor_outdoor='outdoor'     → true (implicit)
     not mentioned                                  → omit
 
-  scope.specs.supplied_by — for ceiling fans, ovens, cooktops
+  scope.specs.supplied_by — WP5, for ANY job where the customer may
+  supply the fitting themselves: ceiling fans, ovens, cooktops, EV
+  chargers, bathroom exhaust fans, LED strip, flood lights, doorbells/
+  intercoms, security cameras
     "I have my own" / "I'll supply" / "I bought"   → 'customer'
-    "you supply" / "can you provide"               → 'tradie'
+    "I'm providing the X" / "already got one"      → 'customer'
+    "you supply" / "can you provide" / "include"   → 'tradie'
     not mentioned                                  → omit
 
   Brand preferences (e.g. "Clipsal Iconic", "HPM", "Beacon Lucci") and

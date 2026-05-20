@@ -5116,6 +5116,12 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
 // Each tradie's OWN parts list per job (tenant_assembly_bom, migration
 // 031). Add / edit quantity / toggle required / remove — all from the
 // dashboard, no scripts. Self-contained (mirrors CatalogueTab).
+//
+// 2026-05-20 — empty-state shows the SHARED baseline (read-only) plus a
+// "Customise this recipe" button that forks it into tenant_assembly_bom
+// so the tradie isn't forced to type every line from scratch. Forking is
+// an explicit, single-click action — never silent — so a tradie always
+// knows when their recipe has diverged from the standard.
 type BomLineRow = {
   id: string
   assembly_id: string
@@ -5126,16 +5132,26 @@ type BomLineRow = {
   required: boolean
   sort: number
 }
+type BaselineLine = {
+  material_category: string
+  description: string | null
+  quantity: number
+  required: boolean
+  sort: number
+}
 type AsmOpt = { id: string; name: string; trade: string }
 
 function RecipesTab({ accessToken }: { accessToken: string | null }) {
   const [assemblies, setAssemblies] = useState<AsmOpt[]>([])
   const [lines, setLines] = useState<BomLineRow[] | null>(null)
+  const [baselines, setBaselines] = useState<Record<string, BaselineLine[]>>({})
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string>('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [forking, setForking] = useState(false)
+  const [forkErr, setForkErr] = useState<string | null>(null)
   const [formErr, setFormErr] = useState<string | null>(null)
   const [draftQty, setDraftQty] = useState<Record<string, string>>({})
   // Categories this tradie has a priced, active Catalogue product for —
@@ -5165,10 +5181,12 @@ function RecipesTab({ accessToken }: { accessToken: string | null }) {
       const json = (await res.json()) as {
         assemblies: AsmOpt[]
         lines: BomLineRow[]
+        baselines?: Record<string, BaselineLine[]>
         catalogue_categories?: string[]
       }
       setAssemblies(json.assemblies)
       setLines(json.lines)
+      setBaselines(json.baselines ?? {})
       setCatalogueCats(json.catalogue_categories ?? [])
       setSelectedId((cur) => cur || (json.assemblies[0]?.id ?? ''))
     } catch (e) {
@@ -5186,6 +5204,37 @@ function RecipesTab({ accessToken }: { accessToken: string | null }) {
   const jobLines = (lines ?? [])
     .filter((l) => l.assembly_id === selectedId)
     .sort((a, b) => a.sort - b.sort)
+  const jobBaseline = (baselines[selectedId] ?? [])
+    .slice()
+    .sort((a, b) => a.sort - b.sort)
+
+  async function forkBaseline() {
+    if (!accessToken || !selectedAsm) return
+    if (jobLines.length > 0) return // safety: never fork over an existing recipe
+    setForking(true)
+    setForkErr(null)
+    try {
+      const res = await fetch('/api/tenant/bom/fork', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ assembly_id: selectedAsm.id }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        message?: string
+      }
+      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      await load()
+    } catch (e) {
+      setForkErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setForking(false)
+    }
+  }
 
   async function addLine() {
     if (!accessToken || !selectedAsm) return
@@ -5289,7 +5338,7 @@ function RecipesTab({ accessToken }: { accessToken: string | null }) {
       <p className="mt-1 text-xs text-text-dim leading-snug max-w-xl">
         Define the parts a job always needs so the same job is quoted the same way every time.
         These are <strong>yours</strong> — editing them never affects other tradies. A job with
-        no recipe here falls back to the standard baseline.
+        no recipe here, you can start from our baseline and edit it.
       </p>
 
       <div className="mt-5 flex flex-col gap-1 max-w-md">
@@ -5315,9 +5364,72 @@ function RecipesTab({ accessToken }: { accessToken: string | null }) {
           </div>
 
           {jobLines.length === 0 ? (
-            <p className="text-sm text-text-sec">
-              No recipe yet for this job. Add the parts it always needs below.
-            </p>
+            jobBaseline.length > 0 ? (
+              // Empty state WITH a shared baseline available — surface it
+              // read-only and offer the one-click fork. The tradie sees
+              // exactly what the AI would use today and can either accept
+              // it (no DB writes, baseline keeps applying) or fork it to
+              // start editing. After fork, this block disappears and the
+              // normal editable list takes over.
+              <div className="space-y-3">
+                <p className="text-sm text-text-sec">
+                  No saved recipe for this job yet — here&apos;s the standard baseline we&apos;d use.
+                  Hit <strong>Customise this recipe</strong> to make it yours and start editing.
+                </p>
+                <div className="space-y-2">
+                  {jobBaseline.map((b, i) => (
+                    <div
+                      key={`${b.material_category}|${b.description ?? ''}|${i}`}
+                      className="border border-ink-line bg-ink-deep px-4 py-3 flex items-center justify-between gap-4 flex-wrap opacity-90"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm text-text-pri font-medium">
+                          {b.material_category}
+                        </div>
+                        {b.description && (
+                          <div className="text-xs text-text-dim mt-0.5">{b.description}</div>
+                        )}
+                        <div className="mt-1.5">
+                          <span className="inline-block px-1.5 py-0.5 border border-ink-line text-text-dim font-mono text-[0.55rem] uppercase tracking-[0.15em]">
+                            shared baseline
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 text-text-dim">
+                        <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em]">
+                          qty {Number(b.quantity)}
+                        </span>
+                        <span className="font-mono text-[0.55rem] uppercase tracking-[0.15em] px-2 py-1 border border-ink-line">
+                          {b.required ? 'required' : 'optional'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void forkBaseline()}
+                    disabled={forking}
+                    className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-4 py-2.5 bg-accent text-white hover:bg-accent-press transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    {forking ? 'Forking baseline…' : 'Customise this recipe'}
+                  </button>
+                  <span className="text-[0.65rem] text-text-dim leading-snug">
+                    Copies these {jobBaseline.length} line{jobBaseline.length === 1 ? '' : 's'} into your recipe so you can edit qty, toggle required/optional, or add more parts.
+                  </span>
+                </div>
+                {forkErr && (
+                  <p className="text-xs text-warning">{forkErr}</p>
+                )}
+              </div>
+            ) : (
+              // No tenant recipe AND no shared baseline — only the
+              // add-line form below is available.
+              <p className="text-sm text-text-sec">
+                No recipe yet for this job, and no standard baseline either. Add the parts it always needs below.
+              </p>
+            )
           ) : (
             <div className="space-y-2">
               {jobLines.map((l) => {

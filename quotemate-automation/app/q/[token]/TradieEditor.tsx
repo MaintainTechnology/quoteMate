@@ -28,6 +28,12 @@ type LineItem = {
   unit_price_ex_gst: number
   total_ex_gst?: number
   source?: string
+  // WP5 — supply-mode metadata stamped by the estimator when the
+  // customer supplies the product. Preserved through the editor so a
+  // tradie's price/description tweak doesn't strip the badge or safety
+  // note off the customer's quote.
+  supplied_by?: 'tradie' | 'customer'
+  safety_note?: string
 }
 
 type Tier = {
@@ -54,6 +60,10 @@ type EditableLine = {
   quantity: string
   unit: string
   unit_price_ex_gst: string
+  // WP5 — opaque-passthrough fields. Not edited in the dashboard today;
+  // round-tripped so save() doesn't clobber them.
+  supplied_by?: 'tradie' | 'customer'
+  safety_note?: string
 }
 
 type EditableTier = {
@@ -175,6 +185,8 @@ export default function TradieEditor({ quoteId, initialTiers, gstRegistered }: P
             quantity: Number(l.quantity || 0),
             unit: l.unit || 'hr',
             unit_price_ex_gst: Number(l.unit_price_ex_gst || 0),
+            ...(l.supplied_by ? { supplied_by: l.supplied_by } : {}),
+            ...(l.safety_note ? { safety_note: l.safety_note } : {}),
           })),
         }
       }
@@ -531,6 +543,8 @@ function materialise(initial: Tiers): Record<TierKey, EditableTier | null> {
         quantity: String(li.quantity ?? 1),
         unit: li.unit ?? 'hr',
         unit_price_ex_gst: String(li.unit_price_ex_gst ?? 0),
+        ...(li.supplied_by ? { supplied_by: li.supplied_by } : {}),
+        ...(li.safety_note ? { safety_note: li.safety_note } : {}),
       })),
     }
   }

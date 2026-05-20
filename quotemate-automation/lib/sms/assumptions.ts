@@ -300,6 +300,11 @@ export const UNIVERSAL_INSPECTION_TRIGGERS = [
   'sparks', 'sparking', 'electric shock', 'shocked',
   'switchboard', 'fuse box', 'ceramic fuse', 'old fuses',
   'rewire', 'three-phase', 'three phase',
+  // EV chargers are explicit inspection-only per strategy.md v3 (mains
+  // current, load calcs, switchboard interaction, dedicated circuit
+  // required). The parity harness asserts this trigger set covers them.
+  'ev charger', 'ev charging', 'electric vehicle charger', 'tesla charger',
+  'wallbox', 'wall charger',
   // ── Plumbing (v5) ───────────────────────────────────────
   'smell gas', 'gas leak', 'gas smell', 'leaking gas',
   'burst pipe', 'pipe burst', 'water everywhere',
