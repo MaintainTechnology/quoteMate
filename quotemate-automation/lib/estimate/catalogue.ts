@@ -587,7 +587,7 @@ export function applyChosenProduct(
 
   for (const tierKey of ['good', 'better', 'best'] as const) {
     const tier = draft[tierKey] as
-      | { line_items?: Array<Record<string, any>>; subtotal_ex_gst?: number | string }
+      | { line_items?: Array<Record<string, any>>; subtotal_ex_gst?: number | string; label?: string }
       | null
       | undefined
     if (!tier || !Array.isArray(tier.line_items) || tier.line_items.length === 0) continue
@@ -618,6 +618,14 @@ export function applyChosenProduct(
     if (chosen.description && String(chosen.description).trim() !== '') {
       li.product_description = String(chosen.description).trim()
     }
+
+    // Keep the tier label consistent with the headline line we just
+    // rewrote. Opus generated the label around the DEFAULT tier product;
+    // once the customer's explicit pick is forced into the line item, a
+    // stale label names a product the quote no longer contains — the
+    // customer SMS and /q page would show the wrong product name. The
+    // label must always match the chosen product.
+    tier.label = chosen.name
 
     tier.subtotal_ex_gst = +items
       .reduce((s, x) => s + (Number(x?.total_ex_gst) || 0), 0)

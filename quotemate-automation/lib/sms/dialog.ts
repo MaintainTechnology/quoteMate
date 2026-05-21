@@ -1030,17 +1030,22 @@ function customerHistoryDirective(hint: CustomerHistoryHint): string {
 }
 
 /**
- * Trade-scope directive for Haiku — tells the dialog which trades the
- * tenant actually offers, so it never invents the wrong service or
- * offers plumbing to an electrical-only tradie's customer (or vice
- * versa). The directive overrides the system prompt's default "we
- * cover both" stance.
+ * Trade-scope directive for the SMS dialog — tells it which trades the
+ * tenant actually offers, so it never invents the wrong service or offers
+ * plumbing to an electrical-only tradie's customer (or vice versa). The
+ * directive overrides the system prompt's default "we cover both" stance.
  *
- * Empty/undefined trades → fall back to permissive "both" (legacy
- * pre-v6 single-pilot behaviour) so older traffic isn't accidentally
- * blocked.
+ * The `trades` type is `string` (admin bulk loader, Phase 0): a trade is a
+ * data row now, not a hardcoded union. The electrical / plumbing / both
+ * branches are unchanged. A tenant whose trades are ALL non-pilot (e.g. a
+ * trade added by the loader) gets a directive that defers the in-scope job
+ * list to the TENANT CUSTOM SERVICES block (spec §6.4) — instead of the old
+ * degenerate fallback that wrongly assumed electrical + plumbing.
+ *
+ * Empty/undefined trades → fall back to permissive "both" (legacy pre-v6
+ * single-pilot behaviour) so older traffic isn't accidentally blocked.
  */
-function tradeScopeDirective(trades: ReadonlyArray<'electrical' | 'plumbing'> | undefined): string {
+export function tradeScopeDirective(trades: ReadonlyArray<string> | undefined): string {
   const set = new Set(trades ?? ['electrical', 'plumbing'])
   const both = set.has('electrical') && set.has('plumbing')
   if (both) {
@@ -1086,6 +1091,24 @@ function tradeScopeDirective(trades: ReadonlyArray<'electrical' | 'plumbing'> | 
       '       You\'ll need a sparky for that one. All the best!"',
       '  - DO NOT escalate electrical jobs to a $99 inspection. That\'s for out-of-scope PLUMBING',
       '    work (gas fitting, bathroom reno, etc.), not for the wrong trade entirely.',
+    ].join('\n')
+  }
+  // Non-pilot trade(s) only — e.g. a trade added by the admin bulk loader.
+  // The hardcoded easy-5 lists above don't apply; the tenant's actual
+  // services arrive through the TENANT CUSTOM SERVICES block (spec §6.4), so
+  // scope the dialog to that rather than the old "assume both pilots"
+  // fallback, which would wrongly offer electrical + plumbing.
+  const named = [...set]
+  if (named.length > 0) {
+    return [
+      `TENANT TRADE SCOPE: this tradie covers ${named.join(' and ')} work.`,
+      '  - The services they actually offer are listed in the TENANT CUSTOM',
+      '    SERVICES block below — treat that list as the in-scope job list.',
+      '  - Use the generic "tradie" noun unless the job type makes a more',
+      '    specific noun obvious.',
+      '  - If the customer asks for work NOT in that custom-services list,',
+      '    politely decline with an end_conversation redirect — do NOT',
+      '    escalate to a $99 inspection.',
     ].join('\n')
   }
   // No trades at all — degenerate state, log via comment in prompt
@@ -1339,7 +1362,7 @@ export async function decideNextTurn(args: {
    * customer (or vice versa). Empty / undefined falls back to "both"
    * for legacy pre-v6 traffic.
    */
-  tenantTrades?: ReadonlyArray<'electrical' | 'plumbing'>
+  tenantTrades?: ReadonlyArray<string>
   /**
    * Enabled tenant-owned custom assemblies (migration 023) for the tenant
    * who owns the destination number. Drives the TENANT CUSTOM SERVICES

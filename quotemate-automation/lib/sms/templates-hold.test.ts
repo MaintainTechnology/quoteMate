@@ -65,6 +65,48 @@ describe('buildQuoteSms — WP6 price-hold line', () => {
   })
 })
 
+// Fixture double-count regression (reported 2026-05-21): tierComponents
+// must report the number of FIXTURES, not the sum of every unit='each'
+// line. A product-options quote carries a separate product line AND a
+// per-fixture install-kit line, both unit='each' at the same qty — summing
+// them showed "12 fittings" for a 6-downlight job.
+describe('buildQuoteSms — fixture count never double-counts', () => {
+  const sixDownlights = {
+    job_type: 'downlights',
+    caller: { name: 'Jon' },
+    scope: { item_count: 6, description: '6 warm white downlights' },
+  }
+  const productQuote = {
+    ...baseQuote,
+    good: {
+      label: 'Black Fireflies',
+      subtotal_ex_gst: 996.48,
+      line_items: [
+        { description: 'Black Fireflies', unit: 'each', quantity: 6, unit_price_ex_gst: 69, total_ex_gst: 414 },
+        { description: 'Install kit — cut hole, terminate, fit fixture and test', unit: 'each', quantity: 6, unit_price_ex_gst: 38.08, total_ex_gst: 228.48 },
+        { description: 'Electrician labour', unit: 'hr', quantity: 2.4, unit_price_ex_gst: 118, total_ex_gst: 283.2 },
+        { description: 'Site visit + setup time', unit: 'hr', quantity: 0.6, unit_price_ex_gst: 118, total_ex_gst: 70.8 },
+      ],
+    },
+    better: null,
+    best: null,
+    selected_tier: 'good' as const,
+  }
+
+  it('reports 6 fittings (item_count), not 12 (product + install-kit lines)', () => {
+    const body = buildQuoteSms(sixDownlights, productQuote)
+    expect(body).toMatch(/6 fittings/)
+    expect(body).not.toMatch(/12 fittings/)
+  })
+
+  it('falls back to the MAX each-line qty, never the sum, when item_count is absent', () => {
+    const noCount = { job_type: 'downlights', caller: { name: 'Jon' }, scope: { description: '6 downlights' } }
+    const body = buildQuoteSms(noCount, productQuote)
+    expect(body).toMatch(/6 fittings/)
+    expect(body).not.toMatch(/12 fittings/)
+  })
+})
+
 // 2026-05-19 "bug zapper" fix part 3: the INFLIGHT canned hold-on used to
 // promise "your quote's nearly ready (about a minute away)" — a phrase
 // dialog.ts strips elsewhere because it's frequently a lie (recovery flow

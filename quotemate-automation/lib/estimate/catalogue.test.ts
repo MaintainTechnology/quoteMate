@@ -413,6 +413,27 @@ describe('applyChosenProduct (WP9 — chosen product gates the quote)', () => {
     expect(r.draft.better.line_items[2].source).toBe('labour')
   })
 
+  it('rewrites the stale tier label so it never contradicts the chosen product', () => {
+    // Reported 2026-05-21: Opus labelled the tier with the DEFAULT tier
+    // product ("Good — Brilliant Halo 90 9W LED") but the customer picked
+    // a different one. The SMS + /q page render the label, so the customer
+    // saw a product name that was NOT what they were quoted. The label
+    // must always follow the chosen product.
+    const draft = {
+      good: {
+        label: 'Good — Brilliant Halo 90 9W LED (warm white)',
+        line_items: [
+          { description: 'Brilliant Halo 90 9W LED', source: 'material', quantity: 6, unit: 'each', unit_price_ex_gst: 19.5, total_ex_gst: 117 },
+          { description: 'Labour', source: 'labour', quantity: 3, unit: 'hr', unit_price_ex_gst: 118, total_ex_gst: 354 },
+        ],
+      },
+    }
+    const r = applyChosenProduct(draft, chosen)
+    expect(r.draft.good.label).toBe('Black Fireflies')
+    // the invariant: label and the headline line item never disagree
+    expect(r.draft.good.label).toBe(r.draft.good.line_items[0].description)
+  })
+
   it('is a no-op for inspection drafts, no chosen, or bad price', () => {
     const d = { good: { line_items: [{ description: 'x', source: 'material', quantity: 1, unit_price_ex_gst: 1, total_ex_gst: 1 }] } }
     expect(applyChosenProduct({ needs_inspection: true, good: d.good }, chosen).applied).toEqual([])

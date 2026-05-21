@@ -1,13 +1,24 @@
-# Admin Bulk Service & Catalogue Loader — Build Spec (v3)
+# Admin Bulk Service & Catalogue Loader — Build Spec (v4)
 
 > Companion to `docs/strategy.md` **v9** (2026-05-21, "trades-as-data").
 > Strategy holds the *decision*; this holds the *build detail*.
+> **v4 (2026-05-21)** — Phase 0 build started. Foundation migrations 046-051
+> written and applied to prod. v4 corrects the §3/§5 table list: an
+> authoritative `pg_constraint` query found the trade CHECK on SEVEN tables,
+> not the four v3 named — `tenant_assembly_overrides` (which has no `trade`
+> column) was a spec typo, and `tenant_custom_assemblies`, `tenant_licences`
+> and `tenants` were missed. See migration 051's header for the corrected seven.
 > **v3 (2026-05-21)** — scopes the loader to install/job-based trades, and
 > closes 8 design findings from the v2 review: the smoke-test moves OUT of the
 > DB transaction (staging model), Phase 0 now states the prompt-router refactor
 > it implies, the exit gates are made testable, plus idempotency, rollback
 > guards, and conditional-aware prompt templates.
-> **Read §2.1 and §3 before any code. Phase 0 before Phase 1.** Status: spec only.
+> **Read §2.1 and §3 before any code. Phase 0 before Phase 1.**
+> Status: **Phase 0 COMPLETE (2026-05-21)** — migrations 046-051 applied to
+> prod; the prompt-router is data-driven (estimator / voice / SMS) with
+> byte-identical parity tests; `trade_prompts` backfilled. §13 gate green
+> (`tsc` 0, vitest 518, sms-parity 70). Phase 1 is next. See §12.1 for the
+> honest as-built notes.
 
 ---
 
@@ -57,7 +68,7 @@ and the trade is held back.
 
 | Blocker | Location | Effect if ignored |
 |---|---|---|
-| `check (trade in ('electrical','plumbing'))` | migrations 028, 031, 041 | DB rejects a new-trade row at INSERT |
+| `check (trade in (…))` — **CHECK→FK swap done, migration 051** | was on 7 tables (`pg_constraint`, 2026-05-21): `shared_assembly_bom`, `supplier_catalogue`, `tenant_assembly_bom`, `tenant_custom_assemblies`, `tenant_licences`, `tenant_material_catalogue`, `tenants` | (resolved) DB rejected a new-trade row at INSERT |
 | Estimator prompt router is binary | `lib/estimate/prompt.ts` | new trade silently gets the electrical prompt |
 | `electrical-prompt.ts` / `plumbing-prompt.ts` hand-written | `lib/estimate/` | no prompt exists for a new trade |
 | SMS dialog `SYSTEM_PROMPT` trade-scope hardcoded | `lib/sms/dialog.ts` | "We do electrical (…) and plumbing (…)", easy-5 lists, Rule 4/6/6a — new trade invisible to SMS |
@@ -107,13 +118,22 @@ Capability 1 uses only items 5–7. Capability 2 needs all 8.
   area (Finding 1).** Uploaded rows land here first; the live tables are not
   touched until the §8 commit.
 
-**Schema alterations:**
-- Drop `trade in ('electrical','plumbing')` CHECKs on `tenant_material_catalogue`,
-  `shared_assembly_bom`, `tenant_assembly_overrides`, `supplier_catalogue`;
-  replace with FK to `trades`.
-- `shared_assemblies.category` → FK to `categories`.
-- `shared_assemblies` ADD `retired_at timestamptz` (soft-delete; §11).
-- Backfill `trades` + `categories` before dropping any constraint.
+**Schema alterations (migration 051 — APPLIED 2026-05-21):**
+- Dropped the `trade in ('electrical','plumbing')` CHECK on the **7 tables that
+  actually carried it** (`pg_constraint` query, 2026-05-21) and replaced each
+  with an FK to `trades(name)`: `shared_assembly_bom`, `supplier_catalogue`,
+  `tenant_assembly_bom`, `tenant_custom_assemblies`, `tenant_licences`,
+  `tenant_material_catalogue`, `tenants`. The v3 4-table list was wrong — it
+  named `tenant_assembly_overrides` (no `trade` column) and missed
+  `tenant_custom_assemblies`, `tenant_licences`, and `tenants` (without
+  `tenants` a new trade could not have a tenant).
+- `shared_assemblies` ADD `retired_at timestamptz` (soft-delete; §11) — done.
+- **DEFERRED:** `shared_assemblies.category` → FK to `categories`. `categories`
+  has a composite unique key `(trade_id, name)`, so a hard FK from the bare
+  `category` text column needs a `category_id` column + backfill first. §9
+  Rule 1 (category validated against `categories`) is met by loader-layer
+  validation; a hard DB FK can follow later. Documented, not silent.
+- Backfill `trades` + `categories` ran in migrations 046 / 047 before 051.
 
 **Code refactor in Phase 0 (Finding 2 — this is NOT just schema):**
 - `lib/estimate/prompt.ts` — from `if plumbing … else electrical` to: load the
@@ -322,7 +342,7 @@ trade in `trades[]` but no `pricing_book` row.
 
 | # | Phase | Scope | Money-path | Exit gate |
 |---|---|---|---|---|
-| 0 | Foundation: 6 new tables + `retired_at`; swap CHECKs for FKs; backfill; admin role; **AND the prompt-router refactor** of `lib/estimate/prompt.ts`, `lib/sms/dialog.ts`, `lib/vapi/provision.ts` to read `trade_prompts`; migrate electrical/plumbing prompt text into rows | schema + 3-path code refactor (migrations 046+) | no | the estimator / SMS / Voice **system-prompt strings are byte-identical** before vs after (string-equality test); §13 suites green |
+| 0 | **[DONE 2026-05-21 — see §12.1]** Foundation: 6 new tables + `retired_at`; swap CHECKs for FKs; backfill; admin role; **AND the prompt-router refactor** of `lib/estimate/prompt.ts`, `lib/sms/dialog.ts`, `lib/vapi/provision.ts` to read `trade_prompts`; migrate electrical/plumbing prompt text into rows | schema + 3-path code refactor (migrations 046+) | no | the estimator / SMS / Voice **system-prompt strings are byte-identical** before vs after (string-equality test); §13 suites green |
 | 1 | Capability 1 — admin loader for existing trades: upload, staging, validation, preview, manual-add, smoke-test, commit transaction, audit/rollback | none | indirect | bulk-add 5 test services, verify, roll the batch back cleanly |
 | 2 | Capability 2 — new trades: prompt-pack authoring UI, Categories + Materials CSVs, trade-defaults, §10 activation flow, §2.1 gate | none | yes | a real install-type new trade quotes correctly end-to-end and the Voice agent speaks it |
 | 3 | Supplier Catalogue CSV loader + trade-specific catalogue UI | none (041/042 shipped) | no | parallel to Phase 1 OK |
@@ -331,6 +351,47 @@ Each phase is independently shippable. **Never start Phase 1 before Phase 0's
 exit gate is green.** Phase 0 is the only phase that touches shared live code;
 its byte-identical-prompt gate is what guarantees it does not change behaviour.
 The loader itself (Phases 1-3) never touches a live table until §8 step 8.
+
+### 12.1 Phase 0 — as built (2026-05-21)
+
+Honest record of what shipped vs. what §5 envisioned. Gate green: `tsc` 0,
+vitest 518, `test-sms-parity` 70.
+
+- **Schema** — migrations 046-051 applied to prod: `trades`, `categories`,
+  `trade_prompts`, `trade_pricing_defaults`, `import_batches`,
+  `import_staged_rows`, `admin_users`; `shared_assemblies.retired_at`; the
+  trade CHECK→FK swap on the **7** tables (§3/§5, corrected from 4).
+- **Prompt-template engine** — `lib/prompt-template/render.ts`: `{{value}}`,
+  `{{#if}}/{{else}}/{{/if}}`, and one `{{markup N}}` helper (plumbing's
+  21-row price table needs the arithmetic). Fails loud on a missing
+  placeholder. 18 unit tests.
+- **Estimator** — *as spec'd.* `lib/estimate/prompt.ts` loads
+  `trade_prompts.estimator_system_prompt`, renders it, and falls back
+  bundled-template → oracle module so electrical/plumbing can never break.
+  Templates in `lib/estimate/prompt-templates/`; context in
+  `prompt-context.ts`. 16 parity tests prove byte-identical vs the oracle on
+  both paths × 4 pricing books. `trade_prompts` rows backfilled
+  (`scripts/backfill-trade-prompts.mts`).
+- **Voice** — `provision.ts` + `update-assistant.ts` now share
+  `lib/vapi/voice-prompt.ts` (was duplicated verbatim); trade types widened
+  `'electrical'|'plumbing'` → `string` (the real §3 voice blocker). A
+  `VoicePromptOverride` param is the `trade_prompts.voice_*` hook. The voice
+  prompt is pure composition from trade names — there is no per-trade prose
+  to migrate — so electrical/plumbing have **no** `voice_*` rows and the
+  voice DB-read is deferred to Phase 2 (when a new trade needs bespoke voice
+  text). 9 pinned tests.
+- **SMS** — *lighter than §5 envisioned, deliberately.* `tradeScopeDirective`
+  feeds the dialog's **user message**, not the system prompt (the SMS system
+  prompt is the untouched `SYSTEM_PROMPT` const — trivially byte-identical).
+  Its trade type was widened to `string` and a **new-trade branch** added:
+  a non-pilot trade now gets a real directive that defers the in-scope job
+  list to the TENANT CUSTOM SERVICES block (§6.4) instead of the old
+  degenerate "assume both pilots" fallback. The electrical/plumbing/both
+  branches are **unchanged code** (byte-identical, pinned by 7 tests). The §5
+  idea of composing pilot scope text from `sms_scope_blurb`/`sms_trade_rules`
+  was **not** done — a byte-identical general-composer rewrite on the live
+  SMS agent was higher risk than value, and the pilot text is not the system
+  prompt. Those columns stay empty until a Phase 2 reader needs them.
 
 ---
 

@@ -44,7 +44,8 @@ function happyProvisioners() {
     vapi: vi.fn(async (_opts: {
       tenantId: string
       businessName: string
-      trade: 'electrical' | 'plumbing'
+      trade: string
+      trades?: string[]
       phoneNumber?: string
     }) => ({
       ok: true as const,

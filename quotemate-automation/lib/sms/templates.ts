@@ -105,7 +105,7 @@ export function buildQuoteUpdatedSms(intake: Intake, quote: Quote): string {
 
     const label = tierLabel(tier)
     if (label) lines.push(`- ${label}`)
-    const comps = tierComponents(tier, intake.job_type)
+    const comps = tierComponents(tier, intake.job_type, intake.scope?.item_count)
     if (comps) lines.push(`- ${comps}`)
 
     const payUrl = quote.pay_links?.[key]
@@ -625,14 +625,25 @@ function incGst(exGstCents: number | string): number {
   return Math.round(n * 1.10)
 }
 
-function tierComponents(tier: Tier, jobType?: string | null): string {
+function tierComponents(tier: Tier, jobType?: string | null, itemCount?: number | null): string {
   if (!tier?.line_items?.length) return ''
   const labourHrs = tier.line_items
     .filter((li) => li.unit === 'hr')
     .reduce((sum, li) => sum + (li.quantity ?? 0), 0)
-  const fittingCount = tier.line_items
+  // Fixture count = how many units are being installed. intake.scope.item_count
+  // is the source of truth. NEVER sum every unit='each' line: a fixture-install
+  // job carries a separate product line AND a per-fixture install-kit line,
+  // both unit='each' at the same quantity — summing them double-counts
+  // (6 downlights -> product 6 + install-kit 6 -> "12 fittings", the bug).
+  // When item_count is absent, fall back to the MAX 'each' quantity, never
+  // the sum.
+  const eachQtys = tier.line_items
     .filter((li) => li.unit === 'each')
-    .reduce((sum, li) => sum + (li.quantity ?? 0), 0)
+    .map((li) => li.quantity ?? 0)
+  const fittingCount =
+    typeof itemCount === 'number' && itemCount > 0
+      ? itemCount
+      : (eachQtys.length ? Math.max(...eachQtys) : 0)
   // Trade-aware noun: electrical jobs install discrete "fittings"
   // (downlights, GPOs, fans, alarms). Plumbing jobs are mostly callouts
   // with one or two assembly + sundries items, so "fittings" reads as
@@ -723,7 +734,7 @@ export function buildQuoteSms(intake: Intake, quote: Quote): string {
 
     const label = tierLabel(tier)
     if (label) lines.push(`- ${label}`)
-    const comps = tierComponents(tier, intake.job_type)
+    const comps = tierComponents(tier, intake.job_type, intake.scope?.item_count)
     if (comps) lines.push(`- ${comps}`)
 
     const payUrl = quote.pay_links?.[key]

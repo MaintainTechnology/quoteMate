@@ -135,8 +135,9 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
     messages: [
       {
         role: 'system',
-        // v5 multi-trade: router picks electrical vs plumbing prompt by intake.trade
-        content: systemPrompt(intake, pricingBook),
+        // Data-driven router: loads the trade's trade_prompts template
+        // (bundled-template + oracle fallback). See lib/estimate/prompt.ts.
+        content: await systemPrompt(intake, pricingBook),
         providerOptions: {
           anthropic: { cacheControl: { type: 'ephemeral' } },
         },
