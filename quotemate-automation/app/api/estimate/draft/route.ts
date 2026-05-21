@@ -17,6 +17,10 @@ import { computePriceHoldUntil } from '@/lib/quote/hold'
 import { generatePreviewImage } from '@/lib/preview/generate'
 import { generateSampleImages } from '@/lib/preview/samples'
 import { resolvePricingBookForIntake } from '@/lib/estimate/pricing-book'
+import {
+  earlyBirdConfigFromOverlays,
+  computeEarlyBirdOffer,
+} from '@/lib/quote/early-bird'
 
 export const maxDuration = 300
 
@@ -69,7 +73,7 @@ export async function POST(req: Request) {
     if (!bookResolution.ok) {
       // Hard rule fired. We CANNOT price this job (no pricing book that
       // provably belongs to this tenant). Do not call the estimator, do
-      // not borrow another tradie's numbers — route straight to the $199
+      // not borrow another tradie's numbers — route straight to the $99
       // inspection with the reason persisted on the quote and logged so
       // the misconfigured tenant is visible instead of silently wrong.
       log.err('WP1: pricing_book did not resolve for this tenant — routing to inspection', null, {
@@ -157,7 +161,7 @@ export async function POST(req: Request) {
       // and SKIP the estimator entirely. There is nothing to price against;
       // calling the LLM here would only invite a hallucinated number the
       // grounding validator would reject anyway. Tiers are nulled; the
-      // downstream inspection path forces the $199 total.
+      // downstream inspection path forces the $99 total.
       estimation = {
         draft: {
           needs_inspection: true,
@@ -242,11 +246,11 @@ export async function POST(req: Request) {
     // Two pricing paths — totals diverge based on the inspection branch.
     //   AUTO-QUOTE: total = selected (better) tier inc GST, deposit_pct from
     //               pricing_book, real DB-grounded numbers throughout.
-    //   INSPECTION: total = $199 inc GST (the only chargeable amount); all
+    //   INSPECTION: total = $99 inc GST (the only chargeable amount); all
     //               three tiers FORCED to null, even if Opus tried to hand
     //               us indicative numbers (defence-in-depth against
     //               LLM hallucination — STRICT GROUNDING #10).
-    const INSPECTION_TOTAL_INC_GST = 199
+    const INSPECTION_TOTAL_INC_GST = 99
     const INSPECTION_GST_AMOUNT = +(INSPECTION_TOTAL_INC_GST / 11).toFixed(2)
     const INSPECTION_SUBTOTAL_EX_GST = +(INSPECTION_TOTAL_INC_GST - INSPECTION_GST_AMOUNT).toFixed(2)
 
@@ -346,9 +350,51 @@ export async function POST(req: Request) {
     }).select().single()
     log.ok('quote inserted', { quote_id: quote!.id, total_inc_gst: total, routing: routing_decision, inspection: isInspection, share_token: shareToken.slice(0, 8) + '…' })
 
+    // v8 Phase A — stamp the early-booking discount offer.
+    //
+    // Best-effort SEPARATE update (NOT part of the insert above): the
+    // four early_bird_* columns land via migration 044, and a draft must
+    // never fail because that migration hasn't been applied yet — same
+    // defensive pattern the Stripe webhook uses for booking_state.
+    //
+    // Only auto-quotes get an offer: inspection-required quotes are
+    // pay-first ($99 site visit) and never flow through the book-first
+    // funnel, so an early-booking discount has nothing to attach to.
+    // The offer is read from THIS tenant's pricing_book.overlays — a
+    // zero-config tenant (no early_bird overlay) simply gets no offer.
+    if (!isInspection) {
+      const ebConfig = earlyBirdConfigFromOverlays(
+        (pricingBook as { overlays?: unknown } | null)?.overlays,
+      )
+      const offer = computeEarlyBirdOffer(
+        ebConfig,
+        (quote!.created_at as string | null) ?? new Date().toISOString(),
+      )
+      if (offer) {
+        const { error: ebErr } = await supabase
+          .from('quotes')
+          .update({
+            early_bird_discount_pct: offer.discountPct,
+            early_bird_expires_at: offer.expiresAt,
+          })
+          .eq('id', quote!.id)
+        if (ebErr) {
+          log.err('early-bird offer stamp skipped (non-fatal — apply migration 044)', ebErr.message, {
+            quote_id: quote!.id,
+          })
+        } else {
+          log.ok('early-bird offer stamped', {
+            quote_id: quote!.id,
+            discount_pct: offer.discountPct,
+            expires_at: offer.expiresAt,
+          })
+        }
+      }
+    }
+
     // Create Stripe Checkout Session(s). Two distinct paths:
     //   • auto-quote → 3 Sessions (one per tier, deposit only)
-    //   • inspection-required → 1 Session for the $199 site-visit fee
+    //   • inspection-required → 1 Session for the $99 site-visit fee
     // If creation fails for any reason we log + continue without links — the
     // quote is still saved; SMS will go without pay buttons rather than failing.
     let payLinks: Partial<Record<'good' | 'better' | 'best' | 'inspection', string>> | undefined
@@ -381,7 +427,7 @@ export async function POST(req: Request) {
         log.err('Stripe session creation failed — SMS will go without pay links', e?.message ?? e)
       }
     } else {
-      log.step('creating Stripe Checkout Session for $199 site-visit deposit (inspection-required path)')
+      log.step('creating Stripe Checkout Session for $99 site-visit deposit (inspection-required path)')
       try {
         const inspectionUrl = await createInspectionCheckoutSession({
           quoteId: quote!.id,

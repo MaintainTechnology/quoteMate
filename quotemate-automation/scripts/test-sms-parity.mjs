@@ -159,8 +159,8 @@ describe("buildQuoteSms — inspection-required customer message", () => {
   it("includes the View full quote URL", () => {
     assert.match(body, /View full quote: https:\/\/quote-mate-rho\.vercel\.app\/q\/xyz789/);
   });
-  it("includes the $199 inspection link", () => {
-    assert.match(body, /Tap to lock in your site visit \(\$199 refundable/);
+  it("includes the $99 inspection link", () => {
+    assert.match(body, /Tap to lock in your site visit \(\$99 refundable/);
     assert.match(body, /https:\/\/quote-mate-rho\.vercel\.app\/r\/xyz789\/inspection/);
   });
   it("does NOT show fabricated tier numbers", () => {
@@ -221,7 +221,7 @@ describe("buildTradieInspectionNotification — Phase 4 / inspection variant", (
 
   // NOTE: realigned 2026-05-18 (WP6, Option B) — stale vs. the current
   // intended buildTradieInspectionNotification wording ("Hi, <first> has
-  // requested work that needs a site visit ... $199 inspection. Details:
+  // requested work that needs a site visit ... $99 inspection. Details:
   // <url>"). Updated to match the templates (source of truth).
   it("leads with a greeting + the customer's first name", () => {
     assert.match(body, /^Hi, Mike has requested work that needs a site visit\b/);
@@ -229,8 +229,8 @@ describe("buildTradieInspectionNotification — Phase 4 / inspection variant", (
   it("flags it as needing a site visit", () => {
     assert.match(body, /needs a site visit/);
   });
-  it("includes the $199 inspection anchor", () => {
-    assert.match(body, /\$199 inspection\b/);
+  it("includes the $99 inspection anchor", () => {
+    assert.match(body, /\$99 inspection\b/);
   });
   it("includes the customer-facing quote URL", () => {
     assert.match(body, /Details: https:\/\/quote-mate-rho\.vercel\.app\/q\/xyz789/);
@@ -393,7 +393,7 @@ describe("TurnDecisionSchema — Zod-validated dialog output", () => {
     const ok = dialog.TurnDecisionSchema.safeParse({
       action: "escalate_inspection",
       job_type_guess: "unknown",
-      reply_to_send: "Thanks - I'll send a sparky for a quick look. Want a $199 inspection?",
+      reply_to_send: "Thanks - I'll send a sparky for a quick look. Want a $99 inspection?",
       assumptions_made: [],
       ready_for_intake: false,
       reason_for_escalation: "switchboard work",

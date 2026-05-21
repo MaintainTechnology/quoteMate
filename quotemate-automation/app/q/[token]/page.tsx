@@ -23,6 +23,12 @@ import { PreviewSection } from './PreviewSection'
 import TradieEditor from './TradieEditor'
 import { computePriceHoldUntil, priceHoldStatus, fmtHoldUntilAU } from '@/lib/quote/hold'
 import { advanceQuoteStatus } from '@/lib/quote/lifecycle'
+import {
+  earlyBirdStatus,
+  applyEarlyBirdDiscount,
+  fmtEarlyBirdDeadlineAU,
+  fmtEarlyBirdRemaining,
+} from '@/lib/quote/early-bird'
 
 export const dynamic = 'force-dynamic'
 
@@ -105,6 +111,26 @@ export default async function PublicQuotePage(props: {
     .maybeSingle()
 
   if (!quote) notFound()
+
+  // v8 Phase A — early-booking discount. SEPARATE best-effort select so
+  // a pre-migration-044 deploy (columns absent) returns an error row
+  // rather than 500-ing this public page — supabase-js yields data:null
+  // on a missing column, which simply leaves the offer at zero.
+  let ebDiscountPct = 0
+  let ebExpiresAt: string | null = null
+  let ebAppliedPct = 0
+  {
+    const { data: eb } = await supabase
+      .from('quotes')
+      .select('early_bird_discount_pct, early_bird_expires_at, applied_discount_pct')
+      .eq('id', quote.id)
+      .maybeSingle()
+    if (eb) {
+      ebDiscountPct = Number(eb.early_bird_discount_pct ?? 0)
+      ebExpiresAt = (eb.early_bird_expires_at as string | null) ?? null
+      ebAppliedPct = Number(eb.applied_discount_pct ?? 0)
+    }
+  }
 
   // v5 multi-trade: must fetch intake before pricing_book so we can filter
   // pricing_book by intake.trade. Without this filter the .maybeSingle()
@@ -317,6 +343,14 @@ export default async function PublicQuotePage(props: {
   const hold = priceHoldStatus(effectiveHoldUntil)
   const showHoldBanner = !isPaid && !isInspection && hold.state !== 'none'
 
+  // v8 — early-booking discount. `ebApplied` once the customer booked
+  // in time → tier prices render discounted. Otherwise, while the offer
+  // is still live and unpaid, advertise the countdown so they book now.
+  const ebStatus = earlyBirdStatus(ebDiscountPct, ebExpiresAt)
+  const ebApplied = ebAppliedPct > 0
+  const showEarlyBirdOffer =
+    !isPaid && !isInspection && !ebApplied && ebStatus.state === 'live'
+
   const tierCount = ([quote.good, quote.better, quote.best].filter(Boolean) as Tier[]).length
 
   return (
@@ -401,7 +435,7 @@ export default async function PublicQuotePage(props: {
 
           <p className="mt-5 max-w-2xl text-base leading-relaxed text-text-sec sm:text-lg">
             {isInspection ? (
-              <>This job needs a quick on-site visit before a real price can be locked in. The visit is <span className="font-semibold text-accent">$199</span> — refundable, credited toward your final quote.</>
+              <>This job needs a quick on-site visit before a real price can be locked in. The visit is <span className="font-semibold text-accent">$99</span> — refundable, credited toward your final quote.</>
             ) : tierCount === 1 ? (
               <>One option below — price includes 10% GST. Tap to lock it in with a {depositPct ?? 30}% deposit.</>
             ) : (
@@ -418,6 +452,18 @@ export default async function PublicQuotePage(props: {
 
         {/* ─── WP6 · Price-hold / urgency banner ─────────── */}
         {showHoldBanner ? <PriceHoldBanner hold={hold} depositPct={depositPct ?? 30} /> : null}
+
+        {/* ─── v8 · Early-booking discount banner ────────── */}
+        {showEarlyBirdOffer ? (
+          <EarlyBirdBanner
+            discountPct={ebStatus.discountPct}
+            remaining={fmtEarlyBirdRemaining(ebStatus)}
+            deadline={fmtEarlyBirdDeadlineAU(ebStatus.expiresAt)}
+          />
+        ) : null}
+        {ebApplied && !isInspection ? (
+          <EarlyBirdAppliedBanner discountPct={ebAppliedPct} />
+        ) : null}
 
         {/* ─── Scope of works ────────────────────────────── */}
         {quote.scope_of_works ? (
@@ -439,7 +485,7 @@ export default async function PublicQuotePage(props: {
             Renders for BOTH auto-priced and inspection-required quotes.
             For inspection-only flows, the visuals still help the customer
             picture the proposed install before the on-site visit. The
-            $199 booking CTA still dominates below — see InspectionBlock. */}
+            $99 booking CTA still dominates below — see InspectionBlock. */}
         <PreviewSection
           shareToken={token}
           initialPreviewStatus={previewStatus}
@@ -478,6 +524,7 @@ export default async function PublicQuotePage(props: {
                     recommended={quote.selected_tier === key}
                     link={stripeLinks[key] ? `/r/${token}/${key}` : null}
                     depositPct={depositPct}
+                    appliedDiscountPct={ebApplied ? ebAppliedPct : 0}
                     paid={isPaid && quote.paid_tier === key}
                     disabled={isPaid && quote.paid_tier !== key}
                     jobType={intake?.job_type ?? null}
@@ -590,7 +637,7 @@ export default async function PublicQuotePage(props: {
           {isPaid
             ? 'Deposit received — your tradie will be in touch'
             : isInspection
-            ? '$199 site visit · refundable, credited to your final quote'
+            ? '$99 site visit · refundable, credited to your final quote'
             : `Lock in your option · ${depositPct ?? 30}% deposit`}
         </span>
       </div>
@@ -762,6 +809,63 @@ function PriceHoldBanner({
   )
 }
 
+// v8 — early-booking discount advert. Shown pre-booking while the offer
+// is live: a countdown that nudges the customer to lock a time in today.
+// The discount is realised server-side when they pick a slot before the
+// deadline (see /api/q/[token]/book).
+function EarlyBirdBanner({
+  discountPct,
+  remaining,
+  deadline,
+}: {
+  discountPct: number
+  remaining: string
+  deadline: string
+}) {
+  return (
+    <section className="mt-8 bg-accent/10 border border-accent/50 p-5 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-accent mb-1">
+            Early-booking discount · {remaining}
+          </div>
+          <p className="text-sm leading-relaxed text-text-sec sm:text-base">
+            Book your job in now and{' '}
+            <span className="font-semibold text-text-pri">save {discountPct}%</span> off
+            the total — the discount locks in when you pick a time
+            {deadline ? (
+              <>
+                {' '}before <span className="font-semibold text-text-pri">{deadline}</span>
+              </>
+            ) : null}
+            .
+          </p>
+        </div>
+        <span className="font-mono text-[0.6rem] uppercase tracking-[0.15em] bg-accent text-white px-2.5 py-1 font-bold shrink-0">
+          Save {discountPct}%
+        </span>
+      </div>
+    </section>
+  )
+}
+
+// v8 — shown once the customer has booked in time and earned the
+// discount. Confirms the saving; the tier cards now render discounted.
+function EarlyBirdAppliedBanner({ discountPct }: { discountPct: number }) {
+  return (
+    <section className="mt-8 bg-success/10 border border-success/40 p-5 sm:p-6">
+      <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-[#34d399] mb-1">
+        Early-booking discount locked in
+      </div>
+      <p className="text-sm leading-relaxed text-text-sec sm:text-base">
+        Nice one — you booked in time. Your{' '}
+        <span className="font-semibold text-text-pri">{discountPct}% discount</span> is
+        applied to the prices below.
+      </p>
+    </section>
+  )
+}
+
 function NumberedSection({
   number,
   title,
@@ -806,6 +910,7 @@ function TierCard({
   recommended,
   link,
   depositPct,
+  appliedDiscountPct,
   paid,
   disabled,
   jobType,
@@ -816,12 +921,20 @@ function TierCard({
   recommended: boolean
   link: string | null
   depositPct: number | null
+  /** v8 — realised early-booking discount %. 0 = no discount. When > 0
+   *  the card shows the original price struck through next to the
+   *  discounted total, and the deposit CTA charges the discounted amount. */
+  appliedDiscountPct: number
   paid: boolean
   disabled: boolean
   jobType: string | null
 }) {
   if (!tier) return null
-  const totalIncGst = incGst(tier.subtotal_ex_gst)
+  const fullIncGst = incGst(tier.subtotal_ex_gst)
+  const discounted = appliedDiscountPct > 0
+  const totalIncGst = discounted
+    ? applyEarlyBirdDiscount(fullIncGst, appliedDiscountPct)
+    : fullIncGst
   const dep = deposit(totalIncGst, depositPct)
   const cleanLabel = (tier.label ?? '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
   const photo = getTierPhoto(jobType, keyName)
@@ -875,11 +988,16 @@ function TierCard({
             </div>
           </div>
           <div className="text-right shrink-0">
+            {discounted ? (
+              <div className="font-mono text-sm text-text-dim line-through">
+                ${fmt(fullIncGst)}
+              </div>
+            ) : null}
             <div className="text-text-pri font-extrabold tracking-tight text-2xl sm:text-3xl">
               ${fmt(totalIncGst)}
             </div>
             <div className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-text-dim mt-0.5">
-              inc GST
+              {discounted ? `inc GST · ${appliedDiscountPct}% off` : 'inc GST'}
             </div>
           </div>
         </div>
@@ -995,7 +1113,7 @@ function InspectionBlock({
         ) : null}
 
         <div className="mt-7 flex items-baseline gap-3">
-          <span className="text-text-pri font-extrabold tracking-tight text-4xl sm:text-5xl">$199</span>
+          <span className="text-text-pri font-extrabold tracking-tight text-4xl sm:text-5xl">$99</span>
           <span className="text-sm text-text-sec">
             refundable site visit · credited toward your final quote
           </span>
@@ -1013,7 +1131,7 @@ function InspectionBlock({
               href={`/r/${shareToken}/inspection`}
               className="block bg-accent hover:bg-accent-press text-white px-5 py-4 text-center transition-colors font-mono text-xs sm:text-sm uppercase tracking-[0.15em] font-bold"
             >
-              Lock in your site visit · $199 →
+              Lock in your site visit · $99 →
             </a>
           ) : (
             <div className="bg-ink-deep border border-ink-line px-5 py-4 text-center">

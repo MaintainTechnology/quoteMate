@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuoteMate · How the pricing works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-deep:#0A1628; --ink:#131C2D; --ink-card:#1A2332; --ink-line:#2A3548;
+    --accent:#FF5A1F; --text-pri:#FFFFFF; --text-sec:#C2CCDA; --text-dim:#8895A8;
+    --teal:#14B8A6; --ai:#FF7A45; --violet:#A78BFA; --amber:#FBBF24;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:'Manrope',-apple-system,system-ui,sans-serif;
+    background:var(--ink-deep); color:var(--text-sec);
+    line-height:1.6; padding:3rem 1.5rem 4rem; -webkit-font-smoothing:antialiased;
+    font-size:16px;
+  }
+  .wrap { max-width:900px; margin:0 auto; }
+
+  .eyebrow {
+    font-family:'JetBrains Mono',monospace; font-size:0.78rem; font-weight:600;
+    letter-spacing:0.14em; text-transform:uppercase; color:var(--text-dim);
+  }
+  h1 {
+    font-size:clamp(2.1rem,5vw,3rem); font-weight:800; letter-spacing:-0.035em;
+    line-height:1.05; color:var(--text-pri); text-transform:uppercase; margin:0.9rem 0;
+  }
+  h1 .o { color:var(--accent); }
+  .lede { font-size:1.13rem; max-width:64ch; }
+
+  hr { border:0; height:1px; background:var(--ink-line); margin:2.8rem 0; }
+
+  .sec-num {
+    font-family:'JetBrains Mono',monospace; font-size:0.8rem; font-weight:600;
+    letter-spacing:0.12em; text-transform:uppercase; color:var(--accent);
+  }
+  h2 {
+    font-size:1.5rem; font-weight:800; letter-spacing:-0.02em;
+    color:var(--text-pri); text-transform:uppercase; margin:0.45rem 0 1rem;
+  }
+  .sec-intro { margin-bottom:1.3rem; font-size:1.02rem; max-width:68ch; }
+  p { font-size:1rem; }
+
+  /* honest-answer panel */
+  .answer {
+    background:linear-gradient(135deg,rgba(255,90,31,0.10),rgba(167,139,250,0.06));
+    border:1px solid var(--ink-line); border-left:3px solid var(--accent);
+    padding:1.7rem 1.9rem;
+  }
+  .answer .head {
+    font-size:1.28rem; font-weight:800; color:var(--text-pri);
+    letter-spacing:-0.015em; line-height:1.4;
+  }
+  .answer .body { font-size:1.04rem; margin-top:0.8rem; }
+  .answer strong { color:var(--text-pri); }
+
+  /* diagram frame */
+  .diagram {
+    background:var(--ink-card); border:1px solid var(--ink-line);
+    padding:1.5rem; margin:1.5rem 0;
+  }
+  .diagram svg { width:100%; height:auto; display:block; }
+  .diagram-cap {
+    font-family:'JetBrains Mono',monospace; font-size:0.76rem; font-weight:600;
+    letter-spacing:0.1em; text-transform:uppercase; color:var(--text-dim);
+    margin-bottom:1.1rem;
+  }
+
+  /* engine cards */
+  .engine {
+    background:var(--ink-card); border:1px solid var(--ink-line);
+    padding:1rem 1.3rem; margin-bottom:0.75rem; border-left:3px solid var(--ink-line);
+  }
+  .engine.ai { border-left-color:var(--ai); }
+  .engine.check { border-left-color:var(--violet); }
+  .engine.comm { border-left-color:var(--text-dim); }
+  .engine .tag {
+    font-family:'JetBrains Mono',monospace; font-size:0.74rem; font-weight:600;
+    letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);
+  }
+  .engine.ai .tag { color:var(--ai); }
+  .engine.check .tag { color:var(--violet); }
+  .engine h3 { font-size:1.08rem; font-weight:800; color:var(--text-pri); margin:0.15rem 0 0.3rem; }
+  .engine p { font-size:0.98rem; }
+
+  /* breakdown table */
+  .tbl-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:0.98rem; min-width:560px; }
+  th, td { text-align:left; padding:0.75rem 0.85rem; border-bottom:1px solid var(--ink-line); vertical-align:top; }
+  th {
+    font-family:'JetBrains Mono',monospace; font-size:0.74rem; font-weight:600;
+    letter-spacing:0.05em; text-transform:uppercase; color:var(--text-dim);
+  }
+  td b { color:var(--text-pri); font-weight:700; }
+  .pill {
+    font-family:'JetBrains Mono',monospace; font-size:0.7rem; font-weight:600;
+    letter-spacing:0.03em; padding:0.22rem 0.5rem; text-transform:uppercase;
+    color:#06121f; white-space:nowrap; display:inline-block;
+  }
+  .pill.db { background:var(--teal); }
+  .pill.ai { background:var(--ai); }
+  .pill.part { background:var(--amber); }
+  .cell-note { display:block; margin-top:0.3rem; font-size:0.92rem; color:var(--text-sec); }
+
+  /* two columns */
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  @media (max-width:620px){ .two { grid-template-columns:1fr; } }
+  .card {
+    background:var(--ink-card); border:1px solid var(--ink-line); padding:1.3rem 1.4rem;
+  }
+  .card.good { border-top:3px solid var(--teal); }
+  .card.limit { border-top:3px solid var(--amber); }
+  .card .label {
+    font-family:'JetBrains Mono',monospace; font-size:0.74rem; font-weight:600;
+    letter-spacing:0.07em; text-transform:uppercase; margin-bottom:0.65rem; display:block;
+  }
+  .card.good .label { color:var(--teal); }
+  .card.limit .label { color:var(--amber); }
+  .card h3 { font-size:1.08rem; font-weight:800; color:var(--text-pri); margin-bottom:0.55rem; }
+  .card ul { list-style:none; }
+  .card li {
+    padding:0.45rem 0 0.45rem 1.1rem; position:relative; font-size:0.97rem;
+    border-bottom:1px solid var(--ink-line);
+  }
+  .card li:last-child { border-bottom:0; }
+  .card li::before { content:"–"; position:absolute; left:0; color:var(--text-dim); }
+
+  .note { font-size:1rem; margin-top:1.1rem; }
+  .note b { color:var(--text-pri); }
+
+  .closing {
+    background:var(--accent); color:#06121f; text-align:center; padding:1.05rem 1.4rem;
+    font-family:'JetBrains Mono',monospace; font-size:0.86rem; font-weight:600;
+    letter-spacing:0.04em; text-transform:uppercase; margin-top:3rem;
+  }
+  .foot { font-size:0.86rem; color:var(--text-dim); margin-top:1.3rem; }
+
+  /* worked-scenario walkthrough */
+  .walk-step { margin-bottom:1.4rem; }
+  .walk-head { display:flex; align-items:center; gap:0.7rem; margin-bottom:0.7rem; flex-wrap:wrap; }
+  .walk-num {
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:1rem;
+    width:32px; height:32px; flex-shrink:0; background:var(--accent); color:#06121f;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .walk-head h3 {
+    font-size:1.08rem; font-weight:800; color:var(--text-pri);
+    text-transform:uppercase; letter-spacing:-0.01em;
+  }
+  .walk-tag {
+    margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:0.7rem;
+    font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
+    padding:0.25rem 0.55rem; border:1px solid var(--ink-line); color:var(--text-dim);
+  }
+  .walk-tag.ai { color:var(--ai); border-color:rgba(255,122,69,0.45); }
+  .walk-tag.check { color:var(--violet); border-color:rgba(167,139,250,0.45); }
+  .walk-body {
+    background:var(--ink-card); border:1px solid var(--ink-line); padding:1.2rem 1.3rem;
+  }
+  .walk-body > p { font-size:0.98rem; }
+  .walk-body > p.after { margin-top:0.9rem; color:var(--text-dim); }
+  .walk-body b { color:var(--text-pri); }
+
+  .chat { display:flex; flex-direction:column; gap:0.5rem; }
+  .bubble { max-width:84%; padding:0.6rem 0.9rem; font-size:0.98rem; }
+  .bubble .who {
+    font-family:'JetBrains Mono',monospace; font-size:0.66rem; font-weight:600;
+    letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);
+    display:block; margin-bottom:0.18rem;
+  }
+  .bubble.cust { align-self:flex-start; background:var(--ink); border:1px solid var(--ink-line); }
+  .bubble.bot {
+    align-self:flex-end; background:rgba(255,90,31,0.13);
+    border:1px solid rgba(255,90,31,0.32); color:var(--text-pri);
+  }
+
+  .codeblock, .ledger {
+    background:#0B1320; border:1px solid var(--ink-line); padding:1rem 1.15rem;
+    overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:0.86rem;
+    line-height:1.7; color:var(--text-sec); white-space:pre; margin:0.6rem 0;
+  }
+  .codeblock .k { color:#5FD0C4; }
+  .codeblock .s { color:#FF9D6B; }
+  .codeblock .n { color:#A78BFA; }
+  .ledger .call { color:var(--ai); }
+  .ledger .db { color:var(--teal); }
+  .ledger .dim { color:#67748A; }
+
+  .li { width:100%; border-collapse:collapse; font-size:0.92rem; margin:0.6rem 0; }
+  .li th, .li td { padding:0.55rem 0.6rem; border-bottom:1px solid var(--ink-line); text-align:left; }
+  .li th {
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:0.04em;
+    color:var(--text-dim); text-transform:uppercase;
+  }
+  .li td.num { text-align:right; font-family:'JetBrains Mono',monospace; white-space:nowrap; }
+  .li .src { display:block; font-size:0.84rem; color:var(--text-dim); margin-top:0.2rem; }
+  .li tr.sub td { border-bottom:0; font-weight:700; color:var(--text-pri); padding-top:0.65rem; }
+
+  .verify { list-style:none; font-size:0.98rem; margin:0.5rem 0; }
+  .verify li { padding:0.42rem 0 0.42rem 1.6rem; position:relative; }
+  .verify li .tick { position:absolute; left:0; color:var(--teal); font-weight:700; font-size:1.05rem; }
+
+  .tiers { display:grid; grid-template-columns:repeat(3,1fr); gap:0.7rem; margin:0.6rem 0; }
+  @media (max-width:620px){ .tiers { grid-template-columns:1fr; } }
+  .tier { background:var(--ink); border:1px solid var(--ink-line); padding:0.95rem 1rem; }
+  .tier .tn {
+    font-family:'JetBrains Mono',monospace; font-size:0.74rem; font-weight:600;
+    letter-spacing:0.09em; text-transform:uppercase; color:var(--teal);
+  }
+  .tier .td2 { font-size:0.92rem; margin:0.32rem 0 0.5rem; }
+  .tier .tp { font-size:1.3rem; font-weight:800; color:var(--text-pri); }
+  .tier .tx { font-size:0.8rem; color:var(--text-dim); font-family:'JetBrains Mono',monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">QuoteMate · Pricing transparency</span>
+    <h1>How QuoteMate <span class="o">prices</span> a job</h1>
+    <p class="lede">
+      How a quote is built — from the customer's call or text, through the AI engines, into
+      the price database, and back as a quote. What the AI does, what the database does, and
+      where the line between them sits.
+    </p>
+  </header>
+
+  <hr>
+
+  <!-- ════ 01 · THE HONEST ANSWER ════ -->
+  <section>
+    <span class="sec-num">01 · The short answer</span>
+    <h2>Does the AI set the price?</h2>
+
+    <div class="answer">
+      <p class="head">
+        The AI drafts the quote and proposes the numbers. A separate, non-AI check then
+        verifies every price against the tradie's price list.
+      </p>
+      <p class="body">
+        If a price doesn't match the list, the whole quote is rejected and the customer is
+        offered a paid site visit. <strong>A made-up price cannot reach a customer.</strong>
+      </p>
+    </div>
+
+    <div class="diagram">
+      <div class="diagram-cap">Diagram 1 · The AI proposes — the database verifies — the check decides</div>
+      <svg viewBox="0 0 920 500" role="img" aria-label="The AI draft and the price database both feed a line-by-line check, which passes the quote or sends it to a paid site visit">
+        <defs>
+          <marker id="d1ai" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto">
+            <path d="M0,0 L7.5,3.4 L0,6.8 Z" fill="#FF7A45"/>
+          </marker>
+          <marker id="d1db" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto">
+            <path d="M0,0 L7.5,3.4 L0,6.8 Z" fill="#14B8A6"/>
+          </marker>
+          <marker id="d1out" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto">
+            <path d="M0,0 L7.5,3.4 L0,6.8 Z" fill="#8895A8"/>
+          </marker>
+        </defs>
+
+        <!-- ── Box A · the AI draft ── -->
+        <rect x="24" y="44" width="296" height="190" rx="5" fill="#131C2D" stroke="#FF7A45" stroke-width="2"/>
+        <text x="44" y="74" font-family="'JetBrains Mono',monospace" font-size="13.5" fill="#FF7A45">STEP 1 · THE AI (CLAUDE)</text>
+        <text x="44" y="101" font-family="Manrope,sans-serif" font-size="19" font-weight="800" fill="#FFFFFF">Drafts the whole quote</text>
+        <text x="44" y="135" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">•  Works out the job</text>
+        <text x="44" y="162" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">•  Picks the items and quantities</text>
+        <text x="44" y="189" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">•  Estimates the labour hours</text>
+        <text x="44" y="218" font-family="Manrope,sans-serif" font-size="15" font-weight="700" fill="#FF7A45">•  Proposes a price for every line</text>
+
+        <!-- ── Cylinder B · the price database ── -->
+        <path d="M24,282 L24,416 A148,26 0 0 0 320,416 L320,282" fill="#0F2A2E" stroke="#14B8A6" stroke-width="2"/>
+        <ellipse cx="172" cy="282" rx="148" ry="26" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="172" y="323" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13.5" fill="#14B8A6">STEP 2 · THE PRICE DATABASE</text>
+        <text x="172" y="352" text-anchor="middle" font-family="Manrope,sans-serif" font-size="17" font-weight="800" fill="#FFFFFF">Pricing book + catalogue</text>
+        <text x="172" y="377" text-anchor="middle" font-family="Manrope,sans-serif" font-size="13.5" fill="#5FD0C4">the tradie's real rates, markup &amp; prices</text>
+
+        <!-- ── Box C · the check ── -->
+        <rect x="384" y="128" width="268" height="224" rx="5" fill="#131C2D" stroke="#A78BFA" stroke-width="2"/>
+        <text x="518" y="170" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#A78BFA">STEP 3 · THE CHECK</text>
+        <text x="518" y="200" text-anchor="middle" font-family="Manrope,sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">Verify every line</text>
+        <text x="518" y="234" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14.5" fill="#C2CCDA">For each line in the quote:</text>
+        <text x="518" y="256" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14.5" fill="#C2CCDA">does the AI's price match a</text>
+        <text x="518" y="278" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14.5" fill="#C2CCDA">real figure in the database?</text>
+        <rect x="426" y="300" width="184" height="36" rx="4" fill="#0B1320" stroke="#2A3548" stroke-width="1.5"/>
+        <text x="518" y="323" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#C2CCDA">AI price  =  database price</text>
+
+        <!-- ── Box D · pass ── -->
+        <rect x="712" y="92" width="184" height="118" rx="5" fill="#0F2A2E" stroke="#14B8A6" stroke-width="2"/>
+        <text x="732" y="128" font-family="'JetBrains Mono',monospace" font-size="15" fill="#14B8A6">PASS ✓</text>
+        <text x="732" y="156" font-family="Manrope,sans-serif" font-size="15" fill="#FFFFFF">All lines matched.</text>
+        <text x="732" y="178" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Quote sent — Good,</text>
+        <text x="732" y="199" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Better, Best.</text>
+
+        <!-- ── Box E · fail ── -->
+        <rect x="712" y="300" width="184" height="118" rx="5" fill="#2A1810" stroke="#FF7A45" stroke-width="2"/>
+        <text x="732" y="336" font-family="'JetBrains Mono',monospace" font-size="15" fill="#FF7A45">FAIL ✗</text>
+        <text x="732" y="364" font-family="Manrope,sans-serif" font-size="15" fill="#FFFFFF">A line didn't match.</text>
+        <text x="732" y="386" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Quote pulled — paid</text>
+        <text x="732" y="407" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">site visit offered.</text>
+
+        <!-- ── arrows into the check ── -->
+        <text x="352" y="198" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#FF7A45">the prices</text>
+        <line x1="320" y1="216" x2="380" y2="228" stroke="#FF7A45" stroke-width="2.4" marker-end="url(#d1ai)"/>
+        <text x="352" y="288" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#14B8A6">real prices</text>
+        <line x1="322" y1="320" x2="380" y2="290" stroke="#14B8A6" stroke-width="2.4" marker-end="url(#d1db)"/>
+
+        <!-- ── arrows out of the check ── -->
+        <line x1="652" y1="200" x2="706" y2="156" stroke="#8895A8" stroke-width="2.4" marker-end="url(#d1out)"/>
+        <line x1="652" y1="300" x2="706" y2="354" stroke="#8895A8" stroke-width="2.4" marker-end="url(#d1out)"/>
+
+        <!-- caption -->
+        <text x="460" y="466" text-anchor="middle" font-family="Manrope,sans-serif" font-size="15" fill="#8895A8">Every line of every quote is checked. A price that isn't in the database cannot be sent.</text>
+      </svg>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ════ 02 · THE JOURNEY ════ -->
+  <section>
+    <span class="sec-num">02 · The journey</span>
+    <h2>From call to quote — four stages</h2>
+    <p class="sec-intro">
+      A quote passes through four stages. Two are run by the AI, one is the conversation, and
+      the last is plain code. The price database sits beside them.
+    </p>
+
+    <div class="diagram">
+      <div class="diagram-cap">Diagram 2 · The four stages and the price database</div>
+      <svg viewBox="0 0 920 560" role="img" aria-label="Four stacked stages — communication, intake, estimation, grounding check — beside the price database">
+        <defs>
+          <marker id="ar2" markerWidth="11" markerHeight="11" refX="7.5" refY="3.6" orient="auto">
+            <path d="M0,0 L8,3.6 L0,7.2 Z" fill="#8895A8"/>
+          </marker>
+        </defs>
+
+        <!-- STAGE 1 -->
+        <rect x="24" y="30" width="512" height="96" rx="5" fill="#131C2D" stroke="#2A3548" stroke-width="2"/>
+        <text x="48" y="63" font-family="'JetBrains Mono',monospace" font-size="14" fill="#8895A8">STAGE 1 · COMMUNICATION</text>
+        <text x="48" y="91" font-family="Manrope,sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">The customer gets in touch</text>
+        <text x="48" y="115" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Phone call or text. An AI agent gathers the job details.</text>
+
+        <!-- STAGE 2 -->
+        <rect x="24" y="166" width="512" height="96" rx="5" fill="#131C2D" stroke="#FF7A45" stroke-width="2"/>
+        <text x="48" y="199" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">STAGE 2 · INTAKE ENGINE — AI</text>
+        <text x="48" y="227" font-family="Manrope,sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">The chat becomes structured data</text>
+        <text x="48" y="251" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Claude writes the job into a fixed format. No prices yet.</text>
+
+        <!-- STAGE 3 -->
+        <rect x="24" y="302" width="512" height="96" rx="5" fill="#131C2D" stroke="#FF7A45" stroke-width="2"/>
+        <text x="48" y="335" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">STAGE 3 · ESTIMATION ENGINE — AI</text>
+        <text x="48" y="363" font-family="Manrope,sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">Claude drafts the quote</text>
+        <text x="48" y="387" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Picks the items, sets quantities, looks up every price.</text>
+
+        <!-- STAGE 4 -->
+        <rect x="24" y="438" width="512" height="96" rx="5" fill="#131C2D" stroke="#A78BFA" stroke-width="2"/>
+        <text x="48" y="471" font-family="'JetBrains Mono',monospace" font-size="14" fill="#A78BFA">STAGE 4 · GROUNDING CHECK — CODE</text>
+        <text x="48" y="499" font-family="Manrope,sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">Every price is verified, then sent</text>
+        <text x="48" y="523" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Re-checked against the database. Mismatch goes to a site visit.</text>
+
+        <!-- down arrows (band centre x = 280) -->
+        <line x1="280" y1="128" x2="280" y2="163" stroke="#8895A8" stroke-width="2.6" marker-end="url(#ar2)"/>
+        <line x1="280" y1="264" x2="280" y2="299" stroke="#8895A8" stroke-width="2.6" marker-end="url(#ar2)"/>
+        <line x1="280" y1="400" x2="280" y2="435" stroke="#8895A8" stroke-width="2.6" marker-end="url(#ar2)"/>
+
+        <!-- DATABASE cylinder -->
+        <path d="M592,326 L592,510 A150,28 0 0 0 892,510 L892,326" fill="#0F2A2E" stroke="#14B8A6" stroke-width="2"/>
+        <ellipse cx="742" cy="326" rx="150" ry="28" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="742" y="392" text-anchor="middle" font-family="Manrope,sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">THE PRICE DATABASE</text>
+        <text x="742" y="420" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">The tradie's real rates,</text>
+        <text x="742" y="440" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">markup &amp; material prices</text>
+
+        <!-- connector: estimation -> DB -->
+        <text x="563" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#FF7A45">look up</text>
+        <line x1="538" y1="350" x2="588" y2="350" stroke="#FF7A45" stroke-width="2.4" marker-end="url(#ar2)"/>
+
+        <!-- connector: DB -> grounding check -->
+        <text x="563" y="474" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#A78BFA">verify</text>
+        <line x1="588" y1="486" x2="538" y2="486" stroke="#A78BFA" stroke-width="2.4" marker-end="url(#ar2)"/>
+      </svg>
+    </div>
+
+    <div class="engine comm">
+      <span class="tag">Stage 1 · Communication</span>
+      <h3>The customer explains the job</h3>
+      <p>A phone call or text. On SMS an AI agent runs the chat and keeps asking until it has
+         the details a quote needs. Nothing is priced here.</p>
+    </div>
+    <div class="engine ai">
+      <span class="tag">Stage 2 · Intake engine — AI</span>
+      <h3>The conversation becomes structured data</h3>
+      <p>Claude reads the transcript and photos and records the job in a fixed format — type,
+         item count, scope, access, risks. This is the AI's reading of the job; still no prices.</p>
+    </div>
+    <div class="engine ai">
+      <span class="tag">Stage 3 · Estimation engine — AI</span>
+      <h3>Claude drafts the quote and looks up the prices</h3>
+      <p>Claude picks the items, sets quantities and labour hours, and looks up each price from
+         the database. It then writes the full Good / Better / Best draft.</p>
+    </div>
+    <div class="engine check">
+      <span class="tag">Stage 4 · Grounding check — plain code</span>
+      <h3>Every price is verified against the database</h3>
+      <p>Non-AI code re-checks each price against the database. All match — the quote is sent.
+         Any mismatch — the whole quote becomes a paid site visit. This is what makes the
+         pricing trustworthy.</p>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ════ 03 · WORKED SCENARIO ════ -->
+  <section>
+    <span class="sec-num">03 · Follow one job</span>
+    <h2>One job, start to finish</h2>
+    <p class="sec-intro">
+      The clearest view is one real job followed all the way through — a customer texting in
+      to replace some downlights.
+    </p>
+
+    <!-- STEP 1 -->
+    <div class="walk-step">
+      <div class="walk-head">
+        <span class="walk-num">1</span>
+        <h3>The customer texts in</h3>
+        <span class="walk-tag">Communication</span>
+      </div>
+      <div class="walk-body">
+        <div class="chat">
+          <div class="bubble cust"><span class="who">Customer</span>Hi, I need some downlights replaced please</div>
+          <div class="bubble bot"><span class="who">QuoteMate AI</span>Happy to help. How many downlights, and which rooms are they in?</div>
+          <div class="bubble cust"><span class="who">Customer</span>6 of them, old halogen ones. Hallway and the living room.</div>
+          <div class="bubble bot"><span class="who">QuoteMate AI</span>Great. Is the existing wiring staying, and is there roof-space access above the ceiling?</div>
+          <div class="bubble cust"><span class="who">Customer</span>Yeah just reuse the wiring, normal ceiling with roof access. Warm white please.</div>
+          <div class="bubble bot"><span class="who">QuoteMate AI</span>Perfect — that's everything I need. I'll put your quote together now.</div>
+        </div>
+        <p class="after">The AI agent gathers details until it has enough. Nothing is priced yet.</p>
+      </div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="walk-step">
+      <div class="walk-head">
+        <span class="walk-num">2</span>
+        <h3>The intake engine turns the chat into data</h3>
+        <span class="walk-tag ai">Intake engine · AI</span>
+      </div>
+      <div class="walk-body">
+        <p>Claude writes the job down in a fixed format. This is the exact record it produces:</p>
+        <div class="codeblock">{
+  <span class="k">"trade"</span>: <span class="s">"electrical"</span>,
+  <span class="k">"job_type"</span>: <span class="s">"downlights"</span>,
+  <span class="k">"suburb"</span>: <span class="s">"Parramatta NSW"</span>,
+  <span class="k">"scope"</span>: {
+    <span class="k">"description"</span>: <span class="s">"Replace 6 halogen downlights with LED, hallway and living room, reuse wiring"</span>,
+    <span class="k">"item_count"</span>: <span class="n">6</span>,
+    <span class="k">"specs"</span>: { <span class="k">"color_temp"</span>: <span class="s">"warm_white"</span> }
+  },
+  <span class="k">"access"</span>: { <span class="k">"ceiling_type"</span>: <span class="s">"standard"</span>, <span class="k">"roof_access"</span>: <span class="n">true</span>, <span class="k">"existing_wiring"</span>: <span class="n">true</span> },
+  <span class="k">"risks"</span>: [],
+  <span class="k">"inspection_required"</span>: <span class="n">false</span>,
+  <span class="k">"caller"</span>: { <span class="k">"name"</span>: <span class="s">"Sarah"</span> },
+  <span class="k">"confidence"</span>: <span class="s">"HIGH"</span>
+}</div>
+        <p class="after">Every value is the AI's reading of the chat. Still no prices.</p>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="walk-step">
+      <div class="walk-head">
+        <span class="walk-num">3</span>
+        <h3>The estimation engine looks up prices and drafts the quote</h3>
+        <span class="walk-tag ai">Estimation engine · AI</span>
+      </div>
+      <div class="walk-body">
+        <p>Claude calls lookup tools that read straight from the price list and catalogue —
+           it cannot price anything without them:</p>
+        <div class="ledger"><span class="call">lookup_assembly("install LED downlight")</span>
+  <span class="dim">└─</span> <span class="db">DATABASE returns</span>  "Install LED downlight" · 0.5 hr labour per light
+
+<span class="call">lookup_material("warm white LED downlight")</span>
+  <span class="dim">└─</span> <span class="db">DATABASE returns</span>  3 catalogue rows, raw prices:
+       Basic LED downlight .......... $28.00
+       Tri-colour LED downlight ..... $44.00
+       Dimmable IP-rated downlight .. $72.00
+
+<span class="call">apply_markup($28.00, markup 28%)</span>
+  <span class="dim">└─</span> <span class="db">returns</span>  $35.84   <span class="dim">(28% markup — from the tradie's pricing book)</span></div>
+        <p class="after">With real prices in hand, it drafts the <b>Good</b> tier:</p>
+        <table class="li">
+          <thead>
+            <tr><th>Line item</th><th>Qty</th><th>Unit price ex-GST</th><th>Total</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Basic LED downlight — warm white
+                <span class="src">priced from catalogue $28.00 + 28% markup</span></td>
+              <td class="num">6</td>
+              <td class="num">$35.84</td>
+              <td class="num">$215.04</td>
+            </tr>
+            <tr>
+              <td>Install downlights — cut, terminate &amp; fit
+                <span class="src">3.0 hr at the pricing-book labour rate</span></td>
+              <td class="num">3.0 hr</td>
+              <td class="num">$110.00</td>
+              <td class="num">$330.00</td>
+            </tr>
+            <tr class="sub"><td colspan="3">Good — subtotal ex-GST</td><td class="num">$545.04</td></tr>
+          </tbody>
+        </table>
+        <p class="after">Better and Best are built the same way with a dearer downlight.</p>
+      </div>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="walk-step">
+      <div class="walk-head">
+        <span class="walk-num">4</span>
+        <h3>The grounding check verifies every price</h3>
+        <span class="walk-tag check">Grounding check · plain code</span>
+      </div>
+      <div class="walk-body">
+        <p>Non-AI code re-checks each line against the database:</p>
+        <ul class="verify">
+          <li><span class="tick">✓</span> <b>$35.84 per downlight</b> — matches catalogue
+            "Basic LED downlight" ($28.00) plus the tradie's 28% markup.</li>
+          <li><span class="tick">✓</span> <b>$110.00 / hr labour</b> — matches the pricing
+            book's hourly rate exactly.</li>
+          <li><span class="tick">✓</span> <b>3.0 hr labour total</b> — above the tradie's
+            2.0 hr minimum-job rule.</li>
+        </ul>
+        <p class="after">All lines verified — the quote is sent. One mismatch would have sent
+          it to a paid site visit instead.</p>
+      </div>
+    </div>
+
+    <!-- STEP 5 -->
+    <div class="walk-step">
+      <div class="walk-head">
+        <span class="walk-num">5</span>
+        <h3>Sarah receives the quote</h3>
+        <span class="walk-tag">Delivered</span>
+      </div>
+      <div class="walk-body">
+        <p>Three options, by text — every figure already verified:</p>
+        <div class="tiers">
+          <div class="tier">
+            <div class="tn">Good</div>
+            <div class="td2">Basic warm-white LED</div>
+            <div class="tp">$599.54</div>
+            <div class="tx">inc-GST · $545.04 ex</div>
+          </div>
+          <div class="tier">
+            <div class="tn">Better</div>
+            <div class="td2">Tri-colour LED</div>
+            <div class="tp">$734.71</div>
+            <div class="tx">inc-GST · $667.92 ex</div>
+          </div>
+          <div class="tier">
+            <div class="tn">Best</div>
+            <div class="td2">Dimmable IP-rated LED</div>
+            <div class="tp">$971.26</div>
+            <div class="tx">inc-GST · $882.96 ex</div>
+          </div>
+        </div>
+        <p class="after">Every price came from the database. The item count and labour hours
+          came from the AI's reading of Sarah's messages.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ════ 04 · THE BREAKDOWN ════ -->
+  <section>
+    <span class="sec-num">04 · No sugar-coating</span>
+    <h2>What's the AI, what's the database</h2>
+    <p class="sec-intro">
+      Every part of a quote, and how much of it is checked against the database.
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Part of the quote</th><th>Who creates it</th><th>Checked against the database?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>What the job is</b></td>
+            <td>AI · intake engine</td>
+            <td><span class="pill ai">AI's reading</span><span class="cell-note">Its interpretation of the conversation.</span></td>
+          </tr>
+          <tr>
+            <td><b>How many items</b></td>
+            <td>AI · intake engine</td>
+            <td><span class="pill ai">AI's reading</span><span class="cell-note">Taken from what the customer said.</span></td>
+          </tr>
+          <tr>
+            <td><b>Which items are quoted</b></td>
+            <td>AI · estimation engine</td>
+            <td><span class="pill part">Partly</span><span class="cell-note">The item must exist in the catalogue.</span></td>
+          </tr>
+          <tr>
+            <td><b>Labour hours</b></td>
+            <td>AI · estimation engine</td>
+            <td><span class="pill part">Minimum only</span><span class="cell-note">Must meet the minimum-job hours; exact hours are estimated.</span></td>
+          </tr>
+          <tr>
+            <td><b>Hourly labour rate</b></td>
+            <td>Database</td>
+            <td><span class="pill db">DB-verified</span><span class="cell-note">Must equal the tradie's rate exactly.</span></td>
+          </tr>
+          <tr>
+            <td><b>Each material's price</b></td>
+            <td>AI looks it up · DB supplies it</td>
+            <td><span class="pill db">DB-verified</span><span class="cell-note">Must match a real price-list row.</span></td>
+          </tr>
+          <tr>
+            <td><b>The markup added</b></td>
+            <td>Database value</td>
+            <td><span class="pill db">DB-verified</span><span class="cell-note">Must be the tradie's markup.</span></td>
+          </tr>
+          <tr>
+            <td><b>Call-out fee &amp; GST</b></td>
+            <td>Database / fixed</td>
+            <td><span class="pill db">DB-verified</span><span class="cell-note">Set figures the AI cannot change.</span></td>
+          </tr>
+          <tr>
+            <td><b>Wording &amp; tier framing</b></td>
+            <td>AI · estimation engine</td>
+            <td><span class="pill ai">AI-written</span><span class="cell-note">Text, not a number.</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      In short: <b>the rates and prices are locked to the database</b> — the AI cannot send a
+      made-up rate. But <b>the size of the job</b> — item counts and labour hours — is the AI's
+      estimate of what the customer described.
+    </p>
+  </section>
+
+  <hr>
+
+  <!-- ════ 05 · LOCAL OVERRIDES ════ -->
+  <section>
+    <span class="sec-num">05 · Local overrides</span>
+    <h2>Where the tradie's prices take over</h2>
+    <p class="sec-intro">
+      QuoteMate ships a shared default price list so a new tradie isn't blank on day one.
+      Each tradie's own numbers replace it — and the tradie's numbers always win.
+    </p>
+
+    <div class="diagram">
+      <div class="diagram-cap">Diagram 3 · The shared default vs. the tradie's own setting</div>
+      <svg viewBox="0 0 920 460" role="img" aria-label="Four rows, each shared default replaced by the tradie's own setting">
+        <defs>
+          <marker id="ar3" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
+            <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#14B8A6"/>
+          </marker>
+        </defs>
+
+        <text x="260" y="46" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="15" fill="#8895A8">QUOTEMATE DEFAULT</text>
+        <text x="680" y="46" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="15" fill="#14B8A6">THE TRADIE'S OWN SETTING</text>
+        <text x="680" y="67" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13" fill="#8895A8">used instead — every time</text>
+
+        <!-- ROW 1 · LABOUR -->
+        <text x="55" y="125" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">LABOUR</text>
+        <rect x="108" y="84" width="304" height="72" rx="5" fill="#131C2D" stroke="#2A3548" stroke-width="2"/>
+        <text x="260" y="126" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" fill="#8895A8">Generic hourly rate</text>
+        <line x1="420" y1="120" x2="462" y2="120" stroke="#14B8A6" stroke-width="2.8" marker-end="url(#ar3)"/>
+        <rect x="470" y="84" width="418" height="72" rx="5" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="679" y="115" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Their own hourly rate</text>
+        <text x="679" y="138" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">e.g. an electrician on $110/hr</text>
+
+        <!-- ROW 2 · MARKUP -->
+        <text x="55" y="211" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">MARKUP</text>
+        <rect x="108" y="170" width="304" height="72" rx="5" fill="#131C2D" stroke="#2A3548" stroke-width="2"/>
+        <text x="260" y="212" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" fill="#8895A8">Default markup %</text>
+        <line x1="420" y1="206" x2="462" y2="206" stroke="#14B8A6" stroke-width="2.8" marker-end="url(#ar3)"/>
+        <rect x="470" y="170" width="418" height="72" rx="5" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="679" y="201" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Their own markup %</text>
+        <text x="679" y="224" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">the margin they choose to add</text>
+
+        <!-- ROW 3 · MATERIALS -->
+        <text x="55" y="297" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">MATERIALS</text>
+        <rect x="108" y="256" width="304" height="72" rx="5" fill="#131C2D" stroke="#2A3548" stroke-width="2"/>
+        <text x="260" y="298" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" fill="#8895A8">Generic parts list</text>
+        <line x1="420" y1="292" x2="462" y2="292" stroke="#14B8A6" stroke-width="2.8" marker-end="url(#ar3)"/>
+        <rect x="470" y="256" width="418" height="72" rx="5" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="679" y="287" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Their real brands &amp; prices</text>
+        <text x="679" y="310" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">the products they actually fit</text>
+
+        <!-- ROW 4 · SERVICES -->
+        <text x="55" y="383" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#FF7A45">SERVICES</text>
+        <rect x="108" y="342" width="304" height="72" rx="5" fill="#131C2D" stroke="#2A3548" stroke-width="2"/>
+        <text x="260" y="384" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" fill="#8895A8">Standard job list</text>
+        <line x1="420" y1="378" x2="462" y2="378" stroke="#14B8A6" stroke-width="2.8" marker-end="url(#ar3)"/>
+        <rect x="470" y="342" width="418" height="72" rx="5" fill="#14342F" stroke="#14B8A6" stroke-width="2"/>
+        <text x="679" y="373" text-anchor="middle" font-family="Manrope,sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Their own custom jobs</text>
+        <text x="679" y="396" text-anchor="middle" font-family="Manrope,sans-serif" font-size="14" fill="#5FD0C4">they switch off the rest</text>
+
+        <text x="460" y="442" text-anchor="middle" font-family="Manrope,sans-serif" font-size="15" fill="#C2CCDA">Defaults are only a starting point — each tradie's own numbers replace them during onboarding.</text>
+      </svg>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ════ 06 · GUARANTEES & LIMITS ════ -->
+  <section>
+    <span class="sec-num">06 · The real guarantees</span>
+    <h2>What it does — and doesn't — promise</h2>
+    <div class="two">
+      <div class="card good">
+        <span class="label">What it guarantees</span>
+        <h3>The rates are real</h3>
+        <ul>
+          <li>No price the AI invents can reach a customer</li>
+          <li>Every price on a sent quote is a real price-list figure</li>
+          <li>If the numbers don't line up, the quote is pulled — never patched</li>
+          <li>The customer gets a verified quote or an honest paid site visit</li>
+        </ul>
+      </div>
+      <div class="card limit">
+        <span class="label">What it does not</span>
+        <h3>The job size is judged</h3>
+        <ul>
+          <li>Item counts and labour hours are the AI's read of the job</li>
+          <li>The same job described differently can come out differently</li>
+          <li>It is not yet a fixed calculator</li>
+          <li>The price check allows small rounding tolerance</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">
+      The honest summary: QuoteMate is <b>an AI estimator with a hard database price-check on
+      the end</b>. Its reliability claim is specific and defensible — <b>the prices a customer
+      sees are always real prices from the tradie's own list</b>.
+    </p>
+  </section>
+
+  <div class="closing">
+    The AI drafts it · The database verifies it · Only verified prices reach the customer
+  </div>
+
+  <p class="foot">
+    Reflects the live QuoteMate estimating pipeline as at 21 May 2026. Dollar figures in the
+    worked example are illustrative; the way each number is produced and checked is exact.
+  </p>
+
+</div>
+</body>
+</html>

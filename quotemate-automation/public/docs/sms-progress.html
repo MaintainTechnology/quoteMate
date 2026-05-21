@@ -343,7 +343,7 @@
           <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>2. Ensuring the electrical agent is consistent in its outcomes</h4>
-            <p>Strict grounding wired into both the intake and estimation prompts. A 4th defence layer (DB-grounding validator) automatically downgrades any ungrounded line item to the $199 inspection route. <a href="#voice">See Voice Agent section ↓</a></p>
+            <p>Strict grounding wired into both the intake and estimation prompts. A 4th defence layer (DB-grounding validator) automatically downgrades any ungrounded line item to the $99 inspection route. <a href="#voice">See Voice Agent section ↓</a></p>
           </div>
         </li>
         <li>
@@ -364,7 +364,7 @@
           <span class="pri-status done">DONE</span>
           <div class="pri-body">
             <h4>5. Quote output — webform / agentic creation, with mocked photos</h4>
-            <p>Customer-facing HTML quote page live at <code>/q/[token]</code> with per-tier mocked photos (<code>lib/quote/tier-photos.ts</code>). Per-tier Stripe Checkout deposit links. Photo upload supports both camera and gallery. Inspection-route jobs show a $199 pay-link variant. <a href="#output">See Output section ↓</a></p>
+            <p>Customer-facing HTML quote page live at <code>/q/[token]</code> with per-tier mocked photos (<code>lib/quote/tier-photos.ts</code>). Per-tier Stripe Checkout deposit links. Photo upload supports both camera and gallery. Inspection-route jobs show a $99 pay-link variant. <a href="#output">See Output section ↓</a></p>
           </div>
         </li>
       </ul>
@@ -513,7 +513,7 @@
           <span class="stage-pill done">DONE</span>
           <div class="stage-body">
             <strong>Tradie SMS + WhatsApp ping on SMS-sourced draft completion</strong>
-            <p>End of <code>/api/estimate/draft</code> — gated on <code>isSmsSource</code> (so voice path is unchanged). Sends both an SMS (with WhatsApp fallback) to <code>TRADIE_NOTIFY_NUMBER</code> AND an explicit WhatsApp message to <code>TRADIE_NOTIFY_WHATSAPP</code>. Two flavours: <code>buildTradieDraftNotification</code> for auto-quotes, <code>buildTradieInspectionNotification</code> for $199 site-visit jobs.</p>
+            <p>End of <code>/api/estimate/draft</code> — gated on <code>isSmsSource</code> (so voice path is unchanged). Sends both an SMS (with WhatsApp fallback) to <code>TRADIE_NOTIFY_NUMBER</code> AND an explicit WhatsApp message to <code>TRADIE_NOTIFY_WHATSAPP</code>. Two flavours: <code>buildTradieDraftNotification</code> for auto-quotes, <code>buildTradieInspectionNotification</code> for $99 site-visit jobs.</p>
           </div>
         </li>
         <li>
@@ -569,7 +569,7 @@
         <div class="card done">
           <span class="check">✓</span>
           <h4>Off-topic / unrelated chat handling</h4>
-          <p>Customer sends "hey" or "do you do plumbing?" — agent acknowledges in one phrase and pivots to the next missing required field. Never engages with weather, jokes, other-trade questions. Greeting alone no longer escalates to a $199 site visit.</p>
+          <p>Customer sends "hey" or "do you do plumbing?" — agent acknowledges in one phrase and pivots to the next missing required field. Never engages with weather, jokes, other-trade questions. Greeting alone no longer escalates to a $99 site visit.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
@@ -643,7 +643,7 @@
         <div class="card done">
           <span class="check">✓</span>
           <h4>DB-grounding validator (4th defence layer)</h4>
-          <p>A runtime validator checks every line item's <code>source</code> field against the database. Anything ungrounded is auto-downgraded to the $199 inspection route — no faulty quote reaches the customer.</p>
+          <p>A runtime validator checks every line item's <code>source</code> field against the database. Anything ungrounded is auto-downgraded to the $99 inspection route — no faulty quote reaches the customer.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
@@ -691,8 +691,8 @@
         </div>
         <div class="card done">
           <span class="check">✓</span>
-          <h4>Inspection route — $199 pay link</h4>
-          <p>For jobs flagged inspection-only (switchboard, EV charger, fault finding, complex renovations), the page shows a single $199 deposit option to book the inspection. SMS variant suppresses fabricated tier numbers entirely.</p>
+          <h4>Inspection route — $99 pay link</h4>
+          <p>For jobs flagged inspection-only (switchboard, EV charger, fault finding, complex renovations), the page shows a single $99 deposit option to book the inspection. SMS variant suppresses fabricated tier numbers entirely.</p>
         </div>
         <div class="card done">
           <span class="check">✓</span>
@@ -847,8 +847,8 @@
 
       <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.5rem;">Pre-existing · Voice agent + output (still live)</h3>
       <ul class="timeline">
-        <li><span class="when">earlier</span><span class="what">DB-grounding validator (4th defence layer) — ungrounded prices auto-downgrade to $199 inspection</span></li>
-        <li><span class="when">earlier</span><span class="what">Inspection-route $199 pay link wired through Stripe Checkout</span></li>
+        <li><span class="when">earlier</span><span class="what">DB-grounding validator (4th defence layer) — ungrounded prices auto-downgrade to $99 inspection</span></li>
+        <li><span class="when">earlier</span><span class="what">Inspection-route $99 pay link wired through Stripe Checkout</span></li>
         <li><span class="when">earlier</span><span class="what">Strict grounding on intake + estimation prompts</span></li>
         <li><span class="when">earlier</span><span class="what">Photo upload supports camera + gallery picker</span></li>
         <li><span class="when">earlier</span><span class="what">Quality gate on intake — empty calls no longer trigger downstream SMS</span></li>

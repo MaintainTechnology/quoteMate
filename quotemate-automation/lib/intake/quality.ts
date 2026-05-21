@@ -10,7 +10,7 @@
 // zapper, EV charger, induction cooktop, etc.) legitimately fall outside
 // the structured enum, but the dialog has already gathered enough info
 // for the estimator to attempt a quote. If the estimator can't price the
-// custom service, the grounding validator falls back to the $199
+// custom service, the grounding validator falls back to the $99
 // inspection — far better than re-asking the customer "what kind of
 // work?" when they just spent six turns describing it.
 //

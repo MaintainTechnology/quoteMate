@@ -8,6 +8,7 @@
 
 import { getStripe } from './client'
 import { randomBytes } from 'node:crypto'
+import { clampDiscountPct } from '@/lib/quote/early-bird'
 
 type Tier = { label: string; subtotal_ex_gst: number | string } | null
 
@@ -29,14 +30,14 @@ export type StripeLinks = {
   good?: string
   better?: string
   best?: string
-  /** Set on inspection-required quotes — single $199 site-visit deposit Session URL. */
+  /** Set on inspection-required quotes — single $99 site-visit deposit Session URL. */
   inspection?: string
 }
 
-/** Industry-standard $199 refundable site-visit deposit. Hardcoded for v1
+/** Industry-standard $99 refundable site-visit deposit. Hardcoded for v1
  *  per the SOP; move to pricing_book.inspection_fee_amount when multi-tradie
  *  configurability is needed. */
-const INSPECTION_FEE_AUD_CENTS = 19900
+const INSPECTION_FEE_AUD_CENTS = 9900
 
 /**
  * Generate a URL-safe share token (used in success URLs and future portal route).
@@ -55,6 +56,22 @@ function tierIncGstCents(tier: Tier): number {
 
 function depositCents(tierIncGstCents: number, depositPct: number): number {
   return Math.round(tierIncGstCents * (depositPct / 100))
+}
+
+/**
+ * v8 — apply an early-booking (whole-job) discount to a tier's inc-GST
+ * cents amount. The discount reduces the WHOLE job, so it flows through
+ * to the deposit proportionally. `discountPct` is clamped to the
+ * platform cap (15%) so a bad value can never over-discount. A 0 /
+ * missing pct returns the amount unchanged.
+ */
+function discountedIncGstCents(
+  incGstCents: number,
+  discountPct: number | null | undefined,
+): number {
+  const pct = clampDiscountPct(discountPct)
+  if (pct <= 0) return incGstCents
+  return Math.round(incGstCents * (1 - pct / 100))
 }
 
 export async function createCheckoutSessionsForQuote(opts: {
@@ -172,6 +189,11 @@ export async function createCheckoutSessionForTier(opts: {
   intake: IntakeForCheckout
   shareToken: string
   appUrl: string
+  /** v8 — whole-job early-booking discount %. When > 0 the tier total
+   *  (and therefore the deposit) is reduced before the Session is
+   *  created. Clamped to the 15% platform cap. Omitted / 0 → no
+   *  discount, behaviour identical to before. */
+  discountPct?: number | null
 }): Promise<string | null> {
   const stripe = getStripe()
   const tier = opts.quote[opts.tierKey]
@@ -179,11 +201,16 @@ export async function createCheckoutSessionForTier(opts: {
   const depositPct = typeof opts.quote.deposit_pct === 'string'
     ? parseFloat(opts.quote.deposit_pct)
     : opts.quote.deposit_pct
-  const incCents = tierIncGstCents(tier)
+  const fullIncCents = tierIncGstCents(tier)
+  const discountPct = clampDiscountPct(opts.discountPct)
+  const incCents = discountedIncGstCents(fullIncCents, discountPct)
   const deposit = depositCents(incCents, depositPct)
   if (deposit <= 0) return null
 
   const productName = buildProductName(opts.intake, opts.tierKey, tier)
+  const depositDesc = discountPct > 0
+    ? `${depositPct}% deposit · ${discountPct}% early-booking discount applied · balance due on completion`
+    : `${depositPct}% deposit · balance due on completion`
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [
@@ -192,7 +219,7 @@ export async function createCheckoutSessionForTier(opts: {
           currency: 'aud',
           product_data: {
             name: productName,
-            description: `${depositPct}% deposit · balance due on completion`,
+            description: depositDesc,
           },
           unit_amount: deposit,
         },
@@ -206,7 +233,12 @@ export async function createCheckoutSessionForTier(opts: {
       quote_id: opts.quote.id,
       tier: opts.tierKey,
       deposit_pct: String(depositPct),
-      full_total_inc_gst_cents: String(incCents),
+      // Discounted inc-GST total — the figure the deposit % was taken
+      // from. `full_total_inc_gst_cents` keeps reporting the pre-discount
+      // total so the saving stays auditable from Stripe metadata alone.
+      full_total_inc_gst_cents: String(fullIncCents),
+      discounted_total_inc_gst_cents: String(incCents),
+      early_bird_discount_pct: String(discountPct),
     },
     payment_intent_data: {
       metadata: {
@@ -220,7 +252,7 @@ export async function createCheckoutSessionForTier(opts: {
 
 /**
  * Inspection-required path: create a single Stripe Checkout Session for
- * the $199 refundable site-visit deposit. Sets metadata.tier='inspection'
+ * the $99 refundable site-visit deposit. Sets metadata.tier='inspection'
  * so the webhook can record it on the quote correctly.
  */
 export async function createInspectionCheckoutSession(opts: {

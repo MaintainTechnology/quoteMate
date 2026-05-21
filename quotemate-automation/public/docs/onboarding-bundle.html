@@ -195,7 +195,7 @@
 <pre><code><span class="k">export interface</span> TradeBundle {
   trade: <span class="k">'electrical'</span> | <span class="k">'plumbing'</span> | <span class="k">'painting'</span> | <span class="k">'hvac'</span>
   easyFive: ReadonlyArray&lt;JobType&gt;       <span class="c">// jobs the SMS Agent will auto-quote</span>
-  inspectionOnly: ReadonlyArray&lt;JobType&gt; <span class="c">// jobs that route to $199 site visit</span>
+  inspectionOnly: ReadonlyArray&lt;JobType&gt; <span class="c">// jobs that route to $99 site visit</span>
 
   <span class="c">// 1. assemblies — seeded into shared_assemblies + shared_materials</span>
   assemblies: ReadonlyArray&lt;AssemblySeed&gt;
@@ -249,7 +249,7 @@
         <li><strong>laundry_tap</strong> — replace laundry tap or washing-machine valve</li>
       </ul>
 
-      <h3>Plumbing inspection-only (always $199 site visit)</h3>
+      <h3>Plumbing inspection-only (always $99 site visit)</h3>
       <ul>
         <li>hot water system — new or replacement (sizing + gas/electric routing)</li>
         <li>drainage / blocked sewer line</li>

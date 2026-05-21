@@ -24,7 +24,7 @@ export type PayRedirectKind =
 export type PayRedirectInput = {
   paid: boolean
   scheduledAt: string | null | undefined
-  /** Stripe metadata tier. The $199 'inspection' deposit is a booking
+  /** Stripe metadata tier. The $99 'inspection' deposit is a booking
    *  FEE to even get a site visit — it legitimately stays pay-first and
    *  is therefore never routed through book-first. */
   tier: string

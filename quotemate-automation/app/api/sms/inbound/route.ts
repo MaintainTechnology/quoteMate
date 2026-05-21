@@ -1113,7 +1113,7 @@ export async function POST(req: Request) {
       // authoritative dialog directive renders.
       // 2026-05: now resolves every shared service using the dashboard
       // enabled rule (tenant offering wins, otherwise default_enabled),
-      // so default-on priced rows with questions do not fall to $199.
+      // so default-on priced rows with questions do not fall to $99.
       if (tenant?.id) {
         try {
           const tTrades: string[] =
@@ -1218,13 +1218,13 @@ export async function POST(req: Request) {
       }
 
       // ─── Tenant DECLINED services (toggle OFF → polite "we don't do
-      // that", NOT the $199 inspection fallback) ──────────────────────
+      // that", NOT the $99 inspection fallback) ──────────────────────
       // Mirrors the /api/tenant/me resolution: a catalogue service is OFF
       // when an explicit tenant_service_offerings row says enabled=false
       // OR there is no row and shared_assemblies.default_enabled is false;
       // disabled tenant_custom_assemblies count too. Without feeding these
       // in, an OFF electrical extra like "Hardwire oven" falls through to
-      // the hardcoded Rule 4/6 ("oven/cooktop -> $199 inspection") and the
+      // the hardcoded Rule 4/6 ("oven/cooktop -> $99 inspection") and the
       // customer gets sold a paid inspection for work the tradie doesn't
       // do. Names only; names already in the ENABLED list above are
       // dropped (enabled wins). Fail-soft: a DB hiccup here must never
@@ -1338,7 +1338,7 @@ export async function POST(req: Request) {
           // quotes/inspects them instead of refusing as wrong-trade.
           customAssemblies,
           // Services the tradie switched OFF — produce a polite "we don't
-          // do that" + pivot instead of the hardcoded $199-inspection
+          // do that" + pivot instead of the hardcoded $99-inspection
           // fallback for OFF catalogue extras like "Hardwire oven".
           declinedServices,
           // PR-B: per-conversation slot state is the new source of truth.
@@ -1420,7 +1420,7 @@ export async function POST(req: Request) {
       // GPO false-positive guard.
       //
       // Root case from 2026-05-19: "Can I get two Powerpoints" ->
-      // "Ensuite" was escalated to "$199 inspection" because the prompt
+      // "Ensuite" was escalated to "$99 inspection" because the prompt
       // listed "bathroom" as a power_points inspection trigger and Haiku
       // reasonably mapped ensuite -> bathroom. That happens before DB
       // service toggles or pricing get a say. Keep obvious GPO jobs in

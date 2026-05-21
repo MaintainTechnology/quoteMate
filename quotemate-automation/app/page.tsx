@@ -276,7 +276,7 @@ function TradePanel({
 
       <div className="mt-7">
         <span className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-text-dim">
-          $199 site visit
+          $99 site visit
         </span>
         <ul className="mt-3 grid gap-2">
           {inspection.map((it) => (

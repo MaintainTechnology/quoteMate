@@ -53,6 +53,19 @@ export async function notifyBookingConfirmed(
       intake = (data as unknown as IntakeRow | null) ?? null
     }
 
+    // v8 — realised early-booking discount, surfaced to the tradie so
+    // they collect the REDUCED balance on completion, not the original.
+    // Best-effort: the column lands via migration 044; absent → 0.
+    let earlyBirdDiscountPct = 0
+    {
+      const { data: q } = await supabase
+        .from('quotes')
+        .select('applied_discount_pct')
+        .eq('id', args.quoteId)
+        .maybeSingle()
+      if (q) earlyBirdDiscountPct = Number(q.applied_discount_pct ?? 0)
+    }
+
     let callerNumber: string | null = intake?.caller?.phone ?? null
     if (!callerNumber && intake?.call_id) {
       const { data: callRow } = await supabase
@@ -129,6 +142,7 @@ export async function notifyBookingConfirmed(
         scheduledAt: args.slotIso,
         quoteUrl,
         dashboardUrl: `${appUrl}/dashboard`,
+        earlyBirdDiscountPct,
       })
       sms.step('notifying tradie of booking', {
         to: notifyMobile,

@@ -99,7 +99,7 @@ describe('customServicesDirective — mandated clarifying questions (mig 032)', 
     expect(out).toContain('Switchboard upgrade')
     expect(out).toContain('INSPECTION-ONLY')
     // Questions are a quote-path concern; an inspection-only row routes
-    // to $199 and must not render a MUST-ASK block.
+    // to $99 and must not render a MUST-ASK block.
     expect(out).not.toContain('MUST ASK before any finish')
   })
 
@@ -131,7 +131,7 @@ describe('customServicesDirective — mandated clarifying questions (mig 032)', 
   })
 
   it('HARD RULE override forbids escalate_inspection while MUST-ASK is pending (Cluster B fix 2026-05-20)', () => {
-    // The sweep on 2026-05-20 showed the agent jumping straight to $199
+    // The sweep on 2026-05-20 showed the agent jumping straight to $99
     // inspection for EV charger / oven_cooktop / outdoor GPO / leak
     // detection / CCTV / PRV / gas appliance — all services that have
     // mandated questions in DB but were getting bypassed. The HARD RULE

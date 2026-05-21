@@ -1,7 +1,7 @@
 // Regression coverage for the "just wrapping up your quote" bug.
 //
 // The headline case (Jon, 2026-05-18): a conversation that escalated to
-// a $199 inspection is marked status='done' with NO intake_id. A
+// a $99 inspection is marked status='done' with NO intake_id. A
 // follow-up 57s later must NOT get the canned hold-on and must NOT skip
 // the AI — otherwise service toggles can never be tested and customers
 // are told a non-existent quote is "on its way".

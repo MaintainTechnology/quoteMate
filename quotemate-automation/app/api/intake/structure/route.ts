@@ -384,7 +384,7 @@ export async function POST(req: Request) {
   // set `inspection_required = false` on gas hot-water replacements,
   // letting the estimator auto-quote 3 tiers. The locked v1 policy
   // (per docs/strategy.md + memory project_plumbing_routing_rules) is
-  // that gas HWS ALWAYS routes to the $199 onsite scope by a licensed
+  // that gas HWS ALWAYS routes to the $99 onsite scope by a licensed
   // gas fitter — AS/NZS 5601 requires verification of gas-line size,
   // flue clearances and compliance before any swap.
   //

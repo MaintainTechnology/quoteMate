@@ -157,12 +157,12 @@ AGENT: `Beauty Tom — quote drafting now.`
 
 **Turn 1**
 YOU: `My switchboard keeps tripping`
-AGENT: `G'day, thanks for messaging QuoteMate — I'm the AI quoting assistant. For that I'll need to send a sparky for a quick look. Want me to text you a $199 inspection booking?`
+AGENT: `G'day, thanks for messaging QuoteMate — I'm the AI quoting assistant. For that I'll need to send a sparky for a quick look. Want me to text you a $99 inspection booking?`
 
 **Turn 2**
 YOU: `Yes please`
 AGENT: `All good — booking link incoming.`
-*(then a separate inspection-flavoured SMS lands with the $199 site-visit pay link)*
+*(then a separate inspection-flavoured SMS lands with the $99 site-visit pay link)*
 
 **What to verify:**
 - Agent does NOT try to gather count/room/etc — switchboard is in `UNIVERSAL_INSPECTION_TRIGGERS`.
@@ -174,7 +174,7 @@ AGENT: `All good — booking link incoming.`
 
 **Turn 1**
 YOU: `Need an EV charger installed for my Tesla`
-AGENT: Full intro + escalation: `For an EV charger I'll need to send a sparky for a quick look. Want me to text you a $199 inspection booking?`
+AGENT: Full intro + escalation: `For an EV charger I'll need to send a sparky for a quick look. Want me to text you a $99 inspection booking?`
 
 ---
 
@@ -187,7 +187,7 @@ Try ONE of these as the first message; agent should escalate immediately, no que
 - `Got an electric shock from the wall`
 - `Breaker keeps tripping`
 
-Expected reply shape: `For that I'll need to send a sparky for a quick look. Want me to text you a $199 inspection booking?`
+Expected reply shape: `For that I'll need to send a sparky for a quick look. Want me to text you a $99 inspection booking?`
 
 ---
 
@@ -292,7 +292,7 @@ AGENT: Asks for clarification.
 
 **Turn 4**
 YOU: `What do you recommend`
-AGENT: Should escalate: `For that I'll need to send a sparky for a quick look — easier to get specifics in person. Want me to text a $199 inspection booking?`
+AGENT: Should escalate: `For that I'll need to send a sparky for a quick look — easier to get specifics in person. Want me to text a $99 inspection booking?`
 
 **What to verify:** Rule 7 fires after 4 inbound turns with insufficient info → `escalate_inspection`.
 

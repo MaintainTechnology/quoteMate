@@ -124,6 +124,18 @@ export default async function BookingPage(props: {
 
   if (!quote) notFound()
 
+  // v8 — realised early-booking discount, for the "time held" copy.
+  // Separate best-effort select (column lands via migration 044).
+  let appliedDiscountPct = 0
+  {
+    const { data: eb } = await supabase
+      .from('quotes')
+      .select('applied_discount_pct')
+      .eq('id', quote.id)
+      .maybeSingle()
+    if (eb) appliedDiscountPct = Number(eb.applied_discount_pct ?? 0)
+  }
+
   // Single-tradie v0.5 model — when tradie #2 onboards, key on intake.tradie_id.
   const { data: tradie } = await supabase
     .from('tradies')
@@ -168,6 +180,7 @@ export default async function BookingPage(props: {
         token={token}
         tier={tier}
         scheduledAt={quote.scheduled_at!}
+        appliedDiscountPct={appliedDiscountPct}
       />
     )
   } else if (!isPaid && !isScheduled && slots.length > 0) {
@@ -274,11 +287,15 @@ function ReservedPayState({
   token,
   tier,
   scheduledAt,
+  appliedDiscountPct,
 }: {
   token: string
   tier: string
   scheduledAt: string
+  /** v8 — realised early-booking discount %. 0 = none. */
+  appliedDiscountPct: number
 }) {
+  const discounted = appliedDiscountPct > 0
   return (
     <section className="motion-safe:animate-[fade-in_240ms_ease-out_both]">
       <StepStrip active={2} />
@@ -289,9 +306,17 @@ function ReservedPayState({
         {formatSlot(scheduledAt)} is <span className="text-accent">held</span>{' '}
         for you.
       </h1>
+      {discounted ? (
+        <p className="mt-5 inline-flex items-center bg-teal-glow/15 px-3 py-1.5 font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] text-teal-glow">
+          {appliedDiscountPct}% early-booking discount applied
+        </p>
+      ) : null}
       <p className="mt-5 max-w-[60ch] text-base leading-relaxed text-text-sec">
         One last step — pay your deposit to lock it in. Your time isn&apos;t
         confirmed until the deposit is paid.
+        {discounted
+          ? ' Your discounted deposit is shown at checkout.'
+          : ''}
       </p>
       <a
         href={`/r/${token}/${tier}`}

@@ -168,7 +168,7 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
 
   // Inspection-required quotes don't carry line items, so there's nothing
   // to validate — accept as-is. The route handler will force tier nulls and
-  // the $199 inspection total.
+  // the $99 inspection total.
   if (draft?.needs_inspection === true) {
     return { draft }
   }
@@ -228,7 +228,7 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
 
   // Apply the configured minimum-charge floor BEFORE grounding so a
   // small but correctly-priced job (e.g. one GPO) is quoted at the
-  // tradie's own minimum instead of being bounced to a $199 inspection.
+  // tradie's own minimum instead of being bounced to a $99 inspection.
   // Deterministic + grounded (tops labour up at pricing_book.hourly_rate);
   // never undercharges, never fabricates; no-ops when already compliant.
   // This mutates `draft` in place, so validation below sees the floor.

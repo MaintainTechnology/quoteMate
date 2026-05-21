@@ -85,6 +85,20 @@ export const UpdateSchema = z.object({
   // PATCH that flips shared-service toggles also flip custom-service
   // toggles in one round-trip.
   custom_services: z.record(z.string().uuid(), z.boolean()).optional(),
+  // v8 Phase A — early-booking discount config. Stored in
+  // pricing_book.overlays.early_bird jsonb (no schema migration for
+  // config). `discount_pct` is capped at 15% — the same MARGIN GUARD
+  // enforced in lib/quote/early-bird.ts (MAX_EARLY_BIRD_DISCOUNT_PCT);
+  // the schema rejects anything higher rather than silently clamping so
+  // the tradie sees the error. `window_hours` is the offer lifetime —
+  // 1h to 14 days.
+  early_bird: z
+    .object({
+      enabled: z.boolean(),
+      discount_pct: z.coerce.number().min(0).max(15),
+      window_hours: z.coerce.number().min(1).max(336),
+    })
+    .optional(),
 })
 
 // Create/update payload for a single tenant_custom_assemblies row.

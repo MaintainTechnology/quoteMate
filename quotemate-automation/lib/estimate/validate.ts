@@ -5,7 +5,7 @@
 // the same product category (downlights, GPOs, smoke alarms, etc).
 //
 // If any line item fails, the route handler downgrades the entire quote
-// to inspection-required: tiers wiped to null, $199 site-visit fee becomes
+// to inspection-required: tiers wiped to null, $99 site-visit fee becomes
 // the only chargeable amount, customer is told "pricing not yet available".
 //
 // This is the fourth and last layer of defence against fabricated prices,

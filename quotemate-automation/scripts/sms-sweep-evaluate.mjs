@@ -81,7 +81,7 @@ function gradeReply(serviceName, body) {
   const recognition = matched ? "hit" : tokens.length === 0 ? "no_keywords_defined" : "miss";
   const questions = (body.match(/\?/g) ?? []).length;
   let routing = "dialog";
-  if (/199|inspection|site visit|on[- ]site/i.test(body)) routing = "inspection";
+  if (/\$99\b|inspection|site visit|on[- ]site/i.test(body)) routing = "inspection";
   else if (/we don'?t do that|outside our|not something we|can't help/i.test(body)) routing = "decline";
   else if (/quote|tap to pay|deposit|good\b|better\b|best\b/i.test(body)) routing = "quote";
   return { recognition, questions, routing, matched_keyword: matched ?? null };

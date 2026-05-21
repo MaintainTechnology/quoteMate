@@ -590,6 +590,39 @@ export async function PATCH(req: Request) {
     }
   }
 
+  // 2bb. v8 Phase A — early-booking discount config. Stored in
+  //     pricing_book.overlays.early_bird jsonb (no schema migration for
+  //     config). The discount is per-TENANT, so it is written uniformly
+  //     to EVERY one of the tenant's pricing_book rows. Read-modify-write
+  //     so any other keys already living in `overlays` are preserved.
+  if (updates.early_bird) {
+    const eb = {
+      enabled: updates.early_bird.enabled,
+      discount_pct: updates.early_bird.discount_pct,
+      window_hours: updates.early_bird.window_hours,
+    }
+    const { data: books, error: readErr } = await supabase
+      .from('pricing_book')
+      .select('id, overlays')
+      .eq('tenant_id', tenant.id)
+    if (readErr) {
+      errors.push(`early_bird: ${readErr.message}`)
+    } else {
+      for (const b of books ?? []) {
+        const current =
+          b.overlays && typeof b.overlays === 'object' && !Array.isArray(b.overlays)
+            ? { ...(b.overlays as Record<string, unknown>) }
+            : {}
+        current.early_bird = eb
+        const { error } = await supabase
+          .from('pricing_book')
+          .update({ overlays: current })
+          .eq('id', b.id)
+        if (error) errors.push(`early_bird: ${error.message}`)
+      }
+    }
+  }
+
   // 2c. Per-trade licences — upsert against tenant_licences. We use
   //     upsert (not update) so a tradie filling in licence details for
   //     the FIRST time on a freshly-added trade lands cleanly. Empty

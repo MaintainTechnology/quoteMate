@@ -112,7 +112,7 @@ if (quotes.rows.length === 0) {
   for (const r of quotes.rows) {
     const trade = (r.trade ?? '?').padEnd(10);
     const jt = (r.job_type ?? '?').padEnd(20);
-    const path = r.needs_inspection ? 'INSPECTION→$199' : `AUTO-QUOTE $${r.total_inc_gst}`;
+    const path = r.needs_inspection ? 'INSPECTION→$99' : `AUTO-QUOTE $${r.total_inc_gst}`;
     const tier = r.selected_tier ?? '-';
     console.log(`  ${trade}  ${jt}  ${path.padEnd(20)}  tier=${tier}`);
     if (r.needs_inspection && r.inspection_reason) {

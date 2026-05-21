@@ -132,7 +132,7 @@ try {
   if (APPLY) {
     console.log("\nOK — demo data seeded. To SEE it working:");
     console.log("  1. Text the Pilot Sparky QuoteMate number: \"4 new double power points in the kitchen\"");
-    console.log("     → quote should price Clipsal (Good=2000 $18, Better=Iconic $42), NOT a $199 inspection.");
+    console.log("     → quote should price Clipsal (Good=2000 $18, Better=Iconic $42), NOT a $99 inspection.");
     console.log("  2. Text: \"6 downlights in the lounge\" (wait ~90s between tests)");
     console.log("     → same parts list every time (6 downlight + 1 sundry).");
     console.log("  3. Open the /q/<token> link from each quote SMS to see the line items.");

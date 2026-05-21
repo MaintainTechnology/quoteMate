@@ -77,6 +77,9 @@ type Pricing = {
   min_labour_hours: number | null
   risk_buffer_pct: number | null
   gst_registered: boolean | null
+  /** Per-tenant overlay jsonb — carries the v8 early_bird discount
+   *  config ({ enabled, discount_pct, window_hours }) among other keys. */
+  overlays?: Record<string, unknown> | null
 } | null
 
 type ServiceOffering = {
@@ -1926,7 +1929,143 @@ function PricingTab({
           onSave={onSave}
         />
       ))}
+      {/* v8 — early-booking discount. One card per tenant (the offer is
+          trade-agnostic, written to every pricing_book row). */}
+      <EarlyBirdCard books={books} onSave={onSave} />
     </div>
+  )
+}
+
+// v8 Phase A — early-booking discount editor. Reads the current config
+// from pricing_book.overlays.early_bird (identical across the tenant's
+// rows) and saves via PATCH { early_bird: {...} }, which the /api/tenant/me
+// route merges back into overlays on every row. The discount is a
+// WHOLE-JOB reduction realised when the customer books a time before the
+// offer window closes — see docs/strategy.md v8.
+function EarlyBirdCard({
+  books,
+  onSave,
+}: {
+  books: PricingBook[]
+  onSave: (payload: Record<string, unknown>) => Promise<void>
+}) {
+  // The offer is per-tenant — every pricing_book row carries the same
+  // overlay, so read row 0.
+  const current = useMemo(() => {
+    const raw = books[0]?.overlays?.early_bird
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    return {
+      enabled: o.enabled === true,
+      discount_pct: numString(
+        typeof o.discount_pct === 'number' ? o.discount_pct : 10,
+      ),
+      window_hours: numString(
+        typeof o.window_hours === 'number' ? o.window_hours : 24,
+      ),
+    }
+  }, [books])
+
+  const [form, setForm] = useState(current)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
+    try {
+      const discountPct = Number(form.discount_pct)
+      const windowHours = Number(form.window_hours)
+      if (form.enabled && (!Number.isFinite(discountPct) || discountPct <= 0)) {
+        throw new Error('Enter a discount between 0.1 and 15%.')
+      }
+      await onSave({
+        early_bird: {
+          enabled: form.enabled,
+          // 0 when blank — schema floor. The 15% cap is enforced by the
+          // PATCH schema AND lib/quote/early-bird.ts (margin guard).
+          discount_pct: Number.isFinite(discountPct) ? discountPct : 0,
+          window_hours: Number.isFinite(windowHours) && windowHours >= 1 ? windowHours : 24,
+        },
+      })
+      setSavedAt(Date.now())
+    } catch (err: any) {
+      setError(err?.message ?? 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (books.length === 0) return null
+
+  return (
+    <Card
+      title="Early-booking discount"
+      subtitle="Reward customers who lock in a time fast. The discount comes off the whole job and is applied automatically when they book before the window closes."
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <Field label="Offer this discount">
+          <label className="inline-flex items-center gap-3 mt-2">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+              className="h-5 w-5 accent-accent"
+            />
+            <span className="text-sm text-text-sec">
+              Show an early-booking discount on new quotes
+            </span>
+          </label>
+        </Field>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          <Field label="Discount" hint="0–15 % of the job total">
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              max="15"
+              value={form.discount_pct}
+              onChange={(e) => setForm({ ...form, discount_pct: e.target.value })}
+              className={INPUT}
+              disabled={!form.enabled}
+            />
+          </Field>
+          <Field label="Booking window" hint="Hours the offer stays open (1–336)">
+            <input
+              type="number"
+              step="1"
+              min="1"
+              max="336"
+              value={form.window_hours}
+              onChange={(e) => setForm({ ...form, window_hours: e.target.value })}
+              className={INPUT}
+              disabled={!form.enabled}
+            />
+          </Field>
+        </div>
+
+        <p className="text-xs text-text-dim leading-relaxed">
+          Capped at 15% to protect your margin. The discount is locked in
+          server-side the moment the customer picks a time — if the window
+          closes first, they pay the full price.
+        </p>
+
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+
+        <div className="flex items-center justify-between pt-2">
+          <SaveHint savedAt={savedAt} />
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-press text-white font-semibold px-6 py-3 text-sm uppercase tracking-wider transition-colors disabled:opacity-50"
+          >
+            {submitting ? 'Saving…' : 'Save discount'}
+          </button>
+        </div>
+      </form>
+    </Card>
   )
 }
 
@@ -2282,7 +2421,7 @@ function ServicesTab({
         <div className="text-sm text-text-sec">
           Every standard service for <span className="font-mono">{tenantTrades.join(' + ') || '—'}</span>{' '}
           is loaded for you, with the easy-5 pre-ticked. Untick anything you don&rsquo;t do —
-          customers can still book it as a $199 inspection, your AI just won&rsquo;t auto-draft a price.
+          customers can still book it as a $99 inspection, your AI just won&rsquo;t auto-draft a price.
         </div>
       </div>
 
@@ -2432,7 +2571,7 @@ function ServicesTab({
                         {svc.always_inspection && (
                           <span
                             className="font-mono text-[0.55rem] uppercase tracking-[0.18em] px-2 py-0.5 border border-warning/40 text-warning"
-                            title="Always books a $199 paid inspection. Turning this on does NOT auto-price it — the AI tells the customer a site visit is needed."
+                            title="Always books a $99 paid inspection. Turning this on does NOT auto-price it — the AI tells the customer a site visit is needed."
                           >
                             inspection only
                           </span>
@@ -2645,7 +2784,7 @@ function ServicesTab({
                             onClick={async () => {
                               if (
                                 !window.confirm(
-                                  `Delete "${svc.name}"? Customers asking about this service will no longer get an auto-quote — they'll fall back to your $199 paid inspection.`,
+                                  `Delete "${svc.name}"? Customers asking about this service will no longer get an auto-quote — they'll fall back to your $99 paid inspection.`,
                                 )
                               ) {
                                 return
@@ -2703,7 +2842,7 @@ function ServicesTab({
       <PreferredBrandsCard data={data} onSave={onSave} />
 
       {/* Inspection-only educational footer */}
-      <Card title="Always require a site visit" subtitle="These jobs route to a $199 paid inspection regardless of toggles above. Your AI tells the customer up front.">
+      <Card title="Always require a site visit" subtitle="These jobs route to a $99 paid inspection regardless of toggles above. Your AI tells the customer up front.">
         <ul className="grid sm:grid-cols-2 gap-2 text-sm">
           {(data.tenant.trade === 'plumbing'
             ? PLUMBING_INSPECTION_ONLY
@@ -3087,7 +3226,7 @@ function CustomServiceForm({
 
       <FormField
         label="Grounding category"
-        hint="How the AI matches this service when pricing a quote. Leave on auto-detect unless the AI keeps sending this job to a $199 inspection."
+        hint="How the AI matches this service when pricing a quote. Leave on auto-detect unless the AI keeps sending this job to a $99 inspection."
       >
         <select
           value={category}
@@ -3164,7 +3303,7 @@ function CustomServiceForm({
           <span className="text-text-pri font-semibold">Always route to paid inspection</span>
           <span className="block text-xs text-text-dim mt-0.5">
             When ticked, the AI will never auto-quote this service. Customers
-            asking about it get the $199 paid inspection instead. Useful for
+            asking about it get the $99 paid inspection instead. Useful for
             jobs where conditions vary too much for a flat rate.
           </span>
         </span>
@@ -3696,6 +3835,250 @@ type SupplierCatalogueRow = {
   supplier_revision: number
 }
 
+// CSV bulk-upload into the shared supplier_catalogue. Two-phase: a
+// dry-run POST returns the new/already-in-library/error split, then a
+// commit POST writes. Insert-only on the server (collisions are skipped),
+// rows tagged source='tenant_csv'. Rendered at the top of
+// BrowseSupplierPanel; calls onImported() so the browse list refreshes.
+type CsvDryRun = {
+  summary: {
+    totalDataRows: number
+    validRows: number
+    errorRows: number
+    toInsert: number
+    alreadyInLibrary: number
+    maxRows: number
+  }
+  errors: Array<{ line: number; column: string; message: string }>
+}
+
+function SupplierCsvUpload({
+  accessToken,
+  onImported,
+}: {
+  accessToken: string | null
+  onImported: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [csvText, setCsvText] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<CsvDryRun | null>(null)
+  const [alsoStock, setAlsoStock] = useState(true)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  function reset() {
+    setFileName(null)
+    setCsvText(null)
+    setReport(null)
+    setMsg(null)
+    setErr(null)
+  }
+
+  async function callImport(text: string, dryRun: boolean): Promise<unknown> {
+    const res = await fetch('/api/supplier-catalogue/import', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ csvText: text, dryRun, alsoStockMine: alsoStock }),
+    })
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok || !json.ok) {
+      throw new Error((json.error as string) || `HTTP ${res.status}`)
+    }
+    return json
+  }
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file || !accessToken) return
+    reset()
+    setBusy(true)
+    try {
+      const text = await file.text()
+      setFileName(file.name)
+      setCsvText(text)
+      const json = (await callImport(text, true)) as CsvDryRun
+      setReport(json)
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : String(e2))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onCommit() {
+    if (!csvText || !accessToken) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const json = (await callImport(csvText, false)) as {
+        inserted: number
+        stockedToMyCatalogue: { stocked: number; skipped: number } | null
+      }
+      const stockedNote = json.stockedToMyCatalogue
+        ? ` · ${json.stockedToMyCatalogue.stocked} added to your catalogue`
+        : ''
+      setMsg(
+        `Imported ${json.inserted} new product(s) to the supplier library${stockedNote}.`,
+      )
+      setReport(null)
+      setFileName(null)
+      setCsvText(null)
+      onImported()
+    } catch (e2) {
+      setErr(`Import failed: ${e2 instanceof Error ? e2.message : String(e2)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const canCommit =
+    !!report &&
+    !busy &&
+    (report.summary.toInsert > 0 || (alsoStock && report.summary.validRows > 0))
+
+  return (
+    <div className="border border-ink-line bg-ink-deep">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold text-text-pri hover:text-accent transition-colors cursor-pointer"
+        >
+          {open ? '▲' : '▼'} Upload products via CSV
+        </button>
+        <a
+          href="/docs/supplier-catalogue-template.csv"
+          download
+          className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim hover:text-accent transition-colors"
+        >
+          ↓ Download CSV template
+        </a>
+      </div>
+
+      {open && (
+        <div className="border-t border-ink-line px-4 py-4 space-y-4">
+          <p className="text-xs text-text-sec leading-snug">
+            Bulk-add products to the shared supplier catalogue. Columns:{' '}
+            <span className="font-mono text-text-dim">
+              trade, category, brand, name, default_unit_price_ex_gst
+            </span>{' '}
+            (required) + range_series, supplier_label, default_unit, tier_hint,
+            image_url, description. Uploaded products become browsable here for
+            you to add to your catalogue.
+          </p>
+
+          <div>
+            <label className="inline-flex items-center gap-2 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-3 py-2 border border-accent/60 text-accent hover:bg-accent/10 transition-colors cursor-pointer">
+              {busy && !report ? 'Reading…' : 'Choose CSV file'}
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => void onPickFile(e)}
+                disabled={busy}
+                className="hidden"
+              />
+            </label>
+            {fileName && (
+              <span className="ml-3 text-xs text-text-dim font-mono">{fileName}</span>
+            )}
+          </div>
+
+          {err && (
+            <div className="bg-ink-card border-l-2 border-l-warning border-y border-r border-ink-line px-3 py-2 text-sm text-text-sec">
+              {err}
+            </div>
+          )}
+          {msg && (
+            <div className="bg-ink-card border-l-2 border-l-accent border-y border-r border-ink-line px-3 py-2 text-sm text-accent">
+              {msg}
+            </div>
+          )}
+
+          {report && (
+            <div className="space-y-3">
+              {/* Dry-run summary. */}
+              <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-[0.65rem] uppercase tracking-[0.14em]">
+                <span className="text-accent">{report.summary.toInsert} new</span>
+                <span className="text-text-dim">
+                  {report.summary.alreadyInLibrary} already in library
+                </span>
+                <span
+                  className={
+                    report.summary.errorRows > 0 ? 'text-warning' : 'text-text-dim'
+                  }
+                >
+                  {report.summary.errorRows} row error(s)
+                </span>
+                <span className="text-text-dim">
+                  {report.summary.totalDataRows} data row(s) read
+                </span>
+              </div>
+
+              {/* Row errors — bounded scroll list. */}
+              {report.errors.length > 0 && (
+                <div className="bg-ink-card border border-ink-line max-h-44 overflow-y-auto">
+                  {report.errors.map((e, i) => (
+                    <div
+                      key={`${e.line}-${e.column}-${i}`}
+                      className="px-3 py-1.5 text-xs text-text-sec border-b border-ink-line/50 last:border-b-0"
+                    >
+                      <span className="font-mono text-text-dim">
+                        line {e.line}
+                        {e.column ? ` · ${e.column}` : ''}
+                      </span>{' '}
+                      — {e.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 text-xs text-text-sec cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alsoStock}
+                  onChange={(e) => setAlsoStock(e.target.checked)}
+                  className="cursor-pointer"
+                />
+                Also add every uploaded product to my catalogue
+              </label>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!canCommit}
+                  onClick={() => void onCommit()}
+                  className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-3 py-2 border border-accent/60 text-accent hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {busy ? 'Importing…' : `Confirm import (${report.summary.toInsert} new)`}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={reset}
+                  className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim hover:text-text-pri transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                {report.summary.toInsert === 0 && (
+                  <span className="font-mono text-[0.6rem] uppercase tracking-[0.13em] text-text-dim">
+                    no new products — all rows already in the library
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // v7 Phase 2b — "Browse supplier catalogue" panel rendered inside
 // CatalogueTab when viewMode === 'browse'. Self-contained: own fetch,
 // own filters (trade / category / brand), multi-select state, and a
@@ -3860,11 +4243,14 @@ function BrowseSupplierPanel({
   }
   if (rows.length === 0) {
     return (
-      <div className="mt-4 bg-ink-card/40 border border-dashed border-ink-line p-6">
-        <p className="text-sm text-text-sec">
-          The supplier catalogue is empty for your trade(s). Ask QuoteMate to add a
-          brand or contact your admin.
-        </p>
+      <div className="mt-4 space-y-4">
+        <SupplierCsvUpload accessToken={accessToken} onImported={() => void load()} />
+        <div className="bg-ink-card/40 border border-dashed border-ink-line p-6">
+          <p className="text-sm text-text-sec">
+            The supplier catalogue is empty for your trade(s). Upload a CSV above to
+            populate it, or ask QuoteMate to add a brand.
+          </p>
+        </div>
       </div>
     )
   }
@@ -3876,6 +4262,10 @@ function BrowseSupplierPanel({
 
   return (
     <div className="mt-4 space-y-4">
+      {/* CSV bulk-upload — populate the shared library faster than ticking
+         rows one by one. After a commit, load() refreshes this list. */}
+      <SupplierCsvUpload accessToken={accessToken} onImported={() => void load()} />
+
       {/* Filter chips. */}
       <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-mono uppercase tracking-[0.14em]">
         {trades.length > 1 && (

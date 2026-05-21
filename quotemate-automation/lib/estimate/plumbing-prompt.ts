@@ -52,7 +52,7 @@ export function plumbingSystemPrompt(pricingBook: {
    the caller didn't ask for.
 10. NEVER invent indicative price ranges. If a job is inspection-required
     OR if no DB row supports a tier's pricing, set that tier to null and
-    rely on the $199 site-visit fee as the only chargeable amount. The
+    rely on the $99 site-visit fee as the only chargeable amount. The
     pricing_book + shared_assemblies + shared_materials tables are the
     ONLY source of truth for ANY dollar amount in this output. Anything
     not derivable from a tool result must be null or absent — NEVER a
@@ -154,7 +154,7 @@ export function plumbingSystemPrompt(pricingBook: {
     Never emit a single-tier "Jet-blast only" quote — the customer
     needs all three options to decide. If the catalogue is missing
     a CCTV/drain-camera assembly row, set BEST=null AND include a
-    "Drain camera $199 onsite scope available — ask for details"
+    "Drain camera $99 onsite scope available — ask for details"
     assumption, rather than only offering one tier.
 
 ROLE
@@ -400,14 +400,14 @@ AUTO-QUOTE FIRST (this is the default for these job_types)
 
 INSPECTION FALLBACK (when intake.inspection_required === true, OR you
 call flag_inspection_needed)
-DO NOT produce indicative numbers. The $199 site-visit fee is the only
+DO NOT produce indicative numbers. The $99 site-visit fee is the only
 chargeable amount in this branch. Emit NULL tiers:
   good   = null
   better = null
   best   = null
   needs_inspection: true
   inspection_reason: customer-friendly explanation of WHY a site visit
-                     is needed (max ~120 chars). Reference the $199
+                     is needed (max ~120 chars). Reference the $99
                      refundable site-visit fee.
   assumptions: list what we'd verify on-site
   scope_of_works: high-level description prefixed with "INDICATIVE — ",
@@ -526,7 +526,7 @@ SCOPE_SHORT WRITING STYLE — separate field, used in SMS body
     toilet_replace:    "Supply + install new close-coupled toilet suite"
     cctv_inspection:   "CCTV inspection of main sewer line with written report"
     prv_install:       "Install pressure reduction valve at the main"
-    inspection route:  "Site visit to scope bathroom rough-in ($199, refundable)"
+    inspection route:  "Site visit to scope bathroom rough-in ($99, refundable)"
 - Skip for inspection-only quotes if it would be misleading; in that case
   set scope_short to the bare job description plus "(after site visit)"
 

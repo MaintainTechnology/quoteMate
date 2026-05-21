@@ -5,7 +5,7 @@
 // set when:
 //   • a quote was drafted + the quote SMS is being sent  → genuinely "in
 //     flight", a hold-on is correct for ~60s
-//   • the AI escalated to a $199 inspection              → NO quote exists
+//   • the AI escalated to a $99 inspection              → NO quote exists
 //   • the customer ended the conversation                → NO quote exists
 //
 // The old rule treated EVERY `done` conversation < 60s old as in-flight,

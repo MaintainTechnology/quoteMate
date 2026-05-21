@@ -26,7 +26,7 @@
 //     ZERO regression, never a hole.
 //   • The existing grounding validator STILL runs on the output in
 //     run.ts. If this builder's math ever drifted, the quote
-//     self-corrects to the $199 inspection — the same safety envelope
+//     self-corrects to the $99 inspection — the same safety envelope
 //     as the Opus path. This module can never ship an ungrounded price.
 //
 // Unit-tested in deterministic-bom.test.ts.

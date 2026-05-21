@@ -8,7 +8,7 @@
 // if its unit price traces to a real DB row — shared_assemblies /
 // shared_materials price (× markup band), OR pricing_book hourly /
 // apprentice / senior rate (labour), OR pricing_book call_out_minimum.
-// Anything else downgrades the WHOLE quote to a $199 inspection. So
+// Anything else downgrades the WHOLE quote to a $99 inspection. So
 // "invented pricing" is structurally impossible; the real risk is a
 // service with INCOMPLETE pricing silently failing grounding and routing
 // to inspection. This audit finds those.
@@ -124,7 +124,7 @@ try {
     console.log(`\n  ${trade}: ${rows.length} assemblies — ${JSON.stringify(counts)}`);
     const broken = rows.filter((r) => bucket(r) === "NO PRICE BASIS");
     if (broken.length) {
-      console.log(`  ✗ NO PRICE BASIS (can never auto-quote → routes to $199 inspection):`);
+      console.log(`  ✗ NO PRICE BASIS (can never auto-quote → routes to $99 inspection):`);
       for (const r of broken)
         console.log(`      - "${r.name}" price=${r.price} labour=${r.labour} enabled=${r.default_enabled}`);
     } else {

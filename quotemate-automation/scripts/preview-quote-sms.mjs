@@ -70,6 +70,6 @@ console.log("══════════════════ AUTO-QUOTE (
 console.log(auto);
 console.log(`\n[${auto.length} chars · ${Math.ceil(auto.length / 153)} SMS segments]`);
 
-console.log("\n\n═══════════════ INSPECTION-REQUIRED ($199) ═══════════════");
+console.log("\n\n═══════════════ INSPECTION-REQUIRED ($99) ═══════════════");
 console.log(insp);
 console.log(`\n[${insp.length} chars · ${Math.ceil(insp.length / 153)} SMS segments]`);

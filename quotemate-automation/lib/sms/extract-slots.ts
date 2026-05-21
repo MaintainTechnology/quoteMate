@@ -383,7 +383,7 @@ EXTRACTION RULES:
   7. COUNT extraction:
      - "6 downlights" → count: 6
      - "a couple" → 2; "a few" → 3; "half a dozen" → 6
-     - Don't extract a count from prices ("$199 inspection") or addresses ("12 Main St").
+     - Don't extract a count from prices ("$99 inspection") or addresses ("12 Main St").
   8. CEILING_TYPE: flat_plaster | raked | cathedral | sheet_metal | unknown
      - "flat ceiling" / "plaster ceiling" / "standard" → flat_plaster
      - "raked" / "sloped" / "vaulted" → raked

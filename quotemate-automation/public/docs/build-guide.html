@@ -690,7 +690,7 @@
             <li>Underground cabling <em style="font-size: 0.85em; color: #991b1b; opacity: 0.7;">(classified as <code>renovation</code> in the schema)</em></li>
             <li>Complex renovations (multi-trade / mains)</li>
           </ol>
-          <p style="font-size: 0.85rem; color: #991b1b; margin-top: 1rem; line-height: 1.55;">Hidden state can't be photographed. Surface as indicative range only and trigger the $199 paid site visit. Note: the <code>job_type</code> Zod enum has 11 values; underground cabling is folded into <code>renovation</code> at classification time, then surfaces with its own risk flag at intake.</p>
+          <p style="font-size: 0.85rem; color: #991b1b; margin-top: 1rem; line-height: 1.55;">Hidden state can't be photographed. Surface as indicative range only and trigger the $99 paid site visit. Note: the <code>job_type</code> Zod enum has 11 values; underground cabling is folded into <code>renovation</code> at classification time, then surfaces with its own risk flag at intake.</p>
         </div>
       </div>
 
@@ -700,7 +700,7 @@
           <li><strong>Photos plus structured Q&amp;A are sufficient</strong> for the easy 5 — the customer can show "the area" and the AI can ask the 6–8 questions that bound the job</li>
           <li><strong>Hidden state can't be photographed</strong> for the hard 5 — switchboard internals, cable runs in walls, fault root cause, EV load on existing supply</li>
           <li><strong>Australian Consumer Law</strong> treats accepted quotes as binding contracts. Auto-quoting safety-critical work that turns out wrong creates personal liability for the licensed electrician</li>
-          <li><strong>The $199 inspection fee</strong> filters tire-kickers AND pays for the trip when the job doesn't convert — turns a cost into a revenue line</li>
+          <li><strong>The $99 inspection fee</strong> filters tire-kickers AND pays for the trip when the job doesn't convert — turns a cost into a revenue line</li>
         </ul>
       </div>
 
@@ -1997,7 +1997,7 @@ Don't produce real line items. Instead emit indicative ranges:
   best   = { label: "Indicative · full scope",    line_items: [],
              subtotal_ex_gst: &lt;range_high&gt;, timeframe: "Subject to inspection" }
   needs_inspection: true
-  inspection_reason: customer-friendly explanation referencing the $199 site fee
+  inspection_reason: customer-friendly explanation referencing the $99 site fee
   assumptions: list what we'd verify on-site
   scope_of_works: high-level description; mark as INDICATIVE
 
@@ -2523,7 +2523,7 @@ CONSISTENCY CHECK BEFORE EMITTING
           <span class="next-num">Stage 06</span>
           <div>
             <span class="next-title">Workflow Decision · Confidence-Based Routing</span>
-            <span class="next-desc">A rule layer that decides what happens to the draft: auto-send to customer (HIGH confidence), tradie review then send (MEDIUM), or trigger a paid $199 site inspection (LOW).</span>
+            <span class="next-desc">A rule layer that decides what happens to the draft: auto-send to customer (HIGH confidence), tradie review then send (MEDIUM), or trigger a paid $99 site inspection (LOW).</span>
           </div>
         </li>
         <li>

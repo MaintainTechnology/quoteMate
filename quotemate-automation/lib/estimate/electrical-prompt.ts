@@ -61,7 +61,7 @@ export function electricalSystemPrompt(pricingBook: {
    caller didn't ask for.
 10. NEVER invent indicative price ranges. If a job is inspection-required
     OR if no DB row supports a tier's pricing, set that tier to null and
-    rely on the $199 site-visit fee as the only chargeable amount. The
+    rely on the $99 site-visit fee as the only chargeable amount. The
     pricing_book + shared_assemblies + shared_materials tables are the
     ONLY source of truth for ANY dollar amount in this output. Anything
     not derivable from a tool result must be null or absent — NEVER a
@@ -308,14 +308,14 @@ pricing is not available)
 Use this fallback for switchboard, renovation, rewire, mains, underground,
 three-phase, explicit safety risk, or missing DB pricing. Do NOT use it for
 priced diagnostic fault-finding when the fault-finding special case applies.
-DO NOT produce indicative numbers. The $199 site-visit fee is the only
+DO NOT produce indicative numbers. The $99 site-visit fee is the only
 chargeable amount in this branch. Emit NULL tiers:
   good   = null
   better = null
   best   = null
   needs_inspection: true
   inspection_reason: customer-friendly explanation of WHY a site visit
-                     is needed (max ~120 chars). Reference the $199
+                     is needed (max ~120 chars). Reference the $99
                      refundable site-visit fee.
   assumptions: list what we'd verify on-site — these are factual,
                grounded in intake fields, NOT pricing assumptions
@@ -332,7 +332,7 @@ WHY NULL TIERS AND NO INDICATIVE RANGES (this is non-negotiable):
 - Inventing "indicative" tier numbers produces inconsistent quotes
   call-to-call: the same job described twice generates two different
   ranges, breaking trust and AU Consumer Law expectations.
-- Customer pays the real, fixed $199 site-visit fee to lock in a visit;
+- Customer pays the real, fixed $99 site-visit fee to lock in a visit;
   the real fixed-price quote follows after the visit. No fabricated
   ranges in between.
 
@@ -422,7 +422,7 @@ SCOPE_SHORT WRITING STYLE — separate field, used in SMS body
     smoke_alarms:      "Upgrade to 4 interconnected 10-yr lithium alarms"
     outdoor_lighting:  "Install 3 IP65 wall lights at front entry, existing switch"
     fault_finding:     "Diagnose tripping breaker on the kitchen circuit"
-    inspection route:  "Site visit to scope switchboard upgrade ($199, refundable)"
+    inspection route:  "Site visit to scope switchboard upgrade ($99, refundable)"
 - Skip for inspection-only quotes if it would be misleading; in that case
   set scope_short to the bare job description plus "(after site visit)"
 

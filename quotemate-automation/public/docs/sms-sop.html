@@ -1146,7 +1146,7 @@ DECISION GUIDE
 - action = 'escalate_inspection' when any inspection trigger fires OR
   job type is outside the easy 5 OR turn cap exceeded. Reply with:
   "Thanks — for that I'll need to send a sparky for a quick look. Want me
-   to text you a $199 inspection booking?" Set ready_for_intake = false.
+   to text you a $99 inspection booking?" Set ready_for_intake = false.
 
 OUTPUT FORMAT
 You MUST return JSON matching the TurnDecisionSchema. The schema is enforced
@@ -1844,7 +1844,7 @@ console.log('\nDone. Check Supabase → sms_messages and sms_conversations.')</c
       </blockquote>
       <p>Expected within ~5 seconds:</p>
       <ul>
-        <li>You receive a reply like <em>"Thanks — for that I'll need to send a sparky for a quick look. Want me to text you a $199 inspection booking?"</em></li>
+        <li>You receive a reply like <em>"Thanks — for that I'll need to send a sparky for a quick look. Want me to text you a $99 inspection booking?"</em></li>
         <li><code>sms_conversations</code> row has <code>status: done</code>, no <code>intake_id</code></li>
         <li><strong>No</strong> new row in <code>intakes</code> or <code>quotes</code> — the agent escalated rather than auto-quoting</li>
       </ul>

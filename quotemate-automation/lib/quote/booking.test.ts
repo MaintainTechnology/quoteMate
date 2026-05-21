@@ -1,7 +1,7 @@
 // WP6 reorder regression coverage — book first, pay LAST.
 //
 // Locks the funnel order so a future change can't silently put payment
-// back before booking, and so the $199 inspection fee stays pay-first.
+// back before booking, and so the $99 inspection fee stays pay-first.
 
 import { describe, expect, it } from 'vitest'
 import { BOOKING_STATE } from './hold'
@@ -45,7 +45,7 @@ describe('payRedirectTarget — the flip', () => {
     ).toBe('paid')
   })
 
-  it('inspection $199 stays pay-first regardless of slot/paid state', () => {
+  it('inspection $99 stays pay-first regardless of slot/paid state', () => {
     expect(
       payRedirectTarget({ paid: false, scheduledAt: null, tier: 'inspection' }),
     ).toBe('stripe')

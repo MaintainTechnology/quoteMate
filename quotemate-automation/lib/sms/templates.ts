@@ -136,7 +136,7 @@ function buildInspectionQuoteUpdatedSms(intake: Intake, quote: Quote): string {
     lines.push('')
   }
   if (inspectionUrl) {
-    lines.push('Tap to lock in your site visit ($199 refundable, credited toward your final quote):')
+    lines.push('Tap to lock in your site visit ($99 refundable, credited toward your final quote):')
     lines.push(inspectionUrl)
   } else {
     lines.push('Call us back to lock in the site visit.')
@@ -199,7 +199,7 @@ export function buildTradieIntentExpiredSms(opts: {
 // Tradie-side notifications (Phase 4 / notify) — fire when an SMS-sourced
 // quote drafts. Two flavours:
 //   • buildTradieDraftNotification — for auto-quote drafts (good/better/best)
-//   • buildTradieInspectionNotification — for inspection-required quotes ($199)
+//   • buildTradieInspectionNotification — for inspection-required quotes ($99)
 // Both are GSM-7 safe ASCII so they fit in a single SMS segment whenever
 // possible. They go to the tradie's mobile + WhatsApp simultaneously.
 // ════════════════════════════════════════════════════════════════════
@@ -253,7 +253,7 @@ export function buildTradieInspectionNotification(opts: {
   const reason = opts.inspectionReason ? ` (${opts.inspectionReason})` : ''
   const dashLine = opts.dashboardUrl ? `\nDashboard: ${opts.dashboardUrl}` : ''
   const body =
-    `${greet}, ${who} has requested work that needs a site visit - ${job}${reason}. $199 inspection.\n` +
+    `${greet}, ${who} has requested work that needs a site visit - ${job}${reason}. $99 inspection.\n` +
     `Details: ${opts.quoteUrl}${dashLine}`
   return scrubForGsm7(body)
 }
@@ -411,6 +411,10 @@ export function buildTradieBookingNotification(opts: {
   scheduledAt: string
   quoteUrl: string
   dashboardUrl?: string
+  /** v8 — realised early-booking discount %. When > 0 the notification
+   *  adds an explicit line so the tradie knows to collect the REDUCED
+   *  balance on completion, not the original quoted figure. */
+  earlyBirdDiscountPct?: number
 }): string {
   const greet = opts.tradieFirstName ? `Hi ${opts.tradieFirstName}` : 'Hi'
   const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
@@ -418,9 +422,14 @@ export function buildTradieBookingNotification(opts: {
   const qty = opts.itemCount ? `${opts.itemCount} ${job}` : job
   const when = fmtSlotShort(opts.scheduledAt)
   const dashLine = opts.dashboardUrl ? `\nDashboard: ${opts.dashboardUrl}` : ''
+  const discount = opts.earlyBirdDiscountPct ?? 0
+  const discountLine =
+    discount > 0
+      ? `\nNote: ${discount}% early-booking discount applied - collect the reduced balance on completion.`
+      : ''
   const body =
     `${greet}, ${who} has booked and paid the deposit - ${qty} on ${when}.\n` +
-    `Job: ${opts.quoteUrl}${dashLine}`
+    `Job: ${opts.quoteUrl}${dashLine}${discountLine}`
   return scrubForGsm7(body)
 }
 
@@ -554,7 +563,7 @@ type Quote = {
   estimated_timeframe: string | null
   /** optional per-tier short redirect URLs. May include 'inspection' for
    *  inspection-required quotes — when present, template renders the
-   *  inspection-only layout (single $199 link, indicative ranges as context). */
+   *  inspection-only layout (single $99 link, indicative ranges as context). */
   pay_links?: Partial<Record<'good' | 'better' | 'best' | 'inspection', string>>
   /** % deposit used in the SMS line (e.g. 30 → "(deposit $209)") */
   deposit_pct?: number | string | null
@@ -666,7 +675,7 @@ function pickScopeForSms(quote: Quote): string | null {
 
 export function buildQuoteSms(intake: Intake, quote: Quote): string {
   // Inspection-required quotes get a distinct SMS layout — indicative ranges
-  // for context, ONE prominent $199 site-visit link, no per-tier pay buttons.
+  // for context, ONE prominent $99 site-visit link, no per-tier pay buttons.
   if (quote.needs_inspection) {
     return buildInspectionQuoteSms(intake, quote)
   }
@@ -740,7 +749,7 @@ export function buildQuoteSms(intake: Intake, quote: Quote): string {
 
 // Inspection-required SMS — shown when intake/estimation flags the job as
 // needing an on-site visit before a real quote can be drafted. Renders the
-// indicative ranges as context, then ONE clear $199 site-visit pay link.
+// indicative ranges as context, then ONE clear $99 site-visit pay link.
 // No per-tier deposit buttons — those would charge against indicative
 // (not real) prices, which is misleading.
 function buildInspectionQuoteSms(intake: Intake, quote: Quote): string {
@@ -749,8 +758,8 @@ function buildInspectionQuoteSms(intake: Intake, quote: Quote): string {
   const inspectionUrl = quote.pay_links?.inspection
 
   // Inspection-required quotes never include fabricated tier numbers.
-  // The $199 site-visit fee is the only honest dollar amount we can
-  // commit to before seeing the work. Customer pays $199, tradie attends,
+  // The $99 site-visit fee is the only honest dollar amount we can
+  // commit to before seeing the work. Customer pays $99, tradie attends,
   // real fixed-price quote follows.
 
   const lines: string[] = []
@@ -765,11 +774,11 @@ function buildInspectionQuoteSms(intake: Intake, quote: Quote): string {
   lines.push(`Every site is different — we can't price this safely without seeing the work in person.`)
   lines.push('')
   if (inspectionUrl) {
-    lines.push('Tap to lock in your site visit ($199 refundable, credited toward your final quote):')
+    lines.push('Tap to lock in your site visit ($99 refundable, credited toward your final quote):')
     lines.push(inspectionUrl)
   } else {
     // Fallback when Stripe Session creation failed — tell the customer to call.
-    lines.push('Call us back to lock in a site visit ($199 refundable, credited toward your final quote).')
+    lines.push('Call us back to lock in a site visit ($99 refundable, credited toward your final quote).')
   }
   lines.push('')
 

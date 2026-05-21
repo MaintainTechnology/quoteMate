@@ -4,7 +4,7 @@
 // rule — a tradie won't roll a truck for 0.3 h. The grounding validator
 // HARD-FAILS any priced tier whose labour totals below that floor, which
 // downgrades an otherwise perfectly DB-priced small job (e.g. "replace
-// one GPO") to a $199 inspection. That is the single biggest "it has a
+// one GPO") to a $99 inspection. That is the single biggest "it has a
 // price but still wants an on-site visit" cause.
 //
 // THE FIX (deterministic, grounded, no fabrication, never undercharges):

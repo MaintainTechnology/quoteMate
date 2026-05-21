@@ -1,6 +1,6 @@
 // Coverage for the minimum-charge floor — the fix that stops a small,
 // correctly-DB-priced job (e.g. "replace one GPO") being bounced to a
-// $199 inspection purely because labour < min_labour_hours.
+// $99 inspection purely because labour < min_labour_hours.
 
 import { describe, expect, it } from 'vitest'
 import { applyMinLabourFloor } from './min-labour'

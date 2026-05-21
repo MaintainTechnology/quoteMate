@@ -1,0 +1,3 @@
+trade,category,brand,name,default_unit_price_ex_gst,range_series,supplier_label,default_unit,tier_hint,image_url,description
+electrical,gpo,Clipsal,Clipsal Iconic double GPO 10A,25.00,Iconic,MM Electrical,each,better,https://example.com/clipsal-iconic-gpo.jpg,Modern flush-profile double power point
+plumbing,toilet,Caroma,Caroma Luna Cleanflush back-to-wall suite,389.00,Luna,Reece,each,good,https://example.com/caroma-luna.jpg,Back-to-wall suite with easy-clean rim

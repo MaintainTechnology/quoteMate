@@ -24,6 +24,11 @@
 import { createClient } from '@supabase/supabase-js'
 import { pipelineLog } from '@/lib/log/pipeline'
 import { BOOKING_STATE } from '@/lib/quote/hold'
+import { earlyBirdStatus } from '@/lib/quote/early-bird'
+import {
+  createCheckoutSessionForTier,
+  expireCheckoutSession,
+} from '@/lib/stripe/checkout'
 
 export const maxDuration = 300
 
@@ -64,7 +69,7 @@ export async function POST(
 
   const { data: quote, error: quoteErr } = await supabase
     .from('quotes')
-    .select('id, paid_at, scheduled_at, selected_tier, share_token, intake_id, tenant_id')
+    .select('id, paid_at, scheduled_at, selected_tier, share_token, intake_id, tenant_id, good, better, best, stripe_links')
     .eq('share_token', token)
     .maybeSingle()
 
@@ -142,11 +147,139 @@ export async function POST(
         : 'better'
   const next = `/r/${token}/${tier}`
 
+  // ─── v8 Phase A — apply the early-booking discount ──────────────────
+  //
+  // The booking choke-point is the moment the customer commits a time —
+  // exactly when an "if you book today" offer should be realised. The
+  // discount is decided SERVER-SIDE from the DB-stamped deadline, never
+  // from anything the client sent.
+  //
+  // Best-effort + isolated: the slot is ALREADY reserved above. If any
+  // step here fails the customer still proceeds to the (non-discounted)
+  // deposit and the booking is unharmed — they just miss the discount.
+  //
+  // The early_bird_* columns land via migration 044; the select is its
+  // own try so a pre-migration deploy simply finds no offer.
+  let appliedDiscountPct = 0
+  if (PAY_TIERS.has(tier)) {
+    try {
+      const { data: eb, error: ebErr } = await supabase
+        .from('quotes')
+        .select('early_bird_discount_pct, early_bird_expires_at, applied_discount_pct')
+        .eq('id', quote.id)
+        .maybeSingle()
+
+      if (ebErr) {
+        log.step('early-bird columns absent — skipping discount (apply migration 044)', {
+          quote_id: quote.id,
+        })
+      } else if (eb) {
+        const alreadyApplied = Number(eb.applied_discount_pct ?? 0)
+        const status = earlyBirdStatus(
+          eb.early_bird_discount_pct as number | null,
+          eb.early_bird_expires_at as string | null,
+        )
+        if (alreadyApplied > 0) {
+          // Re-pick of a time on a quote that already earned the
+          // discount — keep it; don't re-issue or double-stamp.
+          appliedDiscountPct = alreadyApplied
+        } else if (status.state === 'live') {
+          appliedDiscountPct = status.discountPct
+
+          // 1. Stamp the realised discount on the quote.
+          const { error: stampErr } = await supabase
+            .from('quotes')
+            .update({
+              applied_discount_pct: appliedDiscountPct,
+              applied_discount_at: nowIso,
+            })
+            .eq('id', quote.id)
+          if (stampErr) {
+            log.err('early-bird stamp failed (non-fatal — booking proceeds)', stampErr.message, {
+              quote_id: quote.id,
+            })
+            appliedDiscountPct = 0
+          } else {
+            // 2. Re-issue the deposit Stripe Session at the discounted
+            //    price. The pre-baked Session in stripe_links froze the
+            //    full price at draft time, so it must be replaced.
+            try {
+              const { data: intakeRow } = await supabase
+                .from('intakes')
+                .select('job_type, scope, caller')
+                .eq('id', quote.intake_id)
+                .maybeSingle()
+
+              const appUrl = process.env.APP_URL!
+              type CheckoutOpts = Parameters<typeof createCheckoutSessionForTier>[0]
+              const newUrl = await createCheckoutSessionForTier({
+                quote: {
+                  id: quote.id as string,
+                  good: quote.good ?? null,
+                  better: quote.better ?? null,
+                  best: quote.best ?? null,
+                  // Matches the hardcoded 30% used at draft time
+                  // (createCheckoutSessionsForQuote in the estimate route).
+                  deposit_pct: 30,
+                } as unknown as CheckoutOpts['quote'],
+                tierKey: tier as 'good' | 'better' | 'best',
+                intake: {
+                  job_type: (intakeRow?.job_type as string) ?? 'other',
+                  scope: intakeRow?.scope ?? null,
+                  caller: intakeRow?.caller ?? null,
+                } as unknown as CheckoutOpts['intake'],
+                shareToken: token,
+                appUrl,
+                discountPct: appliedDiscountPct,
+              })
+
+              if (newUrl) {
+                const links = {
+                  ...((quote.stripe_links as Record<string, string> | null) ?? {}),
+                }
+                const oldUrl = links[tier]
+                links[tier] = newUrl
+                await supabase
+                  .from('quotes')
+                  .update({ stripe_links: links })
+                  .eq('id', quote.id)
+                // Expire the stale full-price Session so a cached old
+                // link can't be paid at the undiscounted amount.
+                if (oldUrl) await expireCheckoutSession(oldUrl)
+                log.ok('early-bird discount applied — discounted Session issued', {
+                  quote_id: quote.id,
+                  tier,
+                  discount_pct: appliedDiscountPct,
+                })
+              } else {
+                log.err('discounted Session returned no URL — customer keeps full-price link', null, {
+                  quote_id: quote.id,
+                })
+              }
+            } catch (e: unknown) {
+              log.err('discounted Session re-issue threw (non-fatal — full-price link still works)',
+                e instanceof Error ? e.message : String(e), { quote_id: quote.id })
+            }
+          }
+        }
+      }
+    } catch (e: unknown) {
+      log.err('early-bird block threw (non-fatal — booking proceeds)',
+        e instanceof Error ? e.message : String(e), { quote_id: quote.id })
+    }
+  }
+
   log.done('slot reserved — sending customer to deposit (last step)', {
     quote_id: quote.id,
     slot,
     tier,
+    early_bird_discount_pct: appliedDiscountPct,
   })
 
-  return Response.json({ ok: true, scheduled_at: slot, next })
+  return Response.json({
+    ok: true,
+    scheduled_at: slot,
+    next,
+    early_bird_discount_pct: appliedDiscountPct,
+  })
 }

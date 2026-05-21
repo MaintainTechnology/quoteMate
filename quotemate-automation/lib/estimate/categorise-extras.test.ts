@@ -176,7 +176,7 @@ describe('migration 029 — explicit row category grounds an opaque-named assemb
 
 // The migration-032 promise: once the dialog has gathered the mandated
 // questions, a fully-priced plumbing extra must produce a GROUNDED quote
-// — i.e. it is NOT forced to the $199 inspection just because it is an
+// — i.e. it is NOT forced to the $99 inspection just because it is an
 // "extra". These pin that for both category paths.
 describe('plumbing pilot (mig 032) — a fully-priced extra grounds, no forced inspection', () => {
   it('Install rainwater tank ($80, explicit category) grounds', () => {
@@ -245,7 +245,7 @@ describe('electrical follow-up (mig 033) — a fully-priced extra grounds, no fo
 // fell under the min-labour floor and (sometimes) the GPO line missed the
 // semantic check (core row had category=NULL). Migration 036 gives the
 // row an explicit 'gpo' category; min-labour.ts tops the tier to the
-// floor. Together: this auto-quotes instead of dumping to $199.
+// floor. Together: this auto-quotes instead of dumping to $99.
 describe('mig 036 + min-labour floor — the 2-GPO screenshot scenario auto-quotes', () => {
   // 2 double GPOs @ 22×1.28 = 28.16; only 0.6h labour (2×0.3h).
   const twoGpoDraft = () => ({

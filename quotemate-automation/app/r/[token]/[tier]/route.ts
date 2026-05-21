@@ -9,7 +9,7 @@
 //   already paid           → /q/<token>/paid
 //   not paid, NO slot yet   → /q/<token>/book?tier=<tier>   (pick a time)
 //   not paid, slot chosen   → Stripe Checkout (deposit = the last step)
-//   inspection ($199 fee)   → Stripe (pay-first preserved; see booking.ts)
+//   inspection ($99 fee)   → Stripe (pay-first preserved; see booking.ts)
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
