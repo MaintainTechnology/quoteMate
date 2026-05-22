@@ -25,7 +25,7 @@ import {
   type ServiceOfferingScopeRow,
   type SharedAssemblyScopeRow,
 } from '@/lib/sms/service-scope'
-import { isQuoteInflight, DONE_INFLIGHT_WINDOW_MS } from '@/lib/sms/inflight'
+import { isQuoteInflight } from '@/lib/sms/inflight'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
@@ -385,9 +385,11 @@ export async function POST(req: Request) {
   //             customerHistoryHint = 'first_time' or 'returning'.
   //
   // Window thresholds (don't change without updating the comment).
-  // STRUCTURING_INFLIGHT_MAX_MS + DONE_INFLIGHT_WINDOW_MS + the in-flight
-  // rule itself now live in lib/sms/inflight.ts (pure + unit-tested) so
-  // the "done means a quote is in transit" bug can't silently regress.
+  // STRUCTURING_INFLIGHT_MAX_MS + the in-flight rule itself live in
+  // lib/sms/inflight.ts (pure + unit-tested). A `done` conversation
+  // within REUSE_DONE_GRACE_MS is REUSED so the dialog continues the
+  // thread — no separate "quote in transit" sub-window (that 60s window
+  // keyed off last_message_at and oscillated; removed 2026-05-22).
   const REUSE_DONE_GRACE_MS         = 5 * 60 * 1000  // 5min after done = add-on grace
   const REUSE_OPEN_WINDOW_MS        = 4 * 60 * 60 * 1000  // 4h on open = pause-and-resume
 
@@ -443,8 +445,12 @@ export async function POST(req: Request) {
     (prior.status === 'open' && ageMs < REUSE_OPEN_WINDOW_MS)
     || (prior.status === 'structuring' && ageMs < REUSE_OPEN_WINDOW_MS)
   )
+  // A `done` conversation within the 5-min grace is REUSED — the dialog
+  // continues the thread. No lower bound: a quote-just-finished message
+  // is handled by the dialog + the hasExistingIntake guard, not a canned
+  // hold-on (that bogus 60s sub-window was the oscillation bug).
   const isReuseDoneGrace = !!prior && !isInflight && (
-    prior.status === 'done' && ageMs >= DONE_INFLIGHT_WINDOW_MS && ageMs < REUSE_DONE_GRACE_MS
+    prior.status === 'done' && ageMs < REUSE_DONE_GRACE_MS
   )
 
   if (isInflight) {

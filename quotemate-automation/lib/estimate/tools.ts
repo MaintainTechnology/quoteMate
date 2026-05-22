@@ -2,6 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@supabase/supabase-js'
 import { getReranker } from './rerank'
+import { buildAssemblyOrFilter } from './assembly-search'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -142,11 +143,14 @@ function makeLookupAssembly(tenantId: string | null) {
       supplied_by: z.enum(['tradie', 'customer']).optional(),
     }),
     execute: async ({ query, trade, ...filters }) => {
-      // Shared catalogue lookup (unchanged behaviour).
+      // Shared catalogue lookup. The name search is synonym + token
+      // expanded (buildAssemblyOrFilter) so a customer-worded query
+      // ("power point") still finds a trade-named assembly ("Replace
+      // double GPO") — the reranker below picks the best of the pool.
       let sharedQ = supabase
         .from('shared_assemblies')
         .select('*')
-        .ilike('name', `%${query}%`)
+        .or(buildAssemblyOrFilter(query))
       if (trade) sharedQ = sharedQ.eq('trade', trade)
       sharedQ = applyPropertyFilters(sharedQ, filters)
       const sharedRes = await sharedQ.limit(FETCH_LIMIT)
@@ -164,7 +168,7 @@ function makeLookupAssembly(tenantId: string | null) {
         let customQ = supabase
           .from('tenant_custom_assemblies')
           .select('*')
-          .ilike('name', `%${query}%`)
+          .or(buildAssemblyOrFilter(query))
           .eq('tenant_id', tenantId)
           .eq('enabled', true)
           .eq('always_inspection', false)

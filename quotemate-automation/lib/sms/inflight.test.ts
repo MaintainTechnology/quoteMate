@@ -1,17 +1,21 @@
-// Regression coverage for the "just wrapping up your quote" bug.
+// Regression coverage for the in-flight rule.
 //
-// The headline case (Jon, 2026-05-18): a conversation that escalated to
-// a $99 inspection is marked status='done' with NO intake_id. A
-// follow-up 57s later must NOT get the canned hold-on and must NOT skip
-// the AI — otherwise service toggles can never be tested and customers
-// are told a non-existent quote is "on its way".
+// isQuoteInflight is intentionally narrow: a quote is "in flight" ONLY
+// while status='structuring' (the transient window between the intake
+// handoff and the draft completing). A `done` conversation is never
+// in-flight — its draft has finished and the route's hasExistingIntake
+// guard owns the don't-re-draft behaviour.
+//
+// Bug fixed 2026-05-22: the old rule also held a `done` + intake_id
+// conversation for 60s, measured from `last_message_at`. Because every
+// message (including the bot's own replies) resets `last_message_at`,
+// once a conversation had ever produced a quote every quick customer
+// reply falsely registered as "in flight" and got the canned hold-on —
+// the conversation oscillated between dialog turns and bogus hold-ons.
+// `done` is no longer in-flight at all; the assertions below pin that.
 
 import { describe, expect, it } from 'vitest'
-import {
-  DONE_INFLIGHT_WINDOW_MS,
-  STRUCTURING_INFLIGHT_MAX_MS,
-  isQuoteInflight,
-} from './inflight'
+import { STRUCTURING_INFLIGHT_MAX_MS, isQuoteInflight } from './inflight'
 
 describe('isQuoteInflight', () => {
   it('returns false when there is no prior conversation', () => {
@@ -32,40 +36,25 @@ describe('isQuoteInflight', () => {
     ).toBe(false)
   })
 
-  it('holds a done conversation that ACTUALLY produced a quote (< 60s)', () => {
+  it('THE BUG FIX: a done conversation is NEVER in-flight, at any age', () => {
+    // Even a done conversation that genuinely produced a quote: the draft
+    // has finished, so it is not in-flight. The route reuses it and the
+    // dialog replies normally; hasExistingIntake stops a re-draft. This
+    // is what kills the oscillating canned hold-on.
+    expect(
+      isQuoteInflight({ status: 'done', intake_id: 'abc-123' }, 1_000),
+    ).toBe(false)
     expect(
       isQuoteInflight({ status: 'done', intake_id: 'abc-123' }, 30_000),
-    ).toBe(true)
-    expect(
-      isQuoteInflight(
-        { status: 'done', intake_id: 'abc-123' },
-        DONE_INFLIGHT_WINDOW_MS - 1,
-      ),
-    ).toBe(true)
-  })
-
-  it('does NOT hold a done+quote conversation past the 60s window', () => {
-    expect(
-      isQuoteInflight(
-        { status: 'done', intake_id: 'abc-123' },
-        DONE_INFLIGHT_WINDOW_MS,
-      ),
     ).toBe(false)
-  })
-
-  it('THE BUG FIX: done WITHOUT an intake_id is never in-flight', () => {
-    // Inspection escalation — status done, no quote drafted (Jon's case).
-    expect(isQuoteInflight({ status: 'done', intake_id: null }, 1000)).toBe(
-      false,
-    )
+    expect(
+      isQuoteInflight({ status: 'done', intake_id: 'abc-123' }, 5 * 60_000),
+    ).toBe(false)
+    // done without an intake_id (inspection escalation / ended) — also
+    // never in-flight.
+    expect(isQuoteInflight({ status: 'done', intake_id: null }, 1000)).toBe(false)
     expect(isQuoteInflight({ status: 'done' }, 57_000)).toBe(false)
-    expect(
-      isQuoteInflight({ status: 'done', intake_id: undefined }, 5_000),
-    ).toBe(false)
-    // Ended conversation — also done, also no intake_id.
-    expect(isQuoteInflight({ status: 'done', intake_id: '' }, 2_000)).toBe(
-      false,
-    )
+    expect(isQuoteInflight({ status: 'done', intake_id: '' }, 2_000)).toBe(false)
   })
 
   it('never holds open / unknown / null statuses', () => {
@@ -75,8 +64,7 @@ describe('isQuoteInflight', () => {
     expect(isQuoteInflight({ status: undefined }, 100)).toBe(false)
   })
 
-  it('exposes the documented window constants', () => {
+  it('exposes the documented window constant', () => {
     expect(STRUCTURING_INFLIGHT_MAX_MS).toBe(5 * 60 * 1000)
-    expect(DONE_INFLIGHT_WINDOW_MS).toBe(60 * 1000)
   })
 })

@@ -1,35 +1,34 @@
-// When should an inbound SMS get the canned "just wrapping up your
-// quote" hold-on (and skip the AI entirely)?
+// Is a quote genuinely being drafted right now for this conversation?
+// When true the inbound is an "in-flight continuation" — the dialog still
+// runs (the customer is never blocked) but the route skips the intake
+// handoff / status write / photo gate so this turn cannot collide with
+// the in-progress draft. See app/api/sms/inbound/route.ts.
 //
-// Bug this fixes: `sms_conversations.status='done'` is OVERLOADED. It is
-// set when:
-//   • a quote was drafted + the quote SMS is being sent  → genuinely "in
-//     flight", a hold-on is correct for ~60s
-//   • the AI escalated to a $99 inspection              → NO quote exists
-//   • the customer ended the conversation                → NO quote exists
+// In-flight === status 'structuring' ONLY. `structuring` is the transient
+// status the conversation carries from the intake handoff until the draft
+// pipeline completes (~50s later) — that, and only that, is the window
+// where a second handoff would tangle the pipeline.
 //
-// The old rule treated EVERY `done` conversation < 60s old as in-flight,
-// so a customer who got an inspection offer and immediately asked another
-// question received "just wrapping up that quote now, should be with you
-// in a minute" — for a quote that does not exist — and the AI was skipped,
-// so it never even evaluated their next message (or any service toggle).
-//
-// Fix: a `done` conversation only has a real quote SMS in transit when it
-// actually produced one, i.e. it has an `intake_id` (set by the
-// intake/quote handoff). Inspection escalations and ended conversations
-// have no intake_id, so a follow-up message falls through to the normal
-// AI path instead of the bogus hold-on.
+// Why NOT `status='done'` anymore (bug fixed 2026-05-22): a `done`
+// conversation has already finished drafting — `intake_id` is set, the
+// quote exists. The route's `hasExistingIntake` guard already prevents a
+// re-draft and keeps status correct, and the customer SHOULD get a normal
+// dialog reply. The old `done` + intake_id + `ageMs < 60s` branch keyed
+// the 60s "quote SMS in transit" window off `last_message_at` — but EVERY
+// message (including the bot's own replies) resets `last_message_at`, so
+// once a conversation had ever produced a quote, every quick customer
+// reply falsely registered as "in flight" and got the canned hold-on.
+// That made a post-quote conversation oscillate between dialog turns and
+// bogus hold-ons. `structuring` is a real status transition, so it has no
+// such reset problem.
 //
 // Pure + unit-tested (inflight.test.ts) so this rule can't silently
 // regress again.
 
 /** A `structuring` conversation older than this is stuck/failed — treat
- *  as new rather than holding the customer on a quote that never lands. */
+ *  as no longer in-flight rather than holding the customer on a quote
+ *  that never lands. */
 export const STRUCTURING_INFLIGHT_MAX_MS = 5 * 60 * 1000
-
-/** Window after a real quote is drafted during which the quote SMS is
- *  still in transit and a hold-on reply is appropriate. */
-export const DONE_INFLIGHT_WINDOW_MS = 60 * 1000
 
 /** Minimal shape needed from the prior sms_conversations row. */
 export type InflightPrior = {
@@ -40,26 +39,12 @@ export type InflightPrior = {
 } | null | undefined
 
 /**
- * True when the next inbound should get the canned hold-on and skip the
- * AI because a quote really is being produced right now.
- *
- *  • status 'structuring' (and < 5 min old) → a quote is mid-draft.
- *  • status 'done' WITH an intake_id (and < 60 s old) → the quote SMS is
- *    in transit.
- *  • status 'done' WITHOUT an intake_id → inspection escalation or ended
- *    conversation: NOT in-flight, let the AI handle the next message.
+ * True when a quote is genuinely mid-draft for this conversation:
+ * status 'structuring' and less than 5 minutes old. A `done` conversation
+ * is NOT in-flight — its draft has finished and the route's
+ * `hasExistingIntake` guard owns the don't-re-draft behaviour.
  */
 export function isQuoteInflight(prior: InflightPrior, ageMs: number): boolean {
   if (!prior) return false
-  if (prior.status === 'structuring' && ageMs < STRUCTURING_INFLIGHT_MAX_MS) {
-    return true
-  }
-  if (
-    prior.status === 'done' &&
-    !!prior.intake_id &&
-    ageMs < DONE_INFLIGHT_WINDOW_MS
-  ) {
-    return true
-  }
-  return false
+  return prior.status === 'structuring' && ageMs < STRUCTURING_INFLIGHT_MAX_MS
 }
