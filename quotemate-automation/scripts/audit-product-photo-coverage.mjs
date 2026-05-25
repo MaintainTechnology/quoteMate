@@ -2,7 +2,7 @@
 //
 // WHY: the AI preview only attaches a "match this EXACT product" photo
 // to Gemini when the quoted line item resolved an image_path from the
-// catalogue (lib/preview/product-image.ts + WP4). If catalogue photo
+// catalogue (lib/ig-engine/product-image.ts + WP4). If catalogue photo
 // coverage is low, most quotes fall back to a text-only render → a
 // generic-looking product → the "wrong product" failure mode. This
 // audit measures whether "wrong product" is a DATA problem (low photo

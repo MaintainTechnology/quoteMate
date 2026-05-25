@@ -3,8 +3,8 @@ import { NextRequest } from 'next/server'
 import { after } from 'next/server'
 import { uploadIntakePhoto } from '@/lib/storage/upload'
 import { pipelineLog } from '@/lib/log/pipeline'
-import { generatePreviewImage } from '@/lib/preview/generate'
-import { generateSampleImages } from '@/lib/preview/samples'
+import { generatePreviewImage } from '@/lib/ig-engine/generate'
+import { generateSampleImages } from '@/lib/ig-engine/samples'
 
 export const maxDuration = 300
 

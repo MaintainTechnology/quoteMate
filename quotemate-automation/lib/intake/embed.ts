@@ -1,37 +1,20 @@
-// ─────────────────────────────────────────────────────────────────
-// DEVIATION FROM build-guide.html step 7 (lines 1638-1649):
+// Voyage voyage-3-large embeddings @ 1024 native dims.
 //
-// The build-guide writes:
-//     model: anthropic.embedding('voyage-3')
+// Pairs with migration 057_voyage3_large_1024.sql which collapsed
+// intakes.embedding from vector(1536) (voyage-3 zero-padded) down to
+// vector(1024) (voyage-3-large native). No more padding — the column
+// dim and the model dim are now identical.
 //
-// This does not compile. The @ai-sdk/anthropic provider has no
-// .embedding() method — Anthropic does not sell an embeddings
-// product. Voyage AI is a separate vendor Anthropic recommends.
-//
-// The build-guide's own note (line 1650) hints at the workaround:
-//   "OpenAI's text-embedding-3-small works fine too — just swap the
-//    model line."
-//
-// What this version does:
-//   · If VOYAGE_API_KEY is set → direct fetch to Voyage's REST API,
-//     pad/truncate the result to 1536 dims to match the schema
-//   · Otherwise → deterministic stub embedding so the route still
-//     runs end-to-end. Stable per-input but not semantic — replace
-//     with real embeddings when you sign up for Voyage or OpenAI.
-//
-// To upgrade to OpenAI's text-embedding-3-small (1536-dim native):
-//   pnpm add @ai-sdk/openai
-//   then replace the body of embedIntake with:
-//     const { embedding } = await embed({
-//       model: openai.embedding('text-embedding-3-small'),
-//       value: summary,
-//     })
-// ─────────────────────────────────────────────────────────────────
+// Falls back to a deterministic stub when VOYAGE_API_KEY is unset so
+// dev runs without a key still complete end-to-end (the stub is stable
+// per-input but not semantic — RAG retrieval will be garbage on stub,
+// which is fine for local dev where there's no real history anyway).
 
 import type { Intake } from './schema'
 
 const VOYAGE_API_KEY = process.env.VOYAGE_API_KEY
-const TARGET_DIM = 1536
+const VOYAGE_MODEL = process.env.VOYAGE_EMBED_MODEL ?? 'voyage-3-large'
+const EMBED_DIM = 1024
 
 export async function embedIntake(intake: Intake) {
   // v5: include trade in the embed summary so cross-trade similarity is
@@ -49,7 +32,7 @@ export async function embedIntake(intake: Intake) {
       Authorization: `Bearer ${VOYAGE_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ input: [summary], model: 'voyage-3' }),
+    body: JSON.stringify({ input: [summary], model: VOYAGE_MODEL }),
   })
 
   if (!res.ok) {
@@ -59,13 +42,13 @@ export async function embedIntake(intake: Intake) {
 
   const data = await res.json()
   const raw: number[] = data.data?.[0]?.embedding ?? []
-  return resizeToTargetDim(raw)
-}
-
-function resizeToTargetDim(v: number[]): number[] {
-  if (v.length === TARGET_DIM) return v
-  if (v.length > TARGET_DIM) return v.slice(0, TARGET_DIM)
-  return [...v, ...new Array(TARGET_DIM - v.length).fill(0)]
+  if (raw.length !== EMBED_DIM) {
+    console.warn(
+      `Voyage returned ${raw.length}-dim vector, expected ${EMBED_DIM} (model=${VOYAGE_MODEL}); falling back to stub.`,
+    )
+    return stubEmbedding(summary)
+  }
+  return raw
 }
 
 function stubEmbedding(text: string): number[] {
@@ -74,8 +57,8 @@ function stubEmbedding(text: string): number[] {
     h ^= text.charCodeAt(i)
     h = Math.imul(h, 16777619) >>> 0
   }
-  const out = new Array(TARGET_DIM)
-  for (let i = 0; i < TARGET_DIM; i++) {
+  const out = new Array(EMBED_DIM)
+  for (let i = 0; i < EMBED_DIM; i++) {
     h ^= h << 13; h >>>= 0
     h ^= h >> 17; h >>>= 0
     h ^= h << 5;  h >>>= 0

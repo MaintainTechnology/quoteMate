@@ -406,8 +406,11 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
  * validation. always_inspection=true rows are excluded (matching the
  * tool exclusion) so the validator never accepts a price derived from
  * a service the tradie wanted to always inspect.
+ *
+ * Exported for re-use by /api/quote/[id]/edit so tradie hand-edits get the
+ * same grounding gate the LLM draft gets (H-2, 2026-05-25).
  */
-async function loadCandidatePrices(
+export async function loadCandidatePrices(
   pricingBook: any,
   trade: string | null,
   tenantId: string | null,

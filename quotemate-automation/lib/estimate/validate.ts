@@ -266,7 +266,13 @@ export function validateQuoteGrounding(
         // Call-out — unit is 'each' but price matches call_out_minimum.
         valid = within(price, callOut)
         expected = `pricing_book.call_out_minimum ($${callOut})`
-      } else if (unit === 'each' || unit === 'lm') {
+      } else if (unit === 'each' || unit === 'lm' || unit === 'm' || unit === 'metre') {
+        // L-1 (2026-05-25) — 'm' and 'metre' are accepted as aliases for
+        // 'lm' so per-metre-priced lines (LED strip, drain rod, copper
+        // pipe) don't dump to inspection on the unit check. The price
+        // side of the candidate set carries no unit, so matching is
+        // unaffected; this just stops the allowlist failing loudly for
+        // a legitimate unit Opus might emit.
         // Materials or assemblies — price match AND category match required.
         const lineCats = categorise(description)
         const priceMatches = [
@@ -294,7 +300,7 @@ export function validateQuoteGrounding(
         }
       } else {
         valid = false
-        expected = `recognised unit (hr / each / lm)`
+        expected = `recognised unit (hr / each / lm / m / metre)`
       }
 
       if (!valid) {

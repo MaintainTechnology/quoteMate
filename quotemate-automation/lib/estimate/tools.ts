@@ -1,13 +1,24 @@
 import { tool } from 'ai'
 import { z } from 'zod'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getReranker } from './rerank'
 import { buildAssemblyOrFilter } from './assembly-search'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Lazy Supabase client. tools.ts is imported by tests for pure helpers
+// like applyCustomerSupplyMode; constructing the client at module load
+// would throw "supabaseUrl is required" in the test runner (which has
+// no .env loaded). Defer creation until a tool's execute() actually
+// runs, where the env is guaranteed to be present (Next runtime).
+let _supabase: SupabaseClient | null = null
+function supa(): SupabaseClient {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabase
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Price-lookup re-ranker — applies to BOTH electrical and plumbing.
@@ -105,6 +116,43 @@ function applyPropertyFilters(query: any, f: PropertyFilters) {
 const TradeEnum = z.enum(['electrical', 'plumbing'])
 
 // ─────────────────────────────────────────────────────────────────
+// applyCustomerSupplyMode — pure row mapper for WP5 + H-1.
+//
+// Given a raw tenant_material_catalogue row and a flag for whether the
+// caller is asking for customer-supply pricing, returns either:
+//   • the row rewritten with the install-only price + is_customer_supply=true
+//     (when the caller wants customer-supply AND the row has a valid
+//     customer_supply_price_ex_gst);
+//   • the row rewritten with the standard unit_price_ex_gst (the
+//     tradie-supply path — when the caller does NOT want customer-supply);
+//   • null (drop the row) when the caller wants customer-supply but this
+//     row has no customer_supply_price_ex_gst — see H-1 audit
+//     (lib/estimate/tools.ts pre-2026-05-25 silently fell through to the
+//     full supply-and-install price, double-billing the customer).
+//
+// Exported so the H-1 behaviour is unit-testable without spinning up
+// Supabase. makeLookupMaterial calls it inside the row-map below.
+// ─────────────────────────────────────────────────────────────────
+export function applyCustomerSupplyMode(
+  row: Record<string, any>,
+  wantCustomerSupply: boolean,
+): Record<string, any> | null {
+  const csPrice =
+    typeof row.customer_supply_price_ex_gst === 'string'
+      ? parseFloat(row.customer_supply_price_ex_gst)
+      : row.customer_supply_price_ex_gst
+  const csValid = Number.isFinite(csPrice) && csPrice > 0
+  if (wantCustomerSupply && !csValid) return null
+  const useCs = wantCustomerSupply && csValid
+  return {
+    ...row,
+    default_unit_price_ex_gst: useCs ? csPrice : row.unit_price_ex_gst,
+    is_tenant: true,
+    is_customer_supply: useCs,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Factory variant — makeTools(tenantId) returns a tools object whose
 // lookupAssembly UNIONs shared_assemblies with this tenant's
 // tenant_custom_assemblies (migration 023). Custom rows are scoped
@@ -147,7 +195,7 @@ function makeLookupAssembly(tenantId: string | null) {
       // expanded (buildAssemblyOrFilter) so a customer-worded query
       // ("power point") still finds a trade-named assembly ("Replace
       // double GPO") — the reranker below picks the best of the pool.
-      let sharedQ = supabase
+      let sharedQ = supa()
         .from('shared_assemblies')
         .select('*')
         .or(buildAssemblyOrFilter(query))
@@ -165,7 +213,7 @@ function makeLookupAssembly(tenantId: string | null) {
       // must never produce an auto-quote price).
       let customRows: any[] = []
       if (tenantId) {
-        let customQ = supabase
+        let customQ = supa()
           .from('tenant_custom_assemblies')
           .select('*')
           .or(buildAssemblyOrFilter(query))
@@ -253,7 +301,7 @@ function makeLookupMaterial(tenantId: string | null) {
     }),
     execute: async ({ query, trade, ...filters }) => {
       // Shared catalogue (unchanged behaviour).
-      let sharedQ = supabase.from('shared_materials').select('*').or(
+      let sharedQ = supa().from('shared_materials').select('*').or(
         `name.ilike.%${query}%,brand.ilike.%${query}%`
       )
       if (trade) sharedQ = sharedQ.eq('trade', trade)
@@ -270,14 +318,24 @@ function makeLookupMaterial(tenantId: string | null) {
       // `customer_supply_price_ex_gst`, the row's effective price flips
       // to that install-only number. is_customer_supply=true is stamped
       // so the prompt / line-item builder can mark the line as
-      // "Customer to supply …". When the column is null we fall through
-      // to the standard unit_price_ex_gst (no regression for tenants who
-      // never filled it in). When supplied_by is unset or 'tradie', the
-      // row's price is always the tradie-supply price — today's
+      // "Customer to supply …". When supplied_by is unset or 'tradie',
+      // the row's price is always the tradie-supply price — today's
       // behaviour, untouched.
+      //
+      // H-1 (2026-05-25) — when the caller asks for customer-supply
+      // pricing but the row has no customer_supply_price_ex_gst set,
+      // EXCLUDE the row instead of silently falling through to the full
+      // supply-and-install price. The previous fallback double-billed
+      // customers for materials they were already supplying themselves
+      // (and the grounding validator couldn't catch it because the
+      // resulting price IS in the candidate set). If every tenant row is
+      // missing this column the tool returns shared rows only (or
+      // empty); the prompt is taught to escalate to inspection rather
+      // than misprice the line. See WP5 FALLBACK in
+      // electrical-prompt.ts / plumbing-prompt.ts.
       let tenantRows: any[] = []
       if (tenantId) {
-        let tq = supabase
+        let tq = supa()
           .from('tenant_material_catalogue')
           .select('*')
           .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
@@ -287,19 +345,9 @@ function makeLookupMaterial(tenantId: string | null) {
         tq = applyPropertyFilters(tq, filters)
         const tRes = await tq.limit(FETCH_LIMIT)
         const wantCustomerSupply = filters.supplied_by === 'customer'
-        tenantRows = (tRes.data ?? []).map((r: any) => {
-          const csPrice =
-            typeof r.customer_supply_price_ex_gst === 'string'
-              ? parseFloat(r.customer_supply_price_ex_gst)
-              : r.customer_supply_price_ex_gst
-          const useCs = wantCustomerSupply && Number.isFinite(csPrice) && csPrice > 0
-          return {
-            ...r,
-            default_unit_price_ex_gst: useCs ? csPrice : r.unit_price_ex_gst,
-            is_tenant: true,
-            is_customer_supply: useCs,
-          }
-        })
+        tenantRows = (tRes.data ?? [])
+          .map((r: any) => applyCustomerSupplyMode(r, wantCustomerSupply))
+          .filter((r: any): r is Record<string, any> => r !== null)
       }
 
       // Tenant rows first so the reranker can promote them; the reranker

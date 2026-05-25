@@ -29,12 +29,13 @@
 // verify loop.
 // ════════════════════════════════════════════════════════════════════
 
+import { geminiProvider } from './providers/gemini'
+
 // The configured judge model. A "claude-*" id routes to the AI SDK
-// path; anything else is treated as a Gemini generateContent model.
+// path; anything else is forwarded to the Gemini provider as the
+// per-call model override.
 const JUDGE_MODEL =
   process.env.PREVIEW_JUDGE_MODEL ?? 'gemini-3-pro-image-preview'
-const GEMINI_ENDPOINT = (model: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
 /** PURE — is the configured judge a Claude model (→ AI SDK path)? */
 export function isClaudeJudgeModel(model: string = JUDGE_MODEL): boolean {
@@ -264,55 +265,30 @@ export async function judgePreview(args: JudgeArgs): Promise<PreviewJudgement> {
     : judgeViaGemini(args, JUDGE_MODEL)
 }
 
-/** Gemini-vision judge — REST generateContent, same surface as verify.ts. */
+/** Gemini-vision judge — routed through the shared Gemini provider. */
 async function judgeViaGemini(
   args: JudgeArgs,
   model: string,
 ): Promise<PreviewJudgement> {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) return parsePreviewJudgement(null) // inconclusive, pass=true
-
-  const prompt = buildJudgePrompt({
-    expectedCount: args.expectedCount,
-    productName: args.productName,
-    isReplacement: args.isReplacement,
-    hasProductRef: !!args.productRef,
-  })
-  const parts: Array<
-    { text: string } | { inline_data: { mime_type: string; data: string } }
-  > = [
-    { text: prompt },
-    { inline_data: { mime_type: args.rendered.mime, data: args.rendered.base64 } },
-  ]
-  if (args.productRef) {
-    parts.push({
-      inline_data: {
-        mime_type: args.productRef.mime,
-        data: args.productRef.base64,
-      },
-    })
-  }
-
   try {
-    const res = await fetch(
-      `${GEMINI_ENDPOINT(model)}?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts }],
-          generation_config: { temperature: 0, response_modalities: ['TEXT'] },
-        }),
-      },
-    )
-    if (!res.ok) return parsePreviewJudgement(null) // inconclusive
-    const data = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-    }
-    const text = data.candidates?.[0]?.content?.parts?.find(p => p.text)?.text
+    const text = await geminiProvider.generateText!({
+      prompt: buildJudgePrompt({
+        expectedCount: args.expectedCount,
+        productName: args.productName,
+        isReplacement: args.isReplacement,
+        hasProductRef: !!args.productRef,
+      }),
+      images: [
+        args.rendered,
+        ...(args.productRef ? [args.productRef] : []),
+      ],
+      model,
+    })
     return parsePreviewJudgement(text)
   } catch {
-    return parsePreviewJudgement(null) // inconclusive — never throw
+    // Inconclusive — includes the missing-key case (provider throws) and
+    // any network / 5xx. Never a false reject.
+    return parsePreviewJudgement(null)
   }
 }
 

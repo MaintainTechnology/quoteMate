@@ -920,7 +920,7 @@ function buildSystemInstructionV2(ctx: PromptContext, args: {
   //    loud", no "self-verify", no "redraft": an image model renders in
   //    one pass and does not iterate, so reasoning-loop wording from
   //    text-LLM prompting only dilutes attention. The real verification
-  //    is the judge→retry loop in generate.ts (lib/preview/judge.ts).
+  //    is the judge→retry loop in generate.ts (lib/ig-engine/judge.ts).
   const mustLines = [
     count !== null ? `Render exactly ${count} ${jobLabelPlural} — no more, no fewer.` : null,
     anchor ? `Install the anchor product: ${anchor}. Match its brand, style, shape and finish exactly — never substitute a generic fitting.` : null,

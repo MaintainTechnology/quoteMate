@@ -2671,6 +2671,15 @@ function PricingBookCard({
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
+  // UI hint only — real floor is enforced in lib/estimate/min-labour.ts.
+  const hourlyNum = parseFloat(form.hourly_rate)
+  const minHoursNum = parseFloat(form.min_labour_hours)
+  const showDerivedMinLabour =
+    Number.isFinite(hourlyNum) && hourlyNum > 0 &&
+    Number.isFinite(minHoursNum) && minHoursNum > 0
+  const minLabourDollars = showDerivedMinLabour ? Math.round(hourlyNum * minHoursNum) : null
+  const hourlyRateRounded = showDerivedMinLabour ? Math.round(hourlyNum) : null
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
@@ -2717,15 +2726,21 @@ function PricingBookCard({
               required
             />
           </Field>
-          <Field label="Callout minimum" hint="$AUD ex GST">
+          <Field label="Min labour hours" hint="hrs per job">
             <input
               type="number"
-              step="0.01"
+              step="0.5"
               min="0"
-              value={form.call_out_minimum}
-              onChange={(e) => setForm({ ...form, call_out_minimum: e.target.value })}
+              max="8"
+              value={form.min_labour_hours}
+              onChange={(e) => setForm({ ...form, min_labour_hours: e.target.value })}
               className={INPUT}
             />
+            {minLabourDollars != null && (
+              <div className="mt-1.5 font-mono text-[0.65rem] uppercase tracking-[0.1em] text-text-dim">
+                ≈ ${minLabourDollars} min labour at ${hourlyRateRounded}/hr
+              </div>
+            )}
           </Field>
           <Field label="Default markup" hint="0–100 %">
             <input
@@ -2781,16 +2796,21 @@ function PricingBookCard({
                 className={INPUT}
               />
             </Field>
-            <Field label="Min labour hours">
+            <Field label="Callout minimum" hint="$AUD ex GST">
               <input
                 type="number"
-                step="0.5"
+                step="0.01"
                 min="0"
-                max="8"
-                value={form.min_labour_hours}
-                onChange={(e) => setForm({ ...form, min_labour_hours: e.target.value })}
+                aria-label="Callout minimum"
+                value={form.call_out_minimum}
+                onChange={(e) => setForm({ ...form, call_out_minimum: e.target.value })}
                 className={INPUT}
               />
+              <div className="mt-1.5 text-xs text-text-dim leading-snug">
+                {book.trade === 'electrical'
+                  ? 'Used only for fault-finding callouts. To set a minimum job size, raise Min labour hours.'
+                  : 'Added as a separate line on jobs under $800. To set a minimum job size, raise Min labour hours.'}
+              </div>
             </Field>
             <Field label="Risk buffer" hint="0–100 %">
               <input

@@ -267,6 +267,16 @@ When intake.scope.specs.supplied_by === "customer":
      customer is paying full labour + risk; only the product cost is
      stripped out. assumptions[] should mention the customer-supply
      arrangement so it's explicit.
+  7. FALLBACK — if a lookup_material call with supplied_by:"customer"
+     returns NO rows, OR only rows where is_customer_supply !== true,
+     the tradie has not configured an install-only price for this
+     product. DO NOT quote the line at supply-and-install pricing
+     (that would double-bill the customer for materials they are
+     supplying themselves). Call flag_inspection_needed({ reason:
+     "customer_supply_pricing_not_configured: <product>" }) and route
+     the whole quote to inspection. The $99 site-visit fee covers the
+     conversation about install-only pricing on the customer's own
+     gear.
 
 When intake.scope.specs.supplied_by is "tradie" or unset, behave as today
 (supply-and-install price, no supplied_by / safety_note on line items).

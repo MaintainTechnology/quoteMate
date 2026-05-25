@@ -38,6 +38,7 @@ import {
   verifyLoopEnabled,
   verifyMaxRetries,
 } from './judge'
+import { geminiProvider } from './providers/gemini'
 
 // Item 3 — two-pass editing for replacement jobs. Default OFF: when on,
 // a replacement job first gets a removal-only edit (strip the old
@@ -54,14 +55,9 @@ const supabase = createClient(
 
 const BUCKET = 'intake-photos'
 
-// Default: gemini-3-pro-image-preview ("Nano Banana Pro") — best
-// instruction-following + count accuracy of the Gemini image family.
-// Override via env to gemini-3.1-flash-image-preview (cheaper/faster)
+// Model selection lives in providers/gemini.ts (GEMINI_IMAGE_MODEL env).
+// Override stays the same: GEMINI_IMAGE_MODEL=gemini-3.1-flash-image-preview
 // or gemini-2.5-flash-image (legacy GA).
-const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL ?? 'gemini-3-pro-image-preview'
-
-const GEMINI_ENDPOINT = (model: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
 export type PreviewStatus = 'idle' | 'no_photos' | 'generating' | 'ready' | 'failed' | 'partial'
 
@@ -373,93 +369,44 @@ async function generateOnePreview(opts: {
   // null (unrecognised format) → omit imageConfig, no regression.
   const aspectRatio = aspectRatioFromImage(refBuf)
 
-  // Call Gemini.
-  const apiUrl = `${GEMINI_ENDPOINT(GEMINI_MODEL)}?key=${encodeURIComponent(process.env.GEMINI_API_KEY!)}`
-  const t0 = Date.now()
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      // Authoritative rules — sent in systemInstruction so Gemini treats
-      // them as command-style instructions, not mixed in with the brief.
-      systemInstruction: {
-        parts: [{ text: opts.prompt.system }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: opts.extraStrict
-                ? `${opts.prompt.user}\n\n${opts.extraStrict}`
-                : opts.prompt.user,
-            },
-            { inline_data: { mime_type: refMime, data: refBase64 } },
-            // WP4 — the EXACT product photo, attached LAST and clearly
-            // labelled so Gemini replicates this specific product (see
-            // MASTER RULE 2b). Omitted when there's no catalogue photo
-            // → identical to today's text-only render.
-            ...(opts.productRef
-              ? [
-                  {
-                    text:
-                      'PRODUCT REFERENCE — the FINAL image below is the EXACT real product ' +
-                      'the customer is quoted and will receive. Replicate it precisely in the ' +
-                      'install (same brand, model, shape, colour, finish). It is the literal ' +
-                      'product, NOT a style hint. Do not substitute a generic fitting. ' +
-                      'OVERRIDE: this product wins over the job-type label and any ' +
-                      'count/placement guidance about fixture appearance — if the job says ' +
-                      '"downlights" but this reference is a different fixture type (bulb, ' +
-                      'pendant, batten, panel, etc.), install THIS product’s exact form, ' +
-                      'not a generic downlight. Keep the requested quantity. The ' +
-                      '"product_details" line in the brief describes exactly what this ' +
-                      'product is — use that description together with this photo.',
-                  },
-                  {
-                    inline_data: {
-                      mime_type: opts.productRef.mime,
-                      data: opts.productRef.base64,
-                    },
-                  },
-                ]
-              : []),
-          ],
-        },
-      ],
-      generation_config: {
-        // Low temperature — follow the JOB BRIEF tightly, no improv.
-        temperature: 0.1,
-        response_modalities: ['IMAGE'],
-        // Item 4 — match the customer photo's framing. Omitted when the
-        // source format is unrecognised (→ Gemini's default ratio).
-        ...(aspectRatio ? { image_config: { aspect_ratio: aspectRatio } } : {}),
-      },
-    }),
+  // Render via the Gemini provider — wire-format identical to the
+  // previous inline fetch (the provider adapter's payload shape is
+  // contract-tested in providers/gemini.test.ts).
+  const out = await geminiProvider.renderImage({
+    system: opts.prompt.system,
+    user: opts.prompt.user,
+    sourceImage: { base64: refBase64, mime: refMime },
+    reference: opts.productRef
+      ? {
+          image: opts.productRef,
+          // WP4 — the EXACT product photo, labelled so Gemini replicates
+          // this specific product (MASTER RULE 2b). Long-form override
+          // wording matches the prior inline implementation byte-for-byte.
+          label:
+            'PRODUCT REFERENCE — the FINAL image below is the EXACT real product ' +
+            'the customer is quoted and will receive. Replicate it precisely in the ' +
+            'install (same brand, model, shape, colour, finish). It is the literal ' +
+            'product, NOT a style hint. Do not substitute a generic fitting. ' +
+            'OVERRIDE: this product wins over the job-type label and any ' +
+            'count/placement guidance about fixture appearance — if the job says ' +
+            '"downlights" but this reference is a different fixture type (bulb, ' +
+            'pendant, batten, panel, etc.), install THIS product’s exact form, ' +
+            'not a generic downlight. Keep the requested quantity. The ' +
+            '"product_details" line in the brief describes exactly what this ' +
+            'product is — use that description together with this photo.',
+        }
+      : undefined,
+    extraStrict: opts.extraStrict,
+    aspectRatio: aspectRatio ?? undefined,
   })
-  const elapsedMs = Date.now() - t0
 
-  if (!res.ok) {
-    const errText = (await res.text()).slice(0, 500)
-    throw new Error(`Gemini HTTP ${res.status} after ${elapsedMs}ms: ${errText}`)
-  }
-
-  const data = await res.json() as GeminiResponse
-  const parts = data.candidates?.[0]?.content?.parts ?? []
-  const imagePart = parts.find(p => p.inline_data?.data || p.inlineData?.data)
-  const inline = imagePart?.inline_data ?? imagePart?.inlineData
-  if (!inline?.data) {
-    const textRefusal = parts.find(p => p.text)?.text
-    throw new Error(`Gemini returned no image data after ${elapsedMs}ms${textRefusal ? ` — ${textRefusal.slice(0, 200)}` : ''}`)
-  }
-
-  const outMime = inline.mime_type ?? inline.mimeType ?? 'image/png'
-  const outExt = outMime === 'image/jpeg' ? 'jpg' : 'png'
-  const imageBytes = Buffer.from(inline.data, 'base64')
+  const outExt = out.mime === 'image/jpeg' ? 'jpg' : 'png'
+  const imageBytes = Buffer.from(out.base64, 'base64')
 
   const previewPath = `${opts.intakeId}/preview-${opts.index}-${Date.now()}.${outExt}`
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(previewPath, imageBytes, { contentType: outMime, upsert: false })
+    .upload(previewPath, imageBytes, { contentType: out.mime, upsert: false })
   if (upErr) throw new Error(`storage upload failed: ${upErr.message}`)
 
   return previewPath
@@ -588,53 +535,23 @@ async function runRemovalPass(
     const aspectRatio = aspectRatioFromImage(srcBuf)
 
     const removal = buildRemovalPrompt(ctx)
-    const apiUrl = `${GEMINI_ENDPOINT(GEMINI_MODEL)}?key=${encodeURIComponent(process.env.GEMINI_API_KEY!)}`
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: removal.system }] },
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: removal.user },
-            { inline_data: { mime_type: blob.type || 'image/jpeg', data: srcBuf.toString('base64') } },
-          ],
-        }],
-        generation_config: {
-          temperature: 0.1,
-          response_modalities: ['IMAGE'],
-          ...(aspectRatio ? { image_config: { aspect_ratio: aspectRatio } } : {}),
-        },
-      }),
+    // Provider returns the cleaned-image bytes in the same {base64, mime}
+    // shape this function returns to its caller — pass through unchanged.
+    return await geminiProvider.renderImage({
+      system: removal.system,
+      user: removal.user,
+      sourceImage: {
+        base64: srcBuf.toString('base64'),
+        mime: blob.type || 'image/jpeg',
+      },
+      aspectRatio: aspectRatio ?? undefined,
     })
-    if (!res.ok) return null
-    const data = await res.json() as GeminiResponse
-    const parts = data.candidates?.[0]?.content?.parts ?? []
-    const imagePart = parts.find(p => p.inline_data?.data || p.inlineData?.data)
-    const inline = imagePart?.inline_data ?? imagePart?.inlineData
-    if (!inline?.data) return null
-    return {
-      base64: inline.data,
-      mime: inline.mime_type ?? inline.mimeType ?? 'image/png',
-    }
   } catch {
     return null
   }
 }
 
-type GeminiInline = {
-  inline_data?: { mime_type?: string; mimeType?: string; data: string }
-  inlineData?: { mime_type?: string; mimeType?: string; data: string }
-  text?: string
-}
-type GeminiResponse = {
-  candidates?: Array<{
-    content?: { parts?: GeminiInline[] }
-    finish_reason?: string
-  }>
-  error?: { message?: string; code?: number }
-}
+// (Gemini wire-format types now live in providers/gemini.ts.)
 
 // ════════════════════════════════════════════════════════════════════
 // Shared prompt-context loader

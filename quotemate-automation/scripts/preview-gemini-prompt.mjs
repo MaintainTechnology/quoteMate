@@ -7,8 +7,8 @@
 //   node --env-file=.env.local scripts/preview-gemini-prompt.mjs --token <share_token>
 
 import { createClient } from "@supabase/supabase-js";
-import { buildPreviewPrompt, buildSamplePrompts } from "../lib/preview/prompts.ts";
-import { loadPromptContext } from "../lib/preview/generate.ts";
+import { buildPreviewPrompt, buildSamplePrompts } from "../lib/ig-engine/prompts.ts";
+import { loadPromptContext } from "../lib/ig-engine/generate.ts";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

@@ -2,7 +2,7 @@
 // AI sample-gallery generation — 3 coherent Gemini renders of the
 // FULLY COMPLETED install (the after state, day-of-handover), framed
 // as wide / close-up / in-use. See MASTER RULE 8 (FINAL OUTCOME) in
-// lib/preview/prompts.ts — every shot must show the finished result,
+// lib/ig-engine/prompts.ts — every shot must show the finished result,
 // not a "proposed install" or work-in-progress concept render.
 //
 // PHOTO-TAILORED MODE (default when customer uploaded photos):
@@ -29,6 +29,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildSamplePrompts, pickAnchorImagePath, type PromptIntake, type SystemUserPrompt } from './prompts'
 import { loadPromptContext } from './generate'
 import { resolveProductImage, type ProductImage } from './product-image'
+import { geminiProvider } from './providers/gemini'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,12 +38,8 @@ const supabase = createClient(
 
 const BUCKET = 'intake-photos'
 
-// See generate.ts for the default-model rationale. Pro model gives
-// substantially better count + spec adherence than Flash.
-const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL ?? 'gemini-3-pro-image-preview'
-
-const GEMINI_ENDPOINT = (model: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+// Model selection lives in providers/gemini.ts. Override with the same
+// env var as before: GEMINI_IMAGE_MODEL.
 
 export type SamplesStatus = 'idle' | 'generating' | 'ready' | 'partial' | 'failed'
 
@@ -221,98 +218,36 @@ async function generateOneSample(opts: {
   referencePhoto: { base64: string; mime: string } | null
   productRef?: ProductImage | null
 }): Promise<{ path: string; imageBytes: Buffer; mimeType: string }> {
-  const apiUrl = `${GEMINI_ENDPOINT(GEMINI_MODEL)}?key=${encodeURIComponent(process.env.GEMINI_API_KEY!)}`
-
-  // Build user-message parts. Text first, then the reference photo
-  // (if present) so the model reads the brief before looking at the
-  // visual anchor.
-  const userParts: Array<
-    | { text: string }
-    | { inline_data: { mime_type: string; data: string } }
-  > = [{ text: opts.prompt.user }]
-  if (opts.referencePhoto) {
-    userParts.push({
-      inline_data: {
-        mime_type: opts.referencePhoto.mime,
-        data: opts.referencePhoto.base64,
-      },
-    })
-  }
-  // WP4 — the EXACT product photo, attached LAST + labelled so all 3
-  // sample shots replicate the same real product (MASTER RULE 2b).
-  if (opts.productRef) {
-    userParts.push({
-      text:
-        'PRODUCT REFERENCE — the FINAL image below is the EXACT real product ' +
-        'the customer is quoted. Replicate it precisely (brand, model, shape, ' +
-        'colour, finish). It is the literal product, not a style hint.',
-    })
-    userParts.push({
-      inline_data: {
-        mime_type: opts.productRef.mime,
-        data: opts.productRef.base64,
-      },
-    })
-  }
-
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      // Authoritative rules — highest priority. Gemini treats these as
-      // command-style instructions the model must follow.
-      systemInstruction: {
-        parts: [{ text: opts.prompt.system }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: userParts,
-        },
-      ],
-      generation_config: {
-        // Low temperature — follow the JOB BRIEF tightly, no improv.
-        temperature: 0.1,
-        response_modalities: ['IMAGE'],
-      },
-    }),
+  // Render via the Gemini provider — wire format identical to the
+  // previous inline fetch (contract-tested in providers/gemini.test.ts).
+  const out = await geminiProvider.renderImage({
+    system: opts.prompt.system,
+    user: opts.prompt.user,
+    sourceImage: opts.referencePhoto ?? undefined,
+    reference: opts.productRef
+      ? {
+          image: opts.productRef,
+          // Shorter product-reference label — the preview path uses the
+          // long-form override; samples just need the model to replicate
+          // the same product across all 3 shots (MASTER RULE 2b).
+          label:
+            'PRODUCT REFERENCE — the FINAL image below is the EXACT real product ' +
+            'the customer is quoted. Replicate it precisely (brand, model, shape, ' +
+            'colour, finish). It is the literal product, not a style hint.',
+        }
+      : undefined,
   })
 
-  if (!res.ok) {
-    const errText = (await res.text()).slice(0, 300)
-    throw new Error(`Gemini HTTP ${res.status}: ${errText}`)
-  }
-
-  const data = await res.json() as GeminiResponse
-  const responseParts = data.candidates?.[0]?.content?.parts ?? []
-  const imagePart = responseParts.find(p => p.inline_data?.data || p.inlineData?.data)
-  const inline = imagePart?.inline_data ?? imagePart?.inlineData
-  if (!inline?.data) {
-    const textRefusal = responseParts.find(p => p.text)?.text
-    throw new Error(`no image data${textRefusal ? ` — ${textRefusal.slice(0, 150)}` : ''}`)
-  }
-
-  const outMime = inline.mime_type ?? inline.mimeType ?? 'image/png'
-  const outExt = outMime === 'image/jpeg' ? 'jpg' : 'png'
-  const imageBytes = Buffer.from(inline.data, 'base64')
+  const outExt = out.mime === 'image/jpeg' ? 'jpg' : 'png'
+  const imageBytes = Buffer.from(out.base64, 'base64')
 
   const samplePath = `${opts.intakeId}/sample-${opts.label}-${Date.now()}.${outExt}`
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(samplePath, imageBytes, { contentType: outMime, upsert: false })
+    .upload(samplePath, imageBytes, { contentType: out.mime, upsert: false })
   if (upErr) throw new Error(`storage upload failed: ${upErr.message}`)
 
-  return { path: samplePath, imageBytes, mimeType: outMime }
+  return { path: samplePath, imageBytes, mimeType: out.mime }
 }
 
-type GeminiInline = {
-  inline_data?: { mime_type?: string; mimeType?: string; data: string }
-  inlineData?: { mime_type?: string; mimeType?: string; data: string }
-  text?: string
-}
-type GeminiResponse = {
-  candidates?: Array<{
-    content?: { parts?: GeminiInline[] }
-  }>
-  error?: { message?: string; code?: number }
-}
+// (Gemini wire-format types now live in providers/gemini.ts.)

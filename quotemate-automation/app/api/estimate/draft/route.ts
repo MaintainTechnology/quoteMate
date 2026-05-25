@@ -14,8 +14,8 @@ import { withRetry } from '@/lib/util/retry'
 import { decideRouting } from '@/lib/routing/decide'
 import { advanceQuoteStatus } from '@/lib/quote/lifecycle'
 import { computePriceHoldUntil } from '@/lib/quote/hold'
-import { generatePreviewImage } from '@/lib/preview/generate'
-import { generateSampleImages } from '@/lib/preview/samples'
+import { generatePreviewImage } from '@/lib/ig-engine/generate'
+import { generateSampleImages } from '@/lib/ig-engine/samples'
 import { resolvePricingBookForIntake } from '@/lib/estimate/pricing-book'
 import {
   earlyBirdConfigFromOverlays,

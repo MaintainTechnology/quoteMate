@@ -32,6 +32,11 @@ import {
 } from '@/lib/stripe/checkout'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { buildQuoteUpdatedSms } from '@/lib/sms/templates'
+import { loadCandidatePrices } from '@/lib/estimate/run'
+import {
+  validateQuoteGrounding,
+  type PricingBookForValidation,
+} from '@/lib/estimate/validate'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -72,6 +77,11 @@ const BodySchema = z.object({
   //            scripts/integrations that hit this endpoint pre-modal
   //            keep working.
   notify_customer: z.boolean().optional(),
+  // H-2 (2026-05-25) — tradie acknowledges that this edit fails the
+  // grounding check and persists it anyway. The quote is stamped with a
+  // `tradie_edit_ungrounded:*` risk flag for audit. Default false: an
+  // ungrounded edit is rejected with a 422 listing the failing lines.
+  force: z.boolean().optional(),
 })
 
 type TierEdit = z.infer<typeof TierEditSchema>
@@ -123,7 +133,7 @@ export async function POST(
   const { data: quote } = await supabase
     .from('quotes')
     .select(
-      'id, tenant_id, intake_id, share_token, status, paid_at, selected_tier, good, better, best, stripe_links, total_inc_gst, needs_inspection, inspection_reason, estimated_timeframe',
+      'id, tenant_id, intake_id, share_token, status, paid_at, selected_tier, good, better, best, stripe_links, total_inc_gst, needs_inspection, inspection_reason, estimated_timeframe, risk_flags',
     )
     .eq('id', quoteId)
     .maybeSingle()
@@ -147,19 +157,28 @@ export async function POST(
     return Response.json({ ok: false, error: 'not_owner' }, { status: 403 })
   }
 
-  // ─── Pricing context for GST handling ──────────────────────
+  // ─── Pricing context for GST handling + grounding revalidation ─
+  // H-2 — we need the full pricing book (not just gst_registered) so
+  // the grounding validator can re-check tradie hand-edits against
+  // the same hourly_rate / call_out_minimum / markup / min-labour
+  // floor that the original draft was graded on.
   const { data: pricingBook } = await supabase
     .from('pricing_book')
-    .select('gst_registered')
+    .select(
+      'gst_registered, trade, hourly_rate, apprentice_rate, senior_rate, call_out_minimum, default_markup_pct, min_labour_hours',
+    )
     .eq('tenant_id', quote.tenant_id)
     .limit(1)
     .maybeSingle()
   const gstRegistered = (pricingBook?.gst_registered ?? true) as boolean
 
-  // ─── Intake context for Stripe product naming ──────────────
+  // ─── Intake context for Stripe product naming + grounding scope ─
+  // H-2 — pull intake.trade so candidates can be trade-scoped exactly
+  // like the original draft (electrical quotes don't validate against
+  // plumbing rows and vice versa).
   const { data: intake } = await supabase
     .from('intakes')
-    .select('job_type, scope, caller')
+    .select('job_type, scope, caller, trade')
     .eq('id', quote.intake_id)
     .maybeSingle()
 
@@ -230,6 +249,91 @@ export async function POST(
     }
   }
 
+  // ─── H-2: Re-ground edited tiers against pricing_book + candidates ─
+  // The draft path runs validateQuoteGrounding before persisting; tradie
+  // edits used to bypass it entirely, which meant a tradie could push a
+  // $20 GPO line (under cost), a fabricated "supervisor fee", or a
+  // call-out below pricing_book.call_out_minimum and the system would
+  // happily re-issue a Stripe Session at that amount. We now re-run the
+  // same gate on ONLY the tiers the tradie actually edited — untouched
+  // tiers stay as-is (they were already grounded at draft time).
+  //
+  // A pricingBook with hourly_rate set is required — without it the
+  // validator can't grade labour lines. If pricingBook is missing or
+  // malformed (which shouldn't happen on an active tenant — WP1 blocks
+  // draft creation), we skip the gate rather than reject the edit. This
+  // matches the "fail open on missing infra, fail closed on bad data"
+  // pattern used elsewhere.
+  let groundingFailures: ReturnType<typeof validateQuoteGrounding> = { valid: true }
+  const pricingBookForValidation =
+    pricingBook && pricingBook.hourly_rate != null
+      ? ({
+          hourly_rate: pricingBook.hourly_rate as number | string,
+          apprentice_rate: (pricingBook.apprentice_rate ?? pricingBook.hourly_rate) as number | string,
+          senior_rate: pricingBook.senior_rate as number | string | null | undefined,
+          call_out_minimum: (pricingBook.call_out_minimum ?? 0) as number | string,
+          default_markup_pct: (pricingBook.default_markup_pct ?? 28) as number | string,
+          min_labour_hours: pricingBook.min_labour_hours as number | string | undefined,
+        } satisfies PricingBookForValidation)
+      : null
+
+  if (pricingBookForValidation) {
+    try {
+      const trade =
+        (intake?.trade as string | null | undefined) ??
+        (pricingBook?.trade as string | null | undefined) ??
+        null
+      const candidates = await loadCandidatePrices(
+        pricingBookForValidation,
+        trade,
+        quote.tenant_id as string,
+      )
+      // Build a draft-shaped object containing ONLY the tiers the tradie
+      // edited; untouched tiers are nulled out so the validator skips
+      // them. This keeps the gate surgical — an edit to "better" can't
+      // be rejected because "good" stopped grounding after a catalogue
+      // change.
+      const editedDraft = {
+        good: edits.good ? nextTiers.good : null,
+        better: edits.better ? nextTiers.better : null,
+        best: edits.best ? nextTiers.best : null,
+      }
+      groundingFailures = validateQuoteGrounding(
+        editedDraft,
+        pricingBookForValidation,
+        candidates,
+      )
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[quote/edit] grounding revalidation threw — skipping gate', {
+        quoteId,
+        error: msg,
+      })
+    }
+  } else {
+    console.warn('[quote/edit] pricing_book unresolvable — grounding gate skipped', {
+      quoteId,
+      tenantId: quote.tenant_id,
+    })
+  }
+
+  if (!groundingFailures.valid && edits.force !== true) {
+    return Response.json(
+      {
+        ok: false,
+        error: 'grounding_failed',
+        failures: groundingFailures.failures,
+        hint:
+          'One or more edited line items do not derive from this tenant\'s ' +
+          'pricing_book + catalogue. Either correct the prices to match a ' +
+          'real DB row (raw or ±5pp around your configured markup) OR re-send ' +
+          'with { "force": true } to persist anyway. Forced edits are stamped ' +
+          'with a tradie_edit_ungrounded risk flag for audit.',
+      },
+      { status: 422 },
+    )
+  }
+
   // ─── Headline total — pick from selected_tier or fall back ─
   const selectedKey =
     (quote.selected_tier as 'good' | 'better' | 'best' | null) ?? 'better'
@@ -294,6 +398,22 @@ export async function POST(
     // Bump status to 'sent' if the tradie edits a draft — implies they
     // are taking ownership of the price. Keep other statuses untouched.
     status: quote.status === 'draft' ? 'sent' : quote.status,
+  }
+
+  // H-2 — if the tradie forced a save through a failed grounding check,
+  // append an audit risk_flag so the failure is traceable. We never
+  // OVERWRITE existing risk_flags; we append, dedup, and persist.
+  if (!groundingFailures.valid && edits.force === true) {
+    const existing = Array.isArray(quote.risk_flags) ? (quote.risk_flags as string[]) : []
+    const summary = groundingFailures.failures
+      .map((f) => `${f.tier}#${f.lineIndex}`)
+      .join(',')
+    const flag = `tradie_edit_ungrounded:${summary || 'unknown'}`
+    updateBody.risk_flags = existing.includes(flag) ? existing : [...existing, flag]
+    console.warn('[quote/edit] persisting ungrounded edit under force=true', {
+      quoteId,
+      failures: groundingFailures.failures,
+    })
   }
 
   const { error: updErr } = await supabase
