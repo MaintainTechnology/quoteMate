@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════
 // SMS slot extractor — turn-by-turn structured NLU.
 //
-// Runs ONCE per inbound SMS, BEFORE the dialog Haiku call. Reads the
+// Runs ONCE per inbound SMS, BEFORE the dialog Sonnet call. Reads the
 // current conversation_state, the agent's last outbound (for context),
 // and the customer's new inbound, then returns a partial slot update.
 //
@@ -10,7 +10,7 @@
 //
 // This is the layer that catches customer corrections in real time.
 // Without it, "I'm in Chandler" arrives as plain text in sms_messages,
-// nothing tracks the change, and the dialog Haiku has to re-derive
+// nothing tracks the change, and the dialog Sonnet has to re-derive
 // from transcript every turn — which is exactly how Con's bug
 // (2026-05-11) became a 4-round-trip ordeal.
 // ════════════════════════════════════════════════════════════════════
@@ -82,7 +82,7 @@ export type PersistentProfileSlot = typeof PERSISTENT_PROFILE_SLOTS[number]
 export type Slots = z.infer<typeof SlotsSchema>
 export type SlotKey = keyof Slots
 
-// Source attribution per slot. Drives both the dialog prompt (so Haiku
+// Source attribution per slot. Drives both the dialog prompt (so Sonnet
 // knows to acknowledge corrections) and the scrub (so it bails on values
 // the customer just corrected).
 //   from_memory:        pre-seeded from customers row at conversation start
@@ -442,7 +442,7 @@ export async function extractSlots(args: {
    * "blocked drain" inbound on an electrical-only tenant's number), the
    * extractor classifies job_type='out_of_scope' instead of writing the
    * wrong-trade value into conversation_state. This keeps the state clean
-   * for the dialog Haiku, which already redirects wrong-trade requests
+   * for the dialog Sonnet, which already redirects wrong-trade requests
    * via the TENANT TRADE SCOPE block in its own prompt.
    *
    * Undefined / empty → permissive (extract any trade) for legacy
@@ -450,7 +450,7 @@ export async function extractSlots(args: {
    */
   tenantTrades?: ReadonlyArray<'electrical' | 'plumbing'>
 }): Promise<SlotExtraction> {
-  // Empty/whitespace inbound shouldn't waste a Haiku call.
+  // Empty/whitespace inbound shouldn't waste a Sonnet call.
   if (!args.customerMessage.trim()) {
     return { updates: {}, reasoning: 'empty inbound, skipped extraction' }
   }
@@ -465,7 +465,7 @@ export async function extractSlots(args: {
 
   // Build the per-call tenant trade-scope hint. The slot extractor's
   // job_type enum still accepts every job from both trades (schema is
-  // shared across tenants), but with this hint Haiku will classify
+  // shared across tenants), but with this hint Sonnet will classify
   // off-trade jobs as 'out_of_scope' instead of leaking the wrong-trade
   // job_type into conversation_state.
   const trades = new Set(args.tenantTrades ?? ['electrical', 'plumbing'])
@@ -524,7 +524,7 @@ export async function extractSlots(args: {
       onAttemptFailed: (err, attempt, willRetry) => {
         const msg = err instanceof Error ? err.message : String(err)
         const tag = willRetry ? 'retrying' : 'giving up'
-        console.warn(`[sms/extract-slots] Haiku attempt ${attempt}/3 failed - ${tag}`, msg.slice(0, 200))
+        console.warn(`[sms/extract-slots] Sonnet attempt ${attempt}/3 failed - ${tag}`, msg.slice(0, 200))
       },
     },
   )

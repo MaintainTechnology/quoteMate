@@ -265,7 +265,7 @@ export function buildTradieInspectionNotification(opts: {
 // the conversation continues naturally on their next reply.
 //
 // This is the SMS counterpart to the dialog agent's Rules 5/6 — it's a
-// safety net for the case where Haiku skipped the universal must-asks
+// safety net for the case where Sonnet skipped the universal must-asks
 // (e.g. on a returning-but-empty customer record) and reached 'finish'
 // with a transcript that doesn't contain the customer's name/suburb.
 export type MissingIntakeField = 'name' | 'suburb' | 'scope' | 'job_type'
@@ -508,9 +508,9 @@ export function buildQuoteFailureSms(opts: { firstName?: string; jobType?: strin
 
 // Quote-in-flight hold-on SMS — sent when the customer texts a NEW message
 // while their previous quote is being drafted (status='structuring') or has
-// just been dispatched (status='done' within last ~60s). Bypasses Haiku
+// just been dispatched (status='done' within last ~60s). Bypasses Sonnet
 // entirely so the customer gets a predictable reply in <1s, and so we
-// don't accidentally Haiku-respond to a "new job" mid-flight as if it
+// don't accidentally Sonnet-respond to a "new job" mid-flight as if it
 // were an add-on to the in-flight quote.
 //
 // Three wording variants picked at random per call so the customer doesn't

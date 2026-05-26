@@ -8,11 +8,11 @@
 // HYBRID strategy:
 //   1. Regex-first (cheap + deterministic + reviewable). Catches ~80%
 //      of inbounds with clear phrasing — no API call, sub-millisecond.
-//   2. Haiku fallback when regex is ambiguous AND the message is long
+//   2. Sonnet fallback when regex is ambiguous AND the message is long
 //      enough to be worth classifying (≥4 words). Cross-encoder-style
 //      semantic classification handles the nuanced middle ground
 //      ("I'm a sparky looking to get on the platform", "list me").
-//   3. On Haiku failure (network, rate-limit, etc.) we fall back to
+//   3. On Sonnet failure (network, rate-limit, etc.) we fall back to
 //      'ambiguous' which routes to customer flow — the safer default.
 //
 // Pure regex is exposed as `classifyIntentSync` for places that need
@@ -52,12 +52,12 @@ export type IntentClassification = {
     | 'regex_conflict'
     | 'short_message'
     | 'no_match'
-    | 'haiku'
-    | 'haiku_failed'
+    | 'sonnet'
+    | 'sonnet_failed'
   matchedPattern?: string
-  /** Haiku's free-form one-liner reasoning, for debug logs only. */
+  /** Sonnet's free-form one-liner reasoning, for debug logs only. */
   reasoning?: string
-  /** Confidence band from Haiku. Regex matches are implicitly HIGH. */
+  /** Confidence band from Sonnet. Regex matches are implicitly HIGH. */
   confidence?: 'HIGH' | 'MEDIUM' | 'LOW'
 }
 
@@ -115,12 +115,12 @@ export function classifyIntentSync(message: string): IntentClassification {
 }
 
 /**
- * Hybrid classifier — regex-first, Haiku for ambiguous middle ground.
+ * Hybrid classifier — regex-first, Sonnet for ambiguous middle ground.
  *
  * Hot-path-friendly:
  *   • ≤80% of inbounds resolve via regex (sub-millisecond, no API call)
- *   • Remaining ambiguous cases hit Haiku (~200-400ms, ~$0.0001/call)
- *   • Haiku failures gracefully degrade to 'ambiguous' → customer flow
+ *   • Remaining ambiguous cases hit Sonnet (~200-400ms, ~$0.0001/call)
+ *   • Sonnet failures gracefully degrade to 'ambiguous' → customer flow
  *
  * Use this from /api/sms/inbound on turn 1 of every new conversation.
  */
@@ -130,18 +130,18 @@ export async function classifyIntent(
   const regex = classifyIntentSync(message)
   if (regex.intent !== 'ambiguous') return regex
 
-  // Short messages are likely greetings — don't waste a Haiku call.
+  // Short messages are likely greetings — don't waste a Sonnet call.
   if (regex.source === 'short_message') return regex
 
-  // Long-form ambiguous → ask Haiku.
-  return await classifyIntentWithHaiku(message)
+  // Long-form ambiguous → ask Sonnet.
+  return await classifyIntentWithSonnet(message)
 }
 
-// ─── Haiku-based fallback ───────────────────────────────────────────
+// ─── Sonnet-based fallback ───────────────────────────────────────────
 // Lazy-imported so the regex sync path stays free of the AI SDK
 // bundle when callers only need classifyIntentSync.
 
-const HAIKU_SYSTEM_PROMPT = `You classify Australian SMS messages received by QuoteMate, an AI quoting platform for tradies.
+const SONNET_SYSTEM_PROMPT = `You classify Australian SMS messages received by QuoteMate, an AI quoting platform for tradies.
 
 QuoteMate's number is shared between:
   • Tradies who want to register and use QuoteMate for their business
@@ -186,7 +186,7 @@ EXAMPLES OF MEDIUM / LOW confidence
   - "Plumber needed" → MEDIUM customer_quote (could be tradie misspeaking)
 `
 
-async function classifyIntentWithHaiku(
+async function classifyIntentWithSonnet(
   message: string,
 ): Promise<IntentClassification> {
   try {
@@ -205,10 +205,10 @@ async function classifyIntentWithHaiku(
       // Upgraded 2026-05-14 from Haiku 4.5 → Sonnet 4.6 alongside the
       // dialog and slot extractor. Intent classification (customer-vs-tradie,
       // payment ack vs follow-up question) gets sharper with Sonnet on the
-      // short ambiguous messages where Haiku occasionally misroutes.
+      // short ambiguous messages where Sonnet occasionally misroutes.
       model: anthropic('claude-sonnet-4-6'),
       schema: Schema,
-      system: HAIKU_SYSTEM_PROMPT,
+      system: SONNET_SYSTEM_PROMPT,
       prompt: `Customer message: "${message.slice(0, 500)}"`,
       maxRetries: 1,
     })
@@ -218,7 +218,7 @@ async function classifyIntentWithHaiku(
     if (object.confidence === 'LOW') {
       return {
         intent: 'ambiguous',
-        source: 'haiku',
+        source: 'sonnet',
         confidence: object.confidence,
         reasoning: object.reasoning,
       }
@@ -226,15 +226,15 @@ async function classifyIntentWithHaiku(
 
     return {
       intent: object.intent,
-      source: 'haiku',
+      source: 'sonnet',
       confidence: object.confidence,
       reasoning: object.reasoning,
     }
   } catch (e: any) {
     console.warn(
-      '[sms/intent] Haiku classification failed — defaulting to ambiguous',
+      '[sms/intent] Sonnet classification failed — defaulting to ambiguous',
       e?.message ?? String(e),
     )
-    return { intent: 'ambiguous', source: 'haiku_failed' }
+    return { intent: 'ambiguous', source: 'sonnet_failed' }
   }
 }

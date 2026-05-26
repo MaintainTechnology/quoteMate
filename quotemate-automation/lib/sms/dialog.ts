@@ -1,7 +1,7 @@
 // ═════════════════════════════════════════════════════════════════════
 // SMS dialog · turn handler (SMS05)
 //
-// One Claude Haiku 4.5 call per inbound SMS. Reads the full conversation
+// One Claude Sonnet 4.5 call per inbound SMS. Reads the full conversation
 // history and decides exactly one of: ask | finish | escalate_inspection.
 // The decision shape is enforced by a Zod schema, so the inbound route
 // never has to parse free-form text.
@@ -47,7 +47,7 @@ export const TurnDecisionSchema = z.object({
   assumptions_made: z.array(z.string()).default([]),
   ready_for_intake: z.boolean(),
   reason_for_escalation: z.string().nullable().default(null),
-  // Set true ONCE per conversation, on the turn where Haiku is naturally
+  // Set true ONCE per conversation, on the turn where Sonnet is naturally
   // ready to send the photo-upload link. The right moment is AFTER the
   // qualifying questions are answered (count, room, ceiling type,
   // replace-vs-new, colour preference) — typically combined with the
@@ -82,15 +82,15 @@ export type ConversationTurn = { direction: 'inbound' | 'outbound'; body: string
 export type CustomerHistoryHint = 'first_time' | 'returning' | 'continuing'
 
 /**
- * Photo-link state hint passed in from the SMS inbound route to Haiku.
- * Haiku owns the decision of WHEN to fire the photo SMS via the schema
+ * Photo-link state hint passed in from the SMS inbound route to Sonnet.
+ * Sonnet owns the decision of WHEN to fire the photo SMS via the schema
  * field `request_photo_link` — see Rule 10 in the system prompt.
  *
- *   - pending:        photo SMS not yet sent; Haiku may set
+ *   - pending:        photo SMS not yet sent; Sonnet may set
  *                     request_photo_link=true on the appropriate turn
  *                     (typically the verification handshake, after all
  *                     qualifying questions are answered).
- *   - already_sent:   photo SMS fired in an earlier turn; Haiku must
+ *   - already_sent:   photo SMS fired in an earlier turn; Sonnet must
  *                     NOT set request_photo_link again and must NOT
  *                     mention the link.
  *   - not_applicable: legacy conversation without a photo_request_token,
@@ -876,8 +876,8 @@ function formatHistory(history: ConversationTurn[]): string {
 
 // Deterministic safety net for Rule 6 / KNOWN CUSTOMER MEMORY compliance.
 //
-// When the database already has the customer's suburb but Haiku still asks
-// "what suburb is the job in?" (a real failure observed in prod — Haiku
+// When the database already has the customer's suburb but Sonnet still asks
+// "what suburb is the job in?" (a real failure observed in prod — Sonnet
 // occasionally drops the Rule 6 exception when the system prompt is large),
 // rewrite the reply as the address-confirmation handshake using the stored
 // suburb. The customer never sees the bogus question.
@@ -890,7 +890,7 @@ function formatHistory(history: ConversationTurn[]): string {
 // once PR-B is live — supersedes the older KNOWN CUSTOMER MEMORY block
 // formatted by lib/customers/lookup.ts:formatCustomerContext.
 //
-// Source attribution is preserved in the rendered text so Haiku knows:
+// Source attribution is preserved in the rendered text so Sonnet knows:
 //   - from_memory:        skip re-asking, use silently
 //   - from_transcript:    customer stated this turn, can echo naturally
 //   - customer_corrected: ACKNOWLEDGE the change in the next reply
@@ -949,9 +949,9 @@ function scrubAskingForKnownSuburb(args: {
   const knownSuburb = args.state?.slots.suburb
   if (!knownSuburb) return args.reply
 
-  // Customer just corrected the suburb this conversation — the dialog Haiku
+  // Customer just corrected the suburb this conversation — the dialog Sonnet
   // already sees the correction in CURRENT JOB STATE and is acknowledging
-  // it. Rewriting would clobber Haiku's reply with the stale stored value.
+  // it. Rewriting would clobber Sonnet's reply with the stale stored value.
   if (args.state?.sources.suburb === 'customer_corrected') {
     console.log('[sms/dialog] scrubAskingForKnownSuburb skipped - suburb was customer-corrected', {
       suburb: knownSuburb,
@@ -970,7 +970,7 @@ function scrubAskingForKnownSuburb(args: {
   return `Got it${namePart} - still at the ${knownSuburb} place? If not, just let me know the new suburb.`
 }
 
-// Deterministic post-process scrub — defence-in-depth in case Haiku
+// Deterministic post-process scrub — defence-in-depth in case Sonnet
 // drifts and produces voice-context wording in an SMS reply (e.g.
 // "thanks for calling" instead of "thanks for messaging") OR uses
 // typographic punctuation that renders inconsistently across phones.
@@ -1007,7 +1007,7 @@ function scrubVoiceWording(reply: string): string {
     .replace(/\bon (?:that |the |your )?call\b/gi, 'in your message')
     .replace(/\bgive (?:us )?a (?:quick )?callback\b/gi, 'send us a quick reply')
     // Stalling phrases that imply a quote is being drafted when we're
-    // actually still gathering info. These leak when Haiku gets confused
+    // actually still gathering info. These leak when Sonnet gets confused
     // by a mid-conversation pivot (e.g. customer changes from LPG gas
     // to electric HWS) and panics into "I'll handle it" mode. Better to
     // not say anything than to lie about a quote being in progress.
@@ -1016,10 +1016,10 @@ function scrubVoiceWording(reply: string): string {
     .replace(/\babout a minute away\b/gi, '')
     // Em dashes / en dashes / horizontal bars → ASCII hyphen with single
     // spaces. These render fine on iMessage but show up as boxes / weird
-    // characters on some Android skins, and Haiku-generated em dashes
+    // characters on some Android skins, and Sonnet-generated em dashes
     // also feel "AI-typed" rather than "human-typed" to most readers.
     // Match optional surrounding whitespace so we always end up with
-    // " - " (one space each side) regardless of how Haiku spaced it.
+    // " - " (one space each side) regardless of how Sonnet spaced it.
     .replace(/\s*[—–―]\s*/g, ' - ')
     // Smart quotes → straight quotes for the same reason.
     .replace(/[‘’]/g, "'")
@@ -1031,7 +1031,7 @@ function scrubVoiceWording(reply: string): string {
     .trim()
 }
 
-// Maps the CustomerHistoryHint to a one-line directive for Haiku that
+// Maps the CustomerHistoryHint to a one-line directive for Sonnet that
 // hard-references Rule 9's three cases. Forces the model to pick the
 // right opener (full intro / welcome-back / no-greeting).
 function customerHistoryDirective(hint: CustomerHistoryHint): string {
@@ -1325,7 +1325,7 @@ function declinedServicesDirective(
   ].join('\n')
 }
 
-// Maps the PhotoLinkHint to a directive for Haiku (Rule 10).
+// Maps the PhotoLinkHint to a directive for Sonnet (Rule 10).
 function photoLinkDirective(hint: PhotoLinkHint): string {
   switch (hint) {
     case 'pending':
@@ -1372,7 +1372,7 @@ export async function decideNextTurn(args: {
   /**
    * Optional formatted "KNOWN CUSTOMER MEMORY" block listing fields the
    * database already has for this phone number (name, suburb, address, etc.).
-   * When present, Haiku follows the conservative re-engagement rules:
+   * When present, Sonnet follows the conservative re-engagement rules:
    *   - greeting stays neutral (no name leak — phone may be shared)
    *   - if first_name is known, the "what's your first name?" question is
    *     skipped silently and the name is used in later acknowledgements
@@ -1394,14 +1394,14 @@ export async function decideNextTurn(args: {
    * Per-conversation slot state (PR-B). When present and non-empty, this
    * supersedes both `customerContext` and `knownFields` — it's the single
    * source of truth for what we know about the customer + job. Includes
-   * source attribution so Haiku knows which fields were corrections this
+   * source attribution so Sonnet knows which fields were corrections this
    * conversation and acknowledges them in the reply.
    */
   conversationState?: ConversationState
   /**
    * Trades the tenant who owns the destination number actually offers
    * (v6 multi-tenant). Drives the TENANT TRADE SCOPE block in the
-   * prompt so Haiku never offers plumbing to an electrical-only tradie's
+   * prompt so Sonnet never offers plumbing to an electrical-only tradie's
    * customer (or vice versa). Empty / undefined falls back to "both"
    * for legacy pre-v6 traffic.
    */
@@ -1454,7 +1454,7 @@ export async function decideNextTurn(args: {
   // block (formatCustomerContext output) for callers that haven't migrated.
   const stateBlock = formatStateBlock(args.conversationState)
   const memoryBlock = stateBlock ?? args.customerContext ?? ''
-  // Wrap Haiku call in withRetry so a transient Anthropic 529 (overloaded)
+  // Wrap Sonnet call in withRetry so a transient Anthropic 529 (overloaded)
   // or network blip doesn't drop the customer's reply silently. 3 attempts
   // with 1s/2s backoff = max ~4s overhead, kept tight because the SMS reply
   // is interactive — customer is waiting. The route's existing fallback
@@ -1517,12 +1517,12 @@ export async function decideNextTurn(args: {
       onAttemptFailed: (err, attempt, willRetry) => {
         const msg = err instanceof Error ? err.message : String(err)
         const tag = willRetry ? 'retrying' : 'giving up'
-        console.warn(`[sms/dialog] Haiku attempt ${attempt}/3 failed — ${tag}`, msg.slice(0, 200))
+        console.warn(`[sms/dialog] Sonnet attempt ${attempt}/3 failed — ${tag}`, msg.slice(0, 200))
       },
     }
   )
-  // Deterministic scrubs — defence-in-depth against Haiku rule drift.
-  //   1. scrubAskingForKnownSuburb: if Haiku asks for suburb but state has
+  // Deterministic scrubs — defence-in-depth against Sonnet rule drift.
+  //   1. scrubAskingForKnownSuburb: if Sonnet asks for suburb but state has
   //      one (and it wasn't customer-corrected this turn), rewrite into the
   //      address-confirmation handshake (Rule 6).
   //   2. scrubVoiceWording: replace voice-context phrasing + typographic

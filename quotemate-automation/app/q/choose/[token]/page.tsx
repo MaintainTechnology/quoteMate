@@ -44,7 +44,7 @@ export default async function ChoosePage(props: {
       </header>
 
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-        {!choice || !Array.isArray(choice.options) || choice.options.length < 2 ? (
+        {!choice || !Array.isArray(choice.options) || choice.options.length === 0 ? (
           <section className="bg-ink-card border-2 border-warning/50 p-8">
             <div className="font-mono text-[0.7rem] uppercase tracking-[0.15em] text-warning mb-3">
               Link not found
@@ -57,14 +57,15 @@ export default async function ChoosePage(props: {
         ) : (
           <>
             <h1 className="font-extrabold uppercase tracking-[-0.03em] text-[clamp(1.5rem,4.5vw,2.5rem)] leading-none">
-              Pick your{' '}
+              {choice.options.length === 1 ? 'Confirm your' : 'Pick your'}{' '}
               <span className="text-accent">
                 {(choice.category || 'product').replace(/_/g, ' ')}
               </span>
             </h1>
             <p className="mt-4 max-w-xl text-text-sec">
-              Two real options your tradie installs. Tap the one you&apos;d like —
-              it goes straight into your quote and your preview.
+              {choice.options.length === 1
+                ? "The product your tradie stocks for this job. Tap to confirm — it goes straight into your quote and your preview."
+                : "Two real options your tradie installs. Tap the one you'd like — it goes straight into your quote and your preview."}
             </p>
             <div className="mt-8">
               <ChoiceCards

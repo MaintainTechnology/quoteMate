@@ -282,14 +282,29 @@ export async function POST(req: Request) {
         })
       }
     } else {
-      // Default selected tier for the customer portal is "better".
-      // Falls through to "good" if better is missing (e.g. fault_finding has no best).
       goodTier = draft.good ?? null
       betterTier = draft.better ?? null
       bestTier = draft.best ?? null
-      const defaultTier = draft.better ?? draft.good
-      selectedTier = 'better'
-      selectedSubtotal = defaultTier?.subtotal_ex_gst ?? 0
+      // Honor an explicit selected_tier on the draft (set by the WP9
+      // single-product collapse in lib/estimate/run.ts when the customer
+      // pre-picked one product mid-chat — there's only ONE tier left and
+      // it may not be 'better'). Otherwise the customer portal default
+      // is "better", falling through to "good" or "best" if the canonical
+      // default tier is missing (e.g. fault_finding has no best, WP9
+      // collapse may keep only 'good', etc.).
+      const draftSel = draft.selected_tier as 'good' | 'better' | 'best' | null | undefined
+      const validDraftSel =
+        (draftSel === 'good' || draftSel === 'better' || draftSel === 'best') &&
+        !!draft[draftSel]
+      const chosenKey: 'good' | 'better' | 'best' = validDraftSel
+        ? draftSel
+        : draft.better
+          ? 'better'
+          : draft.good
+            ? 'good'
+            : 'best'
+      selectedTier = chosenKey
+      selectedSubtotal = draft[chosenKey]?.subtotal_ex_gst ?? 0
       gst = pricingBook?.gst_registered ? +(selectedSubtotal * 0.10).toFixed(2) : 0
       total = +(selectedSubtotal + gst).toFixed(2)
     }

@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────
 // SMS Agent — Phase 2 (the AI brain).
-// Validates Twilio signature, persists inbound, asks the Haiku dialog
+// Validates Twilio signature, persists inbound, asks the Sonnet dialog
 // agent (lib/sms/dialog.ts) what to do next, sends the reply via the
 // shared dispatcher (SMS-first / WhatsApp-fallback), persists outbound,
 // updates conversation status + assumptions, and on `finish` fires a
@@ -188,7 +188,7 @@ function guessFirstName(turns: ConversationTurn[]): string | undefined {
 }
 
 // Allow the after() block enough time for the full SMS pipeline:
-// slot extraction (Haiku) + dialog (Haiku/Sonnet) + possibly intake
+// slot extraction (Sonnet 4.6) + dialog (Sonnet 4.6) + possibly intake
 // structure (Opus 4.7) + estimator draft (Opus + RAG + tools) + image
 // gen + Twilio dispatch + DB writes. Worst-case "finish" turn ran ~200s
 // in stress tests; 60s killed it mid-pipeline (returning power users
@@ -205,7 +205,7 @@ const supabase = createClient(
 // Graceful fallback if the dialog agent throws — the customer still gets
 // a reply rather than silence.
 /**
- * Personalised fallback reply for when the dialog Haiku call throws
+ * Personalised fallback reply for when the dialog Sonnet call throws
  * (Anthropic 5xx, timeout, schema-validation rejection, etc.). Static
  * "we'll get back to you shortly" was confusing for returning customers
  * who'd just given their name + scope — they'd say "hi" and get a
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
   // ─────── Idempotency guard ───────
   // Twilio may retry the webhook (timeout, fallback URL config, etc.).
   // Without this, a retry would persist a duplicate inbound row, run
-  // Haiku again, and dispatch another reply. We dedupe on MessageSid —
+  // Sonnet again, and dispatch another reply. We dedupe on MessageSid —
   // if we've already persisted an inbound row for this SID, ack with
   // 200 immediately and bail. SMS-without-SID (extremely rare) falls
   // through to normal processing rather than failing closed.
@@ -378,7 +378,7 @@ export async function POST(req: Request) {
   // Then decide one of three modes:
   //
   //   INFLIGHT: a previous quote is being drafted/just-sent right now.
-  //             We send a canned hold-on message and skip Haiku entirely.
+  //             We send a canned hold-on message and skip Sonnet entirely.
   //   REUSE:    the prior conversation is mid-flow OR a recently-done quote
   //             is in the 5-min add-on grace window. Continue the dialog.
   //   NEW:      no prior or prior is too old/stale. Create a new row;
@@ -456,7 +456,7 @@ export async function POST(req: Request) {
   if (isInflight) {
     mode = 'inflight'
     conversation = prior!
-    customerHistoryHint = 'continuing'  // unused in inflight path; canned message bypasses Haiku
+    customerHistoryHint = 'continuing'  // unused in inflight path; canned message bypasses Sonnet
     console.log('[sms/inbound] step 3 — INFLIGHT (canned hold-on path)', {
       conversationId: conversation.id,
       priorStatus: conversation.status,
@@ -671,7 +671,7 @@ export async function POST(req: Request) {
   // Atomically try to claim "I'm the leader who'll prepare the next reply
   // for this conversation". If the row's processing_until is NULL or in
   // the past, we win the lock; otherwise another webhook is already
-  // running Haiku for this customer and we should bail without sending
+  // running Sonnet for this customer and we should bail without sending
   // a duplicate reply. The follower's inbound message is already persisted
   // (above) so the leader will see it when it loads conversation history.
   //
@@ -715,9 +715,9 @@ export async function POST(req: Request) {
   }
 
   // ─────── Fast-ack the webhook ───────
-  // Everything below — Haiku call, Twilio outbound, conversation update,
+  // Everything below — Sonnet call, Twilio outbound, conversation update,
   // intake handoff — runs after the 200 is returned. This keeps the
-  // webhook latency under ~500ms regardless of how long Haiku takes.
+  // webhook latency under ~500ms regardless of how long Sonnet takes.
   const conversationId = conversation.id
   const initialAssumptions = (conversation.assumptions_made as string[] | null) ?? []
   const initialTurnCount = conversation.turn_count
@@ -745,10 +745,10 @@ export async function POST(req: Request) {
     )
   // Slot state captured at request entry. Inside after() we run the slot
   // extractor against the customer's latest inbound and merge any updates
-  // back into this state, then persist + pass into the dialog Haiku call.
+  // back into this state, then persist + pass into the dialog Sonnet call.
   const initialConversationState: ConversationState = normaliseState(conversation.conversation_state)
   // Photo-request state — passed into after() so we can decide whether
-  // to fire the upload-link SMS (parallel to Haiku's reply, only on the
+  // to fire the upload-link SMS (parallel to Sonnet's reply, only on the
   // first turn that identifies an easy-5 job_type, never twice).
   const photoRequestToken = conversation.photo_request_token as string | null
   const photoRequestAlreadySent = !!conversation.photo_request_sent_at
@@ -766,10 +766,10 @@ export async function POST(req: Request) {
   // The dialog also gets the quoteInProgress directive so it never tries
   // a second verification handshake / handoff.
   const inflightContinuation = lookupMode === 'inflight'
-  // Photo-link hint flows into Haiku. Haiku owns the timing decision
+  // Photo-link hint flows into Sonnet. Sonnet owns the timing decision
   // via decision.request_photo_link (see lib/sms/dialog.ts Rule 10).
   //   - already_sent:   photo SMS fired in an earlier turn, don't repeat
-  //   - pending:        photo not yet sent and token exists; Haiku
+  //   - pending:        photo not yet sent and token exists; Sonnet
   //                     decides the right turn to fire it (typically
   //                     after all qualifying questions are answered,
   //                     combined with the verification handshake)
@@ -795,8 +795,8 @@ export async function POST(req: Request) {
 
       // ─────── Debounce window ───────
       // Wait briefly to let any rapid-fire follow-up messages land before we
-      // read history + run Haiku. Customer firing "Hey there" + "Hi there"
-      // within ~1s lands both in DB; we then call Haiku ONCE with both in
+      // read history + run Sonnet. Customer firing "Hey there" + "Hi there"
+      // within ~1s lands both in DB; we then call Sonnet ONCE with both in
       // history and reply ONCE. The follow-up webhook fails to claim the
       // lock and bails (its message is already persisted).
       const DEBOUNCE_MS = 1500
@@ -882,11 +882,11 @@ export async function POST(req: Request) {
       }
 
       // ─────── Slot extraction (PR-B step 4) ───────
-      // Run a tiny Haiku NLU pass against the latest inbound and merge
+      // Run a tiny Sonnet NLU pass against the latest inbound and merge
       // structured updates into conversation_state. Catches customer
       // corrections in real time — without this, "Chandler" arrives as
       // plain text in sms_messages and nothing tracks the change, so the
-      // dialog Haiku has to re-derive every turn (and sometimes drops it).
+      // dialog Sonnet has to re-derive every turn (and sometimes drops it).
       // Fail-open: extraction failure leaves the dialog running on stale state.
       let conversationState: ConversationState = initialConversationState
       try {
@@ -894,7 +894,7 @@ export async function POST(req: Request) {
         // SMS in <1.5s (e.g. "Hi", "I need 6 downlights", "in the lounge"),
         // the 1.5s debounce window collects ALL of them into the
         // sms_messages table before this slot-extractor turn runs. The
-        // dialog Haiku already sees them as separate history entries, but
+        // dialog Sonnet already sees them as separate history entries, but
         // the slot extractor used to receive ONLY the last inbound's body
         // — so the first two messages' context was silently dropped.
         //
@@ -996,10 +996,10 @@ export async function POST(req: Request) {
         //   - which conversation (so we can correlate with stored state)
         //   - which inbound message triggered it (the customer text)
         //   - what slots were ALREADY in conversationState (so we know
-        //     what stale data Haiku is about to see)
+        //     what stale data Sonnet is about to see)
         //   - the actual error class + first stack frame
         // Without this the only signal was "slot extraction failed" with
-        // no way to tell if it was a 5s Haiku timeout, a Zod parse error
+        // no way to tell if it was a 5s Sonnet timeout, a Zod parse error
         // on a malformed extraction response, or a Supabase write failure.
         const lastInbound = turns.filter(t => t.direction === 'inbound').at(-1)?.body ?? ''
         console.error('[sms/inbound:after] slot extraction FAILED - continuing with stale state', {
@@ -1016,7 +1016,7 @@ export async function POST(req: Request) {
         })
       }
 
-      console.log('[sms/inbound:after] step 6 — calling Haiku dialog agent', {
+      console.log('[sms/inbound:after] step 6 — calling Sonnet dialog agent', {
         turnCount: turns.length,
         inboundCount,
         customerHistory,
@@ -1030,7 +1030,7 @@ export async function POST(req: Request) {
         customerHasSuburb: !!customer?.suburb,
         customerTotalQuotes: customer?.total_quotes ?? 0,
       })
-      // 6. Ask Haiku what to do next — ask | finish | escalate_inspection.
+      // 6. Ask Sonnet what to do next — ask | finish | escalate_inspection.
       // customerHistory drives Rule 9 (opener logic): first_time → full intro,
       // returning → "welcome back", continuing → no greeting.
       // photoLink drives Rule 10 (photo heads-up): will_send_now → tell the
@@ -1331,7 +1331,7 @@ export async function POST(req: Request) {
           // PR-B: per-conversation slot state is the new source of truth.
           // The dialog prompt + deterministic scrub both read from this.
           conversationState,
-          // v6 multi-tenant trade scope — tells Haiku WHICH trades this
+          // v6 multi-tenant trade scope — tells Sonnet WHICH trades this
           // specific tenant offers so it can't accidentally take a job
           // the tradie doesn't actually do. Pre-v6 / unmapped destinations
           // (tenant=null) get the permissive "both trades" fallback.
@@ -1389,7 +1389,7 @@ export async function POST(req: Request) {
       }
 
       // ─── PROGRAMMATIC RULE 5/6 GUARD (belt-and-braces) ────────────────
-      // Even with strict EXCEPTION wording in the system prompt, Haiku
+      // Even with strict EXCEPTION wording in the system prompt, Sonnet
       // will occasionally skip the name / suburb questions for returning
       // customers with empty profiles — the "welcome back" context biases
       // the model toward "we already know them". This deterministic
@@ -1403,7 +1403,7 @@ export async function POST(req: Request) {
       // with a degenerate intake in the first place.
       //
       // Trigger conditions (all must hold):
-      //   - Haiku isn't escalating or ending the conversation
+      //   - Sonnet isn't escalating or ending the conversation
       //   - We have a job_type identified (we're past Rule 4)
       //   - The required field isn't already known (transcript slots OR
       //     customer record)
@@ -1412,7 +1412,7 @@ export async function POST(req: Request) {
       //
       // Root case from 2026-05-19: "Can I get two Powerpoints" ->
       // "Ensuite" was escalated to "$99 inspection" because the prompt
-      // listed "bathroom" as a power_points inspection trigger and Haiku
+      // listed "bathroom" as a power_points inspection trigger and Sonnet
       // reasonably mapped ensuite -> bathroom. That happens before DB
       // service toggles or pricing get a say. Keep obvious GPO jobs in
       // the quote dialog unless the customer explicitly says there is no
@@ -1460,9 +1460,9 @@ export async function POST(req: Request) {
           /(what suburb|suburb is the job|suburb'?s the job|what suburb's)/i.test(t.body),
       )
 
-      // BUG D fix: if Haiku's CURRENT reply (this turn) is already asking
+      // BUG D fix: if Sonnet's CURRENT reply (this turn) is already asking
       // for the name or suburb, the guard should stand down. Without this
-      // check, the guard overwrites Haiku's correct first-time intro
+      // check, the guard overwrites Sonnet's correct first-time intro
       // ("G'day, thanks for messaging QuoteMate, I'm the AI quoting
       // assistant. What's your first name?") with the bare guard text
       // ("No worries - quick one, what's your first name?"), losing the
@@ -1517,7 +1517,7 @@ export async function POST(req: Request) {
         !currentReplyAsksForSuburb          // BUG D fix part 1
 
       if (shouldForceName) {
-        console.warn('[sms/inbound:after] RULE 5 GUARD — Haiku skipped name question; overriding', {
+        console.warn('[sms/inbound:after] RULE 5 GUARD — Sonnet skipped name question; overriding', {
           conversationId,
           originalAction: decision.action,
           originalReplyPreview: decision.reply_to_send.slice(0, 80),
@@ -1530,7 +1530,7 @@ export async function POST(req: Request) {
           reply_to_send: "No worries - quick one, what's your first name?",
         }
       } else if (shouldForceSuburb) {
-        console.warn('[sms/inbound:after] RULE 6 GUARD — Haiku skipped suburb question; overriding', {
+        console.warn('[sms/inbound:after] RULE 6 GUARD — Sonnet skipped suburb question; overriding', {
           conversationId,
           originalAction: decision.action,
           originalReplyPreview: decision.reply_to_send.slice(0, 80),
@@ -1553,7 +1553,7 @@ export async function POST(req: Request) {
       // When a customer texts back after their quote has been sent
       // ("Thanks!", "Sounds good", "Can I add a fan?"), the
       // sms_conversation is reused under the 5-min done-grace window and
-      // Haiku runs fresh. Without this check, Haiku — having no memory
+      // Sonnet runs fresh. Without this check, Sonnet — having no memory
       // that intake/quote already ran — frequently reasons action='finish'
       // again on the courtesy reply, which triggers a DUPLICATE intake
       // and a DUPLICATE quote draft (with slightly different tier picks
@@ -1564,7 +1564,7 @@ export async function POST(req: Request) {
       //
       // Guard: if the conversation already has intake_id linked, suppress
       // BOTH the photo-request dispatch AND the intake-handoff fire,
-      // regardless of what Haiku decided. Haiku's reply text still goes
+      // regardless of what Sonnet decided. Sonnet's reply text still goes
       // out (dispatched at step 7 below) so the customer gets a
       // courtesy response, but the side effects don't fire twice.
       // Multi-quote-per-conversation (genuine add-ons) is a future feature
@@ -1600,17 +1600,17 @@ export async function POST(req: Request) {
 
       // 8b. Photo-request SMS gate — computed early so we can send the photo
       // link BEFORE the quote confirmation (correct UX order).
-      // Photo SMS firing is Haiku-driven via decision.request_photo_link.
-      // Haiku sets it true on the verification handshake turn (after all
-      // qualifying questions are answered). Safety-net: if Haiku reaches
+      // Photo SMS firing is Sonnet-driven via decision.request_photo_link.
+      // Sonnet sets it true on the verification handshake turn (after all
+      // qualifying questions are answered). Safety-net: if Sonnet reaches
       // action='finish' on an easy-5 job without setting request_photo_link,
       // fire on finish so we never silently drop the photo flow.
       //
-      // BUG E fix: gate by EASY_5_JOB_TYPES regardless of Haiku's flag —
+      // BUG E fix: gate by EASY_5_JOB_TYPES regardless of Sonnet's flag —
       // plumbing jobs (blocked_drain, hot_water, etc.) don't benefit from
       // customer photos, so we never send a photo link for them even if
-      // Haiku tries to set request_photo_link=true.
-      const haikuRequestedPhoto = decision.request_photo_link === true
+      // Sonnet tries to set request_photo_link=true.
+      const sonnetRequestedPhoto = decision.request_photo_link === true
       const finishFallbackTrigger =
         decision.action === 'finish' &&
         EASY_5_JOB_TYPES.has(decision.job_type_guess)
@@ -1626,7 +1626,7 @@ export async function POST(req: Request) {
         decision.action !== 'escalate_inspection' &&
         decision.action !== 'end_conversation' &&
         jobTypeQualifiesForPhoto &&
-        (haikuRequestedPhoto || finishFallbackTrigger)
+        (sonnetRequestedPhoto || finishFallbackTrigger)
 
       // Ordering fix: photo link goes FIRST, then "quote on its way" with a
       // 2s carrier-ordering gap. Previously the confirmation fired first and
@@ -1912,7 +1912,7 @@ export async function POST(req: Request) {
       // 3 attempts, 2s/4s backoff. Runs inside after() so customer doesn't wait.
       //
       // hasExistingIntake guard: a quote was already drafted on this
-      // conversation — Haiku occasionally re-reasons 'finish' on courtesy
+      // conversation — Sonnet occasionally re-reasons 'finish' on courtesy
       // replies ("Thanks!") which would otherwise produce duplicate
       // quotes. Skip the handoff entirely in that case.
       // inflightContinuation guard: a quote is already drafting on this
@@ -2119,7 +2119,7 @@ async function maybeHandleTradieRegistration(args: {
     priorTradie.status !== 'converted'
 
   // 2. Detect intent on the current message. Async because the hybrid
-  //    classifier may fall back to Haiku for messages that don't match
+  //    classifier may fall back to Sonnet for messages that don't match
   //    the regex strong-phrase lists. Total latency budget ≤ ~400ms.
   const classification = await classifyIntent(args.inboundBody)
   const isTradieIntent = classification.intent === 'tradie_registration'
