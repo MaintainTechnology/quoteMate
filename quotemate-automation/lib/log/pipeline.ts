@@ -46,7 +46,15 @@ export function pipelineLog(scope: Scope, traceId?: string) {
     },
     /** event failed — recoverable or terminal */
     err: (event: string, error?: unknown, data?: Record<string, unknown>) => {
-      const msg = error instanceof Error ? error.message : error == null ? '' : String(error)
+      // Supabase + many SDK errors are plain objects, not Error instances;
+      // String(obj) gives the useless '[object Object]'. Stringify so the
+      // log carries the real message + code + hint.
+      let msg = ''
+      if (error instanceof Error) {
+        msg = error.message
+      } else if (error != null) {
+        msg = typeof error === 'object' ? JSON.stringify(error) : String(error)
+      }
       const kv = fmtKv(data)
       console.error(`${tag} ✗ ${event}${msg ? ' · ' + msg : ''}${kv ? ' · ' + kv : ''} · ${elapsed()}`)
     },
