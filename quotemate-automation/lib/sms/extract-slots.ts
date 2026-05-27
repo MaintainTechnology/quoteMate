@@ -575,44 +575,82 @@ export async function extractSlots(args: {
           `job_type for this tenant.`,
         ].join(' ')
 
-  const { object } = await withRetry(
-    () => generateObject({
-      // Upgraded 2026-05-14 from Haiku 4.5 → Sonnet 4.6. The extractor is
-      // the layer that pulls every fact (name, suburb, room, count,
-      // replace-vs-new, fuel type, ceiling type) out of long multi-fact
-      // opening messages. Sonnet is markedly better at not missing
-      // buried facts (e.g. "in the laundry as I said" still produces
-      // room="laundry"; "replacing the old battery ones" still produces
-      // replace_or_new="replace"). The dialog Rule 0 + the new rule 0b
-      // worked examples in this prompt only help if the extractor sees
-      // every fact in the first place.
-      model: anthropic('claude-sonnet-4-6'),
-      schema: SlotExtractionSchema,
-      system: SYSTEM_PROMPT,
-      prompt: [
-        tradeScope, // null for both-trades + legacy fallback — .filter(Boolean) drops it
-        tradeScope ? '' : null,
-        `CURRENT STATE (slots we already know):`,
-        stateBlock,
-        '',
-        `LAST AGENT MESSAGE (for context, empty on first turn):`,
-        args.lastAgentMessage
-          ? `  ${args.lastAgentMessage.slice(0, 400)}`
-          : '  (none - first turn)',
-        '',
-        `CUSTOMER MESSAGE (extract from this):`,
-        `  ${args.customerMessage.slice(0, 600)}`,
-      ].filter((l) => l !== null).join('\n'),
-    }),
-    {
-      maxAttempts: 3,
-      baseDelayMs: 800,
-      onAttemptFailed: (err, attempt, willRetry) => {
-        const msg = err instanceof Error ? err.message : String(err)
-        const tag = willRetry ? 'retrying' : 'giving up'
-        console.warn(`[sms/extract-slots] Sonnet attempt ${attempt}/3 failed - ${tag}`, msg.slice(0, 200))
+  // ─── 2026-05-27 hotfix — "Schema is too complex" production error ───
+  //
+  // Anthropic tightened JSON-schema complexity validation on the
+  // tool_use path. The 16-field SlotsSchema (every field `.nullable()
+  // .optional()` × multiple enums incl. a 17-value job_type) crossed
+  // the new threshold and started rejecting every call. Three retries
+  // × Sonnet timeout = 300s Vercel function timeout = dialog dies.
+  //
+  // Three changes applied here:
+  //   1. mode: 'json' — switches the AI SDK from Anthropic tool_use
+  //      to native JSON output. JSON-mode has much looser schema
+  //      complexity limits and accepts our existing schema as-is.
+  //      Zero downstream change required — the same Zod schema still
+  //      validates the response.
+  //   2. maxAttempts: 3 → 2 — even with the fix we don't want a
+  //      hopeless retry chain eating the whole 300s function budget.
+  //   3. Fail-safe try/catch — if BOTH attempts fail (rate limit,
+  //      provider outage, etc.) we return {} instead of throwing, so
+  //      the dialog turn still completes with the prior state and the
+  //      customer gets a reply instead of a Vercel timeout.
+  try {
+    const { object } = await withRetry(
+      () => generateObject({
+        // Upgraded 2026-05-14 from Haiku 4.5 → Sonnet 4.6. The extractor is
+        // the layer that pulls every fact (name, suburb, room, count,
+        // replace-vs-new, fuel type, ceiling type) out of long multi-fact
+        // opening messages. Sonnet is markedly better at not missing
+        // buried facts (e.g. "in the laundry as I said" still produces
+        // room="laundry"; "replacing the old battery ones" still produces
+        // replace_or_new="replace"). The dialog Rule 0 + the new rule 0b
+        // worked examples in this prompt only help if the extractor sees
+        // every fact in the first place.
+        model: anthropic('claude-sonnet-4-6'),
+        // mode:'json' bypasses Anthropic's tool_use schema-complexity
+        // check (see hotfix block above).
+        mode: 'json',
+        schema: SlotExtractionSchema,
+        system: SYSTEM_PROMPT,
+        prompt: [
+          tradeScope, // null for both-trades + legacy fallback — .filter(Boolean) drops it
+          tradeScope ? '' : null,
+          `CURRENT STATE (slots we already know):`,
+          stateBlock,
+          '',
+          `LAST AGENT MESSAGE (for context, empty on first turn):`,
+          args.lastAgentMessage
+            ? `  ${args.lastAgentMessage.slice(0, 400)}`
+            : '  (none - first turn)',
+          '',
+          `CUSTOMER MESSAGE (extract from this):`,
+          `  ${args.customerMessage.slice(0, 600)}`,
+        ].filter((l) => l !== null).join('\n'),
+      }),
+      {
+        maxAttempts: 2,
+        baseDelayMs: 800,
+        onAttemptFailed: (err, attempt, willRetry) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          const tag = willRetry ? 'retrying' : 'giving up'
+          console.warn(`[sms/extract-slots] Sonnet attempt ${attempt}/2 failed - ${tag}`, msg.slice(0, 200))
+        },
       },
-    },
-  )
-  return object
+    )
+    return object
+  } catch (err: unknown) {
+    // Fail-safe path. Logged loudly so the issue is visible in Vercel
+    // logs, but the dialog turn continues with the prior state — the
+    // customer gets a reply, not a 300s timeout.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(
+      '[sms/extract-slots] all attempts failed — returning empty extraction so the dialog can continue',
+      msg.slice(0, 400),
+    )
+    return {
+      updates: {},
+      reasoning: `extractor unavailable: ${msg.slice(0, 120)}`,
+    }
+  }
 }
