@@ -63,12 +63,16 @@ export type BandExtraMaterial = {
 /** Numeric band — used for questions whose answer is a measurement
  *  (distance in metres, ceiling height, item count, fixture count). The
  *  customer's answer (a number) gets bucketed into the FIRST band where
- *  `answer <= max`. The catch-all band uses `max: Number.POSITIVE_INFINITY`. */
+ *  `answer <= max`. The catch-all band uses `max: null` (JSON-safe) or
+ *  `max: Number.POSITIVE_INFINITY` (in-process). */
 export type NumericBand = {
   /** Inclusive upper bound. Bands are checked top-to-bottom in array
    *  order, so always declare them ascending. The last band MUST set
-   *  max=Number.POSITIVE_INFINITY so unbounded answers don't fall through. */
-  max: number
+   *  `max: null` (preferred for DB storage — Number.POSITIVE_INFINITY
+   *  doesn't round-trip through JSON.stringify) or
+   *  `max: Number.POSITIVE_INFINITY` (for in-code fixtures). Either is
+   *  treated as the catch-all. */
+  max: number | null
   /** Human-readable description for the modifier line description.
    *  Surfaced as "Additional labour — <label>" etc. */
   label?: string
@@ -139,6 +143,12 @@ export type ApplyPriceBandsResult = {
  *  pass either a real pricing_book row or a test fixture. */
 export type PriceBandsPricingBook = {
   hourly_rate: number | string
+  /** Per-tenant markup percentage (e.g. 36 = 36%). Applied to RAW catalogue
+   *  prices stored in band.extra_materials so a single shared recipe can be
+   *  used across tenants with different markups. When undefined or 0, the
+   *  raw price is passed through unchanged (back-compat with Phase-1 tests
+   *  and any caller that pre-marked-up prices in the band itself). */
+  default_markup_pct?: number | string
 }
 
 /**
@@ -166,6 +176,12 @@ export function applyPriceBands(
     // to the un-banded draft.
     return out
   }
+  // Per-tenant markup multiplier applied to RAW material prices stored on
+  // bands. 36% → 1.36. Negative or NaN → treated as 0 (no markup, raw
+  // passes through — back-compat with Phase-1 tests).
+  const markupPctRaw = toNumber(pricingBook.default_markup_pct)
+  const markupMultiplier =
+    Number.isFinite(markupPctRaw) && markupPctRaw > 0 ? 1 + markupPctRaw / 100 : 1
 
   for (const q of questions) {
     const rawAnswer = slots[q.id]
@@ -177,9 +193,9 @@ export function applyPriceBands(
     }
 
     if (q.variant === 'numeric') {
-      applyNumericBand(q, answer, hourlyRate, out)
+      applyNumericBand(q, answer, hourlyRate, markupMultiplier, out)
     } else {
-      applySelectBand(q, answer, hourlyRate, out)
+      applySelectBand(q, answer, hourlyRate, markupMultiplier, out)
     }
   }
   return out
@@ -189,22 +205,24 @@ function applyNumericBand(
   q: Extract<PriceQuestion, { variant: 'numeric' }>,
   answer: unknown,
   hourlyRate: number,
+  markupMultiplier: number,
   out: ApplyPriceBandsResult,
 ): void {
   const n = toNumber(answer)
   if (!Number.isFinite(n)) return
   // Bands are checked in declaration order — first one whose max >= n wins.
-  // The author's responsibility to keep the array ascending and include a
-  // catch-all (max=Number.POSITIVE_INFINITY) at the end.
-  const band = q.bands.find((b) => n <= b.max)
+  // null max acts as the catch-all (Number.POSITIVE_INFINITY equivalent;
+  // chosen because Infinity doesn't survive JSON.stringify for the DB).
+  const band = q.bands.find((b) => b.max === null || b.max === undefined || n <= b.max)
   if (!band) return
-  emitBandSideEffects(band, hourlyRate, out)
+  emitBandSideEffects(band, hourlyRate, markupMultiplier, out)
 }
 
 function applySelectBand(
   q: Extract<PriceQuestion, { variant: 'select' }>,
   answer: unknown,
   hourlyRate: number,
+  markupMultiplier: number,
   out: ApplyPriceBandsResult,
 ): void {
   const v = String(answer).trim().toLowerCase()
@@ -212,12 +230,13 @@ function applySelectBand(
   const band = q.bands.find((b) => b.value.trim().toLowerCase() === v)
   if (!band) return
   if (band.use_assembly_id) out.assembly_override_id = band.use_assembly_id
-  emitBandSideEffects(band, hourlyRate, out)
+  emitBandSideEffects(band, hourlyRate, markupMultiplier, out)
 }
 
 function emitBandSideEffects(
   band: NumericBand | SelectBand,
   hourlyRate: number,
+  markupMultiplier: number,
   out: ApplyPriceBandsResult,
 ): void {
   if (band.extra_labour_hr && band.extra_labour_hr > 0) {
@@ -235,15 +254,23 @@ function emitBandSideEffects(
   for (const m of band.extra_materials ?? []) {
     if (!Number.isFinite(m.unit_price_ex_gst) || m.unit_price_ex_gst < 0) continue
     if (!Number.isFinite(m.quantity) || m.quantity <= 0) continue
+    // Raw catalogue price × tenant markup. round2 keeps the line price at
+    // 2-decimal cents to match the grounding validator's ±$0.50 tolerance
+    // band without floating-point fuzz.
+    const marked = round2(m.unit_price_ex_gst * markupMultiplier)
     out.extra_line_items.push({
       description: m.description,
       quantity: m.quantity,
       unit: m.unit,
-      unit_price_ex_gst: m.unit_price_ex_gst,
+      unit_price_ex_gst: marked,
       source: m.source ?? 'material',
     })
   }
   if (band.risk_flag) out.risk_flags.push(band.risk_flag)
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 function toNumber(v: unknown): number {

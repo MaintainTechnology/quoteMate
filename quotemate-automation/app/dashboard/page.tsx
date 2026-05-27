@@ -533,7 +533,9 @@ export default function DashboardPage() {
             {tab === 'payouts' && (
               <PayoutsTab data={data} accessToken={accessToken} />
             )}
-            {tab === 'pricing' && <PricingTab data={data} onSave={patch} />}
+            {tab === 'pricing' && (
+              <PricingTab data={data} onSave={patch} accessToken={accessToken} />
+            )}
             {tab === 'services' && (
               <ServicesTab
                 data={data}
@@ -2491,9 +2493,11 @@ function ActivateTradeCard({
 function PricingTab({
   data,
   onSave,
+  accessToken,
 }: {
   data: DashboardData
   onSave: (payload: Record<string, unknown>) => Promise<void>
+  accessToken: string | null
 }) {
   // Multi-trade tenants get one PricingBookCard per trade. Single-trade
   // tenants get exactly one card — same component, no special UI.
@@ -2529,6 +2533,10 @@ function PricingTab({
       {/* Phase A — customer-quote display preference (itemised vs summary).
           Trade-agnostic, written to every pricing_book row by /api/tenant/me. */}
       <QuoteDisplayCard books={books} onSave={onSave} />
+      {/* A5 — invoice-history calibration. Upload past invoices, see how
+          our recipe lines up with what you actually charged, accept a
+          suggested hourly-rate adjustment. */}
+      <CalibrationCard accessToken={accessToken} />
     </div>
   )
 }
@@ -2642,6 +2650,337 @@ function QuoteDisplayCard({
           )}
         </div>
       </form>
+    </Card>
+  )
+}
+
+// A5 — Invoice-history calibration card.
+//
+// Lets a tradie upload past invoice images, sees the structured Gemini
+// extraction, and reviews a calibration suggestion that backsolves a
+// systematic gap between their historical pricing and our recipe-derived
+// prediction. Accept buttons are hidden when trust='reject' so the UI
+// can never push a suggestion outside the trust gates.
+type CalibrationApiUpload = {
+  id: string
+  status: 'uploaded' | 'extracting' | 'extracted' | 'failed'
+  mime_type: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+type CalibrationApiExtraction = {
+  id: string
+  upload_id: string
+  scope_description: string | null
+  total_inc_gst: number | string | null
+  job_type_guess: string | null
+  quantity: number | string | null
+  customer_name: string | null
+  customer_suburb: string | null
+  invoice_date: string | null
+  created_at: string
+}
+type CalibrationApiSuggestion = {
+  id: string
+  trade: string
+  field: 'hourly_rate'
+  current_value: number | string
+  suggested_value: number | string
+  delta: number | string
+  delta_pct: number | string
+  trust: 'high' | 'medium' | 'low' | 'reject'
+  reject_reason: string | null
+  reason: string
+  invoices_used: number
+  diff_pct_min: number | string | null
+  diff_pct_max: number | string | null
+  diff_pct_median: number | string | null
+  status: 'pending' | 'accepted' | 'rejected' | 'superseded'
+  accepted_at: string | null
+  rejected_at: string | null
+  created_at: string
+}
+type CalibrationApiReport = {
+  invoices_total: number
+  invoices_matched: number
+  invoices_skipped: number
+  skip_breakdown: Record<string, number>
+  suggestions: Array<{
+    field: 'hourly_rate'
+    current_value: number
+    suggested_value: number
+    delta: number
+    delta_pct: number
+    reason: string
+    trust: 'high' | 'medium' | 'low' | 'reject'
+    reject_reason?: string
+    invoices_used: number
+    diff_pct_min: number
+    diff_pct_max: number
+    diff_pct_median: number
+  }>
+}
+type CalibrationApiResponse = {
+  ok: boolean
+  trades_active: string[]
+  uploads: CalibrationApiUpload[]
+  extractions: CalibrationApiExtraction[]
+  suggestions: CalibrationApiSuggestion[]
+  reports: Record<string, CalibrationApiReport>
+}
+
+function CalibrationCard({ accessToken }: { accessToken: string | null }) {
+  const [report, setReport] = useState<CalibrationApiResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!accessToken) {
+      setErr('Not signed in')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/tenant/calibration', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(b.error || `HTTP ${res.status}`)
+      }
+      const json = (await res.json()) as CalibrationApiResponse
+      setReport(json)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function onFile(file: File) {
+    if (!accessToken) return
+    if (!/^image\/(jpeg|png|webp|heic)$/.test(file.type)) {
+      setMsg('Only JPEG, PNG, WEBP or HEIC images are accepted in v1.')
+      return
+    }
+    setUploading(true)
+    setMsg(null)
+    try {
+      // Read file → base64 (no data: prefix; strip the header).
+      const buf = await file.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let bin = ''
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+      const base64 = typeof btoa === 'function' ? btoa(bin) : ''
+      const res = await fetch('/api/tenant/calibration/upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image_base64: base64, mime_type: file.type }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        message?: string
+      }
+      if (!res.ok || !json.ok) {
+        setMsg(json.message || json.error || `HTTP ${res.status}`)
+      } else {
+        setMsg(`Invoice extracted — refreshing…`)
+        await load()
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function actOnSuggestion(trade: string, accept: boolean) {
+    if (!accessToken) return
+    setBusyAction(trade)
+    setMsg(null)
+    try {
+      const res = await fetch('/api/tenant/calibration/accept', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ trade, accept }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        action?: 'accepted' | 'rejected'
+        error?: string
+        message?: string
+        new_hourly_rate?: number
+      }
+      if (!res.ok || !json.ok) {
+        setMsg(json.message || json.error || `HTTP ${res.status}`)
+      } else if (json.action === 'accepted') {
+        setMsg(`Hourly rate updated to $${json.new_hourly_rate}. Reload to see across the page.`)
+        await load()
+      } else {
+        setMsg('Suggestion noted as rejected.')
+        await load()
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  return (
+    <Card title="Calibrate from invoices">
+      <p className="text-xs text-text-dim leading-snug max-w-2xl mb-4">
+        Upload past invoices. We&apos;ll compare what you historically charged
+        to what our recipe predicts, and suggest hourly-rate adjustments
+        when the gap is consistent. Suggestions are never applied
+        automatically — you always click Accept.
+      </p>
+
+      <div className="mb-4 border border-dashed border-ink-line bg-ink-card p-4">
+        <label className="block">
+          <span className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-text-dim block mb-2">
+            Upload invoice image (JPG / PNG / WEBP / HEIC)
+          </span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/heic"
+            disabled={uploading}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void onFile(f)
+              e.target.value = ''
+            }}
+            className="text-sm text-text-pri file:mr-3 file:py-2 file:px-3 file:border file:border-accent/50 file:text-accent file:bg-transparent file:font-mono file:text-[0.65rem] file:uppercase file:tracking-[0.14em] file:font-bold file:cursor-pointer hover:file:bg-accent/10"
+          />
+        </label>
+        {uploading && (
+          <p className="mt-2 text-xs text-text-dim">Extracting via Gemini vision…</p>
+        )}
+        {msg && (
+          <p className="mt-2 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-accent">
+            {msg}
+          </p>
+        )}
+      </div>
+
+      {loading && (
+        <p className="font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim">
+          Loading calibration report…
+        </p>
+      )}
+      {err && (
+        <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-warning">
+          Couldn&apos;t load calibration: {err}
+        </p>
+      )}
+      {report && Object.keys(report.reports).length === 0 && (
+        <p className="text-xs text-text-dim">
+          No trades active — activate a trade on the Account tab first.
+        </p>
+      )}
+      {report && (
+        <div className="space-y-4">
+          {Object.entries(report.reports).map(([trade, r]) => {
+            const tradeLabel = trade.charAt(0).toUpperCase() + trade.slice(1)
+            const s = r.suggestions[0]
+            return (
+              <div key={trade} className="border border-ink-line bg-ink-card">
+                <div className="px-4 py-3 border-b border-ink-line flex items-baseline justify-between flex-wrap gap-2">
+                  <h4 className="font-semibold text-text-pri">{tradeLabel}</h4>
+                  <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim">
+                    {r.invoices_matched} matched · {r.invoices_skipped} skipped · {r.invoices_total} total
+                  </span>
+                </div>
+                <div className="p-4 text-sm">
+                  {!s && (
+                    <p className="text-text-dim text-xs">
+                      No calibration suggestion yet. Upload more invoices for this trade.
+                    </p>
+                  )}
+                  {s && (
+                    <>
+                      <p className="text-text-pri text-sm">{s.reason}</p>
+                      <div className="mt-3 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+                        Range: {s.diff_pct_min.toFixed(1)}% to {s.diff_pct_max.toFixed(1)}% (median {s.diff_pct_median.toFixed(1)}%) · invoices_used={s.invoices_used} · trust={s.trust}
+                      </div>
+                      {s.trust === 'reject' ? (
+                        <p className="mt-3 font-mono text-[0.65rem] uppercase tracking-[0.14em] text-warning">
+                          Rejected by trust gate: {s.reject_reason}
+                        </p>
+                      ) : (
+                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            disabled={busyAction === trade}
+                            onClick={() => void actOnSuggestion(trade, true)}
+                            className="font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold px-3 py-2 border border-accent text-accent hover:bg-accent/10 transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            {busyAction === trade ? 'Applying…' : `Accept · raise hourly to $${s.suggested_value}`}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyAction === trade}
+                            onClick={() => void actOnSuggestion(trade, false)}
+                            className="font-mono text-[0.7rem] uppercase tracking-[0.14em] px-3 py-2 border border-ink-line text-text-dim hover:text-text-pri hover:border-text-dim transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          {report.uploads.length > 0 && (
+            <details className="border border-ink-line bg-ink-card">
+              <summary className="px-4 py-3 cursor-pointer font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim hover:text-text-pri">
+                ▸ Uploaded invoices ({report.uploads.length})
+              </summary>
+              <ul className="divide-y divide-ink-line">
+                {report.uploads.map((u) => (
+                  <li key={u.id} className="px-4 py-2 flex items-center justify-between text-xs">
+                    <span className="font-mono text-[0.65rem] text-text-pri">
+                      {u.id.slice(0, 8)}…
+                    </span>
+                    <span
+                      className={`font-mono text-[0.6rem] uppercase tracking-[0.14em] ${
+                        u.status === 'extracted'
+                          ? 'text-accent'
+                          : u.status === 'failed'
+                            ? 'text-warning'
+                            : 'text-text-dim'
+                      }`}
+                    >
+                      {u.status}
+                      {u.error ? ` · ${u.error.slice(0, 60)}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
@@ -5098,6 +5437,222 @@ function SupplierCsvUpload({
   )
 }
 
+// A4 — Catalogue COVERAGE panel rendered inside CatalogueTab, above the
+// "Product catalogue" card. Fetches /api/tenant/catalogue/coverage and
+// renders per-trade rollups: "Plumbing — 1 of 8 categories covered, 24
+// shared rows missing", with a "Show gaps" expander per trade that lists
+// every missing category and a "Browse supplier catalogue" button that
+// jumps the user to the browse tab (no auto-filtering yet — they pick
+// the category chip themselves once on the browse tab).
+type CoverageReportClient = {
+  ok: boolean
+  trades_active: string[]
+  by_trade: Array<{
+    trade: string
+    total_shared_categories: number
+    covered_categories: number
+    uncovered_categories: number
+    missing_rows_total: number
+    coverage_pct: number
+    categories: Array<{
+      category: string
+      shared_count: number
+      tenant_count: number
+      missing_count: number
+      covered: boolean
+    }>
+  }>
+}
+
+function CoveragePanel({
+  accessToken,
+  onJumpToBrowse,
+}: {
+  accessToken: string | null
+  onJumpToBrowse: () => void
+}) {
+  const [report, setReport] = useState<CoverageReportClient | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  // Which trade rows are expanded (showing the per-category gap list).
+  // Start collapsed so the panel reads as a tight summary.
+  const [openTrades, setOpenTrades] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!accessToken) {
+      setErr('Not signed in')
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      setErr(null)
+      try {
+        const res = await fetch('/api/tenant/catalogue/gaps', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: 'no-store',
+        })
+        if (!res.ok) {
+          const b = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(b.error || `HTTP ${res.status}`)
+        }
+        const json = (await res.json()) as CoverageReportClient
+        if (!cancelled) setReport(json)
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
+
+  function toggleTrade(trade: string) {
+    setOpenTrades((prev) => {
+      const next = new Set(prev)
+      if (next.has(trade)) next.delete(trade)
+      else next.add(trade)
+      return next
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="mb-6 border border-ink-line bg-ink-card p-4 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim">
+        Loading coverage…
+      </div>
+    )
+  }
+  if (err) {
+    return (
+      <div className="mb-6 border border-warning/50 bg-ink-card p-4">
+        <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-warning mb-1">
+          Couldn&apos;t load coverage
+        </div>
+        <p className="text-xs text-text-sec">{err}</p>
+      </div>
+    )
+  }
+  if (!report || report.by_trade.length === 0) return null
+
+  return (
+    <div className="mb-6 border border-ink-line bg-ink-card">
+      <div className="px-4 py-3 border-b border-ink-line flex items-baseline justify-between gap-3 flex-wrap">
+        <h3 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-accent font-extrabold">
+          Coverage
+        </h3>
+        <p className="text-[0.65rem] text-text-dim font-mono uppercase tracking-[0.14em]">
+          Shared catalogue rows you have vs you don&apos;t
+        </p>
+      </div>
+      <div className="divide-y divide-ink-line">
+        {report.by_trade.map((t) => {
+          const isOpen = openTrades.has(t.trade)
+          const tradeLabel = t.trade.charAt(0).toUpperCase() + t.trade.slice(1)
+          // Categories sorted: uncovered first (most actionable), then covered with missing rows, then fully stocked
+          const sortedCats = [...t.categories]
+            .filter((c) => c.shared_count > 0)
+            .sort((a, b) => {
+              if (a.covered !== b.covered) return a.covered ? 1 : -1
+              if (a.missing_count !== b.missing_count)
+                return b.missing_count - a.missing_count
+              return a.category.localeCompare(b.category)
+            })
+          return (
+            <div key={t.trade}>
+              <button
+                type="button"
+                onClick={() => toggleTrade(t.trade)}
+                className="w-full flex items-center justify-between gap-4 px-4 py-3 hover:bg-ink-deep transition-colors cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-text-dim font-mono text-[0.65rem]">
+                    {isOpen ? '▾' : '▸'}
+                  </span>
+                  <span className="font-semibold text-text-pri text-sm">{tradeLabel}</span>
+                  <span className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim">
+                    {t.covered_categories} of {t.total_shared_categories} categories
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {t.missing_rows_total > 0 && (
+                    <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-warning">
+                      {t.missing_rows_total} shared row{t.missing_rows_total === 1 ? '' : 's'} missing
+                    </span>
+                  )}
+                  <span
+                    className={`font-mono text-sm font-extrabold tabular-nums ${
+                      t.coverage_pct >= 80
+                        ? 'text-accent'
+                        : t.coverage_pct >= 40
+                          ? 'text-text-pri'
+                          : 'text-warning'
+                    }`}
+                  >
+                    {t.coverage_pct}%
+                  </span>
+                </div>
+              </button>
+              {isOpen && (
+                <div className="bg-ink-deep border-t border-ink-line">
+                  {sortedCats.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-text-dim">
+                      No shared catalogue categories for {tradeLabel.toLowerCase()} yet.
+                    </p>
+                  ) : (
+                    <>
+                      <ul className="divide-y divide-ink-line">
+                        {sortedCats.map((c) => (
+                          <li
+                            key={c.category}
+                            className="px-4 py-2 flex items-center justify-between gap-4"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  c.covered ? 'bg-accent' : 'bg-warning/70'
+                                }`}
+                                aria-label={c.covered ? 'covered' : 'not covered'}
+                              />
+                              <span className="font-mono text-[0.7rem] text-text-pri uppercase tracking-[0.06em]">
+                                {c.category}
+                              </span>
+                            </div>
+                            <div className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-text-dim shrink-0">
+                              {c.tenant_count} of {c.shared_count}
+                              {c.missing_count > 0 && (
+                                <span className="ml-2 text-warning">
+                                  · {c.missing_count} missing
+                                </span>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="px-4 py-3 border-t border-ink-line">
+                        <button
+                          type="button"
+                          onClick={onJumpToBrowse}
+                          className="font-mono text-[0.65rem] uppercase tracking-[0.14em] font-bold px-3 py-2 border border-accent/50 text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                        >
+                          + Browse supplier catalogue
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // v7 Phase 2b — "Browse supplier catalogue" panel rendered inside
 // CatalogueTab when viewMode === 'browse'. Self-contained: own fetch,
 // own filters (trade / category / brand), multi-select state, and a
@@ -6137,6 +6692,11 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
     })
 
   return (
+    <>
+      <CoveragePanel
+        accessToken={accessToken}
+        onJumpToBrowse={() => setViewMode('browse')}
+      />
     <Card title="Product catalogue">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <p className="text-xs text-text-dim leading-snug max-w-2xl">
@@ -6717,6 +7277,7 @@ function CatalogueTab({ accessToken }: { accessToken: string | null }) {
         </>
       )}
     </Card>
+    </>
   )
 }
 

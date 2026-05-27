@@ -126,16 +126,37 @@ export async function POST(req: Request) {
     const isSmsSource = intake.call_id == null
     let call: { caller_number: string | null } | null = null
     let smsConversationId: string | null = null
+    // Phase 6 — conversation_state.slots threads through to the
+    // price-bands recipe engine (lib/estimate/run.ts → merge step) so
+    // customer answers captured by the slot extractor (Phase 4) reach
+    // the per-assembly recipes. Loaded once here, passed as the 4th
+    // arg to runEstimation. Voice path leaves this null; intake.scope
+    // remains the fallback source for those callers.
+    let smsConversationState: { slots?: Record<string, unknown> | null } | null = null
 
     if (isSmsSource) {
       const { data: convo } = await supabase
         .from('sms_conversations')
-        .select('id, from_number')
+        .select('id, from_number, conversation_state')
         .eq('intake_id', intakeId)
         .maybeSingle()
       if (convo) {
         smsConversationId = convo.id
         call = { caller_number: convo.from_number ?? null }
+        // conversation_state is jsonb on the DB; supabase-js returns
+        // the parsed object (or null). Defensive shape check before we
+        // hand it to the estimator — anything malformed becomes null
+        // so the recipe falls back to intake.scope only.
+        const rawState = (convo as { conversation_state?: unknown }).conversation_state
+        if (rawState && typeof rawState === 'object') {
+          const slots = (rawState as { slots?: unknown }).slots
+          smsConversationState = {
+            slots:
+              slots && typeof slots === 'object'
+                ? (slots as Record<string, unknown>)
+                : null,
+          }
+        }
       }
     } else {
       const { data: callRow } = await supabase
@@ -154,6 +175,9 @@ export async function POST(req: Request) {
       caller_number: call?.caller_number ? 'set' : 'null',
       hourly_rate: pricingBook?.hourly_rate ?? null,
       sms_conversation_id: smsConversationId ?? 'n/a',
+      conversation_slots_count: smsConversationState?.slots
+        ? Object.keys(smsConversationState.slots).length
+        : 0,
     })
 
     let estimation: Awaited<ReturnType<typeof runEstimation>>
@@ -194,7 +218,12 @@ export async function POST(req: Request) {
       estimation = await withRetry(
         () => {
           const m = MODEL_CASCADE[Math.min(modelIdx++, MODEL_CASCADE.length - 1)]
-          return runEstimation(intake, bookResolution.pricingBook, m.id)
+          return runEstimation(
+            intake,
+            bookResolution.pricingBook,
+            m.id,
+            smsConversationState,
+          )
         },
         {
           maxAttempts: MODEL_CASCADE.length,

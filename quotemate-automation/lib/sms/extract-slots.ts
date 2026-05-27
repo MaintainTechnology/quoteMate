@@ -71,6 +71,27 @@ export const SlotsSchema = z.object({
   // True when the customer affirmed a verification summary ("yep", "correct",
   // "all good"). The dialog policy reads this to decide finish vs ask.
   verified: z.boolean().nullable().optional(),
+  // ─── Phase 4 — price-bands recipe slots (mig 074) ──────────────────
+  // Captured from customer SMS so the estimator's recipe engine
+  // (lib/estimate/merge-recipes.ts → applyPriceBands) can convert
+  // metric-driven scope into priced line items without a $99 inspection.
+  // Both slots are read by buildRecipeSlots from intake.scope OR
+  // conversation_state.slots (latter wins). The structurer (currently
+  // lib/intake/structure.ts) may project these into intake.scope.specs
+  // on a later iteration; for now the conversation_state path is
+  // sufficient for the recipe to fire.
+  //
+  // Metres distance from the new GPO to the nearest existing power point.
+  // Used by the "Replace double GPO" recipe (mig 074) to band into cable
+  // run extras. Stored as a number (no integer constraint — see count above).
+  distance_to_existing_power: z.number().nullable().optional(),
+  // Circuit amperage / phase requested for power_points installs. Values
+  // mirror the seeded recipe band values (case-insensitive on read);
+  // the recipe swaps the base assembly when '20A' or 'three-phase' fires.
+  circuit_required: z
+    .enum(['10A', '20A', 'three-phase', 'unknown'])
+    .nullable()
+    .optional(),
 })
 
 // Slots that get persisted back to the customers row when the customer
@@ -228,6 +249,8 @@ EXTRACTION RULES:
        "warm white / cool white / tri-colour…?"       → colour
        "replacing existing or new install?"           → replace_or_new
        "supplied by you, or by us?" / "you supplying or us?" → supplied_by
+       "how far is the nearest power point?" / "distance to existing power?" → distance_to_existing_power
+       "10A standard, 20A, or three-phase?" / "what amperage?" → circuit_required
        "Sound right?" / "just to confirm…?"           → verified (on affirm)
 
      DO NOT reclassify the customer's reply into a different slot unless
@@ -284,6 +307,22 @@ EXTRACTION RULES:
        Extract: job_type="fault_finding", room="kitchen"
        (NOT smoke_alarms — "stopped working" + "find the fault" is the
        textbook fault-finding cue; the count "half" is not a quantity.)
+
+       Customer: "Need a new GPO in my garage. The closest power point
+                  is about 8 metres away in the laundry."
+       Extract: job_type="power_points", count=1, room="garage",
+                replace_or_new="new", distance_to_existing_power=8
+       (No amperage stated → OMIT circuit_required; the recipe defaults
+       to 10A.)
+
+       Customer: "Installing a Tesla wall charger in the garage, the
+                  switchboard is on the other side of the house — must
+                  be 15 metres away."
+       Extract: job_type="power_points", count=1, room="garage",
+                replace_or_new="new", distance_to_existing_power=15,
+                circuit_required="three-phase"
+       (Tesla wall charger → three-phase implied even though the
+       customer didn't say "three-phase".)
 
        Customer: "Bathroom exhaust fan needs replacing, ducted to the eave."
        Extract: job_type="ceiling_fans", room="bathroom",
@@ -413,6 +452,53 @@ EXTRACTION RULES:
         "supply it for me" / "yes please" → 'tradie'.
       - DO NOT infer from a generic affirmation; the words must be about
         WHO PROVIDES THE ITEM.
+  10c. DISTANCE_TO_EXISTING_POWER (Phase 4 — power_points recipe slot):
+      - Captures the distance (in METRES) from the new GPO/power-point
+        location to the nearest existing power point the customer
+        already has. The estimator's recipe engine bands this number
+        into a cable-run + labour modifier so a "no power within 5m"
+        job auto-quotes with the right scope instead of bouncing to a
+        $99 inspection.
+      - Set ONLY when the customer states a distance metric explicitly
+        OR answers an agent question about distance. Convert to a plain
+        number of metres (no units in the value).
+      - Phrasings (electrical only, job_type='power_points' implied):
+          "the nearest power point is about 8 metres away" → 8
+          "no power within 5m of where I want it" → 5
+          "10 metres to the closest existing GPO" → 10
+          "about 3 m" / "3 metres" / "3m" → 3
+          "garage is 12 m from the laundry where the closest GPO is" → 12
+      - Word numbers ("about ten metres") → convert ("ten" → 10).
+      - Ranges ("between 5 and 10 metres") → take the UPPER bound
+        (conservative — recipe will band into the longer-run pricing).
+      - Imperial conversion: "about 30 feet" → 9 (0.3 m/ft, rounded
+        down). Customers using imperial in AU is rare but possible.
+      - DO NOT extract from a distance unrelated to power ("garage is
+        20m from the road"). Must be about distance to existing power.
+      - DO NOT extract a ceiling height ("3.2m ceiling") as
+        distance_to_existing_power — that's ceiling_type adjacent, not
+        the GPO recipe slot.
+  10d. CIRCUIT_REQUIRED (Phase 4 — power_points recipe slot):
+      - Captures the circuit amperage / phase requested for power_points
+        installs. The recipe swaps the base assembly when 20A or
+        three-phase is requested (different installation scope).
+      - Values: '10A' | '20A' | 'three-phase' | 'unknown'
+      - Phrasings:
+          "standard power point" / "regular 10A" / "10 amp" → '10A'
+          "dedicated circuit for the dryer" / "20A circuit" /
+            "20-amp" / "high-current outlet" → '20A'
+          "three-phase outlet" / "3 phase" / "3φ" / "EV charger" /
+            "Tesla wall connector" → 'three-phase'
+          "not sure what amperage" / "don't know" → 'unknown'
+      - Default: when the customer doesn't mention amperage, OMIT this
+        slot (don't write '10A' speculatively). The recipe's
+        default_when_unanswered will fill it in.
+      - Context clue: an EV charger / wall charger / Tesla mention
+        almost always means three-phase even if the customer doesn't
+        say so explicitly — extract circuit_required='three-phase' in
+        that case.
+      - DO NOT confuse with the existing supplied_by slot: "I'll supply
+        my own GPO" → supplied_by='customer', NOT circuit_required.
   11. VERIFIED: true ONLY when the customer affirms a verification summary the
       agent just sent. Triggers: "yep", "yes", "correct", "that's right",
       "perfect", "all good", "spot on", "sounds good", "no worries", "yeah".

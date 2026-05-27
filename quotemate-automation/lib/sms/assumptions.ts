@@ -96,25 +96,32 @@ export const ASSUMPTION_RULES: Record<JobType, AssumptionRule> = {
       'if the room is bathroom/ensuite/laundry/kitchen: is the GPO at least 600mm away from any basin, sink, shower or bath',
     ],
     inspectionTriggers: [
-      // Trimmed + tightened 2026-05-26:
-      //   - 'customer explicitly asks for a new circuit or dedicated circuit'
-      //       → narrowed to 'dedicated 20A+ circuit' (a short new circuit run
-      //         can be quoted with a premium; only specialty / sub-circuit
-      //         work genuinely needs eyes-on)
-      //   - 'no power there now' → 'no power within 5 metres of the GPO
-      //         location' (short runs are quotable, long ones aren't)
-      //   - 'no existing power nearby' removed (duplicate of above)
-      //   - 'outdoor' + 'weatherproof' removed (we have the "Install outdoor
-      //         IP-rated GPO" row in shared_assemblies — auto-quote works)
-      //   - 'switchboard' (bare word) removed (universal triggers below carry
-      //         the tightened 'switchboard upgrade / damaged / at capacity')
-      'dedicated 20A+ circuit',
-      'new sub-circuit from switchboard requiring a spare way',
-      'brand-new run from the switchboard',
-      'no power within 5 metres of the GPO location',
+      // Phase 5 cleanup 2026-05-27 — the five "metric-able" triggers
+      // below were REMOVED because the price-bands recipe engine
+      // (mig 074, lib/estimate/merge-recipes.ts) now turns those scope
+      // gaps into priced line items via the Replace-double-GPO recipe:
+      //
+      //   - 'dedicated 20A+ circuit'                          → recipe
+      //         answers circuit_required='20A' → swaps to
+      //         "Install 20A dedicated GPO" assembly
+      //   - 'new sub-circuit from switchboard requiring a spare way'
+      //     'brand-new run from the switchboard'              → recipe
+      //         distance_to_existing_power band + risk_flag
+      //         ("switchboard spare way required") covers this
+      //   - 'no power within 5 metres of the GPO location'    → recipe
+      //         distance_to_existing_power 5-10m band adds 0.5-1.0hr
+      //         labour + per-metre TPS cable line items
+      //   - 'three-phase'                                     → recipe
+      //         answers circuit_required='three-phase' → swaps to
+      //         "Install 32A three-phase outlet" assembly
+      //
+      // Retained triggers genuinely need eyes on site — they're NOT
+      // priceable from a customer's SMS answer:
+      //   - wet-area zoning (AS/NZS 3000 — regulatory clearance check)
+      //   - pre-1970 / old wiring / ceramic fuse (asbestos + ESV-style
+      //     switchboard inspection — safety, not a metric)
       'within 600mm of a basin, sink, shower or bath',
       'inside a wet-area zone',
-      'three-phase',
       'pre-1970 house', 'old wiring', 'ceramic fuse',
     ],
   },

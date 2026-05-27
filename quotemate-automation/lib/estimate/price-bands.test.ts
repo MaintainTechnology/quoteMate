@@ -356,6 +356,192 @@ describe('price-bands: edge cases', () => {
   })
 })
 
+describe('price-bands: markup application (Phase 2)', () => {
+  // Phase 2 evolution: bands store RAW catalogue prices, the engine
+  // multiplies by pricing_book.default_markup_pct so one shared recipe
+  // can be authored once and applied across tenants with different
+  // markup policies.
+  const cableQuestion: PriceQuestion = {
+    id: 'distance_to_existing_power',
+    question: 'distance to existing power point',
+    variant: 'numeric',
+    bands: [
+      { max: 2 },
+      {
+        max: 10,
+        label: 'longer run',
+        extra_labour_hr: 1.0,
+        extra_materials: [
+          {
+            description: 'TPS cable 2.5mm² × 10m',
+            quantity: 10,
+            unit: 'lm',
+            unit_price_ex_gst: 5,  // RAW catalogue price per metre
+            source: 'material:tps-2.5',
+          },
+        ],
+      },
+    ],
+  }
+
+  it('applies 36% markup to material prices (Sparky default)', () => {
+    const r = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118, default_markup_pct: 36 },
+    )
+    const cable = r.extra_line_items.find((li) => li.unit === 'lm')
+    expect(cable).toBeDefined()
+    // raw 5 × 1.36 = 6.80
+    expect(cable?.unit_price_ex_gst).toBe(6.80)
+  })
+
+  it('applies 20% markup to material prices (plumbing default)', () => {
+    const r = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 120, default_markup_pct: 20 },
+    )
+    const cable = r.extra_line_items.find((li) => li.unit === 'lm')
+    // raw 5 × 1.20 = 6.00
+    expect(cable?.unit_price_ex_gst).toBe(6.00)
+  })
+
+  it('markup_pct as string ("36") is parsed', () => {
+    const r = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118, default_markup_pct: '36' },
+    )
+    const cable = r.extra_line_items.find((li) => li.unit === 'lm')
+    expect(cable?.unit_price_ex_gst).toBe(6.80)
+  })
+
+  it('missing default_markup_pct → passthrough (back-compat with Phase 1)', () => {
+    const r = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118 },  // no markup specified
+    )
+    const cable = r.extra_line_items.find((li) => li.unit === 'lm')
+    // Raw 5 passes through unchanged
+    expect(cable?.unit_price_ex_gst).toBe(5)
+  })
+
+  it('zero/negative markup_pct → passthrough', () => {
+    const r1 = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118, default_markup_pct: 0 },
+    )
+    expect(r1.extra_line_items.find((li) => li.unit === 'lm')?.unit_price_ex_gst).toBe(5)
+    const r2 = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118, default_markup_pct: -10 },
+    )
+    expect(r2.extra_line_items.find((li) => li.unit === 'lm')?.unit_price_ex_gst).toBe(5)
+  })
+
+  it('labour is NOT marked up — uses hourly_rate directly', () => {
+    const r = applyPriceBands(
+      [cableQuestion],
+      { distance_to_existing_power: 8 },
+      { hourly_rate: 118, default_markup_pct: 36 },
+    )
+    const labour = r.extra_line_items.find((li) => li.unit === 'hr')
+    // Labour stays at $118/hr, not $118 × 1.36
+    expect(labour?.unit_price_ex_gst).toBe(118)
+  })
+
+  it('marked-up prices rounded to 2 decimal places (matches grounding tolerance)', () => {
+    const q: PriceQuestion = {
+      id: 'd',
+      question: 'd',
+      variant: 'numeric',
+      bands: [
+        {
+          max: null,
+          extra_materials: [
+            {
+              description: 'odd price',
+              quantity: 1,
+              unit: 'each',
+              unit_price_ex_gst: 7.33,  // raw
+            },
+          ],
+        },
+      ],
+    }
+    const r = applyPriceBands([q], { d: 1 }, { hourly_rate: 118, default_markup_pct: 28 })
+    // 7.33 × 1.28 = 9.3824 → rounded to 9.38
+    expect(r.extra_line_items[0].unit_price_ex_gst).toBe(9.38)
+  })
+})
+
+describe('price-bands: max=null catch-all sentinel (Phase 2 DB compat)', () => {
+  // Phase 2 stores recipes in shared_assemblies.price_recipe (jsonb).
+  // JSON.stringify(Infinity) → "null", so the on-disk shape uses
+  // `max: null` for the catch-all. The interpreter must accept both
+  // Number.POSITIVE_INFINITY (Phase 1 test fixtures) AND null (DB shape).
+  it('null max acts as catch-all', () => {
+    const q: PriceQuestion = {
+      id: 'metric',
+      question: 'q',
+      variant: 'numeric',
+      bands: [
+        { max: 10, extra_labour_hr: 0.5 },
+        { max: null, extra_labour_hr: 2.0, risk_flag: 'unbounded' },
+      ],
+    }
+    const r1 = applyPriceBands([q], { metric: 5 }, { hourly_rate: 118 })
+    expect(r1.extra_line_items[0].quantity).toBe(0.5)
+    expect(r1.risk_flags).toHaveLength(0)
+
+    const r2 = applyPriceBands([q], { metric: 9999 }, { hourly_rate: 118 })
+    expect(r2.extra_line_items[0].quantity).toBe(2.0)
+    expect(r2.risk_flags).toEqual(['unbounded'])
+  })
+
+  it('max=null first in array → catches all answers (even 0)', () => {
+    // Edge case: if author puts null first, every numeric answer lands here.
+    // The engine doesn't second-guess band order; it's the author's job
+    // to order ascending. This test documents the behaviour rather than
+    // protecting against it.
+    const q: PriceQuestion = {
+      id: 'metric',
+      question: 'q',
+      variant: 'numeric',
+      bands: [
+        { max: null, extra_labour_hr: 1, label: 'catch-all-first' },
+        { max: 10, extra_labour_hr: 5, label: 'never-reached' },
+      ],
+    }
+    const r = applyPriceBands([q], { metric: 5 }, { hourly_rate: 118 })
+    expect(r.extra_line_items[0].quantity).toBe(1)
+    expect(r.extra_line_items[0].description).toContain('catch-all-first')
+  })
+
+  it('round-trip through JSON.stringify preserves null-max bands', () => {
+    // The DB stores recipes as jsonb. Author writes max:null in the
+    // migration; the runtime reads it back the same way. Verify that a
+    // JSON round-trip produces an interpretable recipe.
+    const original: PriceQuestion = {
+      id: 'metric',
+      question: 'q',
+      variant: 'numeric',
+      bands: [
+        { max: 5, label: 'short' },
+        { max: null, label: 'long', extra_labour_hr: 1 },
+      ],
+    }
+    const roundTripped = JSON.parse(JSON.stringify(original)) as PriceQuestion
+    const r = applyPriceBands([roundTripped], { metric: 100 }, { hourly_rate: 118 })
+    expect(r.extra_line_items).toHaveLength(1)
+    expect(r.extra_line_items[0].description).toContain('long')
+  })
+})
+
 describe('price-bands: worked example — GPO with 8m cable run', () => {
   // Mirrors the example in the design conversation: customer wants a GPO,
   // nearest power point is 8m away, no amperage specified. Expected

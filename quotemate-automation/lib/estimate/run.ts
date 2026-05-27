@@ -22,6 +22,13 @@ import {
 } from './catalogue'
 import { applyMinLabourFloor } from './min-labour'
 import {
+  mergeRecipesIntoDraft,
+  buildRecipeSlots,
+  type AssemblyMeta,
+  type DraftWithTiers,
+} from './merge-recipes'
+import type { PriceQuestion } from './price-bands'
+import {
   summarisePriceHistory,
   formatPriceHistoryHint,
   type PastQuoteTiers,
@@ -49,7 +56,28 @@ export type EstimationResult = {
   downgradedToInspection?: boolean
 }
 
-export async function runEstimation(intake: any, pricingBook: any, modelId = 'claude-opus-4-7'): Promise<EstimationResult> {
+/** Phase 6 (2026-05-27) — optional conversation_state for the price-bands
+ *  recipe engine. When the caller is the SMS route, it loads the
+ *  sms_conversations.conversation_state for the intake and passes it here
+ *  so the merge step (buildRecipeSlots) can see the customer's most
+ *  recent slot answers (distance_to_existing_power, circuit_required,
+ *  etc.). Voice and other callers pass null — they don't have an SMS
+ *  conversation state — and the recipe falls back to intake.scope.
+ *
+ *  Kept loose-typed because callers persist this as jsonb; runtime shape
+ *  is normalised inside lib/sms/extract-slots.ts before consumption by
+ *  the dialog. Here we only forward .slots into buildRecipeSlots, so a
+ *  malformed shape produces an empty slot map rather than a crash. */
+export type RecipeConversationState = {
+  slots?: Record<string, unknown> | null
+} | null | undefined
+
+export async function runEstimation(
+  intake: any,
+  pricingBook: any,
+  modelId = 'claude-opus-4-7',
+  conversationState: RecipeConversationState = null,
+): Promise<EstimationResult> {
   const cacheLog = pipelineLog('estimate', intake?.id ?? null)
 
   // RAG: anchor Opus to similar past quotes. Returns null on cold-start
@@ -241,6 +269,84 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
     })
   }
 
+  // ── Phase 3 — PRICE-BANDS RECIPE MERGE ─────────────────────────────
+  // For each tier where Opus picked an assembly that carries a
+  // price_recipe (jsonb), evaluate the recipe against the customer's
+  // slot answers (intake.scope + conversation_state.slots) and merge
+  // the resulting extras into the tier — extra labour, cable per
+  // metre, risk flags, and optionally a base-assembly SWAP. Lets the
+  // GPO recipe (mig 074) auto-quote installs that previously routed
+  // to a $99 inspection because the customer mentioned a non-default
+  // distance or amperage. No-op when the assembly has no recipe; falls
+  // back silently on load errors so the un-banded draft still ships.
+  let mergedDraft: DraftWithTiers = draft
+  try {
+    const recipeCtx = await loadRecipeContext(
+      (intake?.trade as string | null) ?? null,
+      (intake?.tenant_id as string | null) ?? null,
+    )
+    if (recipeCtx.recipesByAssemblyId.size > 0) {
+      // Phase 6: SMS callers thread sms_conversations.conversation_state
+      // through here. buildRecipeSlots gives conversation slots priority
+      // over intake.scope (newer signal wins), so live customer answers
+      // captured by the slot extractor (Phase 4) reach the recipe engine.
+      // Other callers (voice, /api/quote/[id]/edit) pass null and the
+      // recipe falls back to intake.scope only — same as Phase 3-5 behaviour.
+      const slots = buildRecipeSlots(
+        intake,
+        conversationState && typeof conversationState === 'object'
+          ? { slots: (conversationState.slots ?? {}) as Record<string, unknown> }
+          : null,
+      )
+      const { draft: postMerge, outcome } = mergeRecipesIntoDraft(draft, {
+        recipesByAssemblyId: recipeCtx.recipesByAssemblyId,
+        assembliesById: recipeCtx.assembliesById,
+        slots,
+        pricingBook,
+      })
+      mergedDraft = postMerge
+      if (outcome.any_changed) {
+        // Copy mutations back onto the original `draft` reference so
+        // downstream code (validator, enrich, WP9, downgrade path) sees
+        // them. mergeRecipesIntoDraft is purely functional; we apply
+        // its result onto the live draft here.
+        Object.assign(draft, postMerge)
+        cacheLog.ok('price-bands recipe merge applied', {
+          good: outcome.good.changed
+            ? {
+                recipes_fired: outcome.good.recipes_fired,
+                swapped_to: outcome.good.swapped_to,
+                added_lines: outcome.good.added_line_items,
+                defaults_used: outcome.good.defaults_used,
+              }
+            : null,
+          better: outcome.better.changed
+            ? {
+                recipes_fired: outcome.better.recipes_fired,
+                swapped_to: outcome.better.swapped_to,
+                added_lines: outcome.better.added_line_items,
+                defaults_used: outcome.better.defaults_used,
+              }
+            : null,
+          best: outcome.best.changed
+            ? {
+                recipes_fired: outcome.best.recipes_fired,
+                swapped_to: outcome.best.swapped_to,
+                added_lines: outcome.best.added_line_items,
+                defaults_used: outcome.best.defaults_used,
+              }
+            : null,
+        })
+      }
+    }
+  } catch (e: any) {
+    // Recipe merge must NEVER block estimation. Log + carry on.
+    cacheLog.err(
+      'price-bands recipe merge errored — continuing with un-banded draft',
+      e?.message ?? String(e),
+    )
+  }
+
   // Auto-quote path: every line_item.unit_price_ex_gst MUST be derivable
   // from pricing_book + shared_materials + shared_assemblies + the
   // tenant's tenant_custom_assemblies (migration 023). If even one
@@ -410,6 +516,89 @@ export async function runEstimation(intake: any, pricingBook: any, modelId = 'cl
  * Exported for re-use by /api/quote/[id]/edit so tradie hand-edits get the
  * same grounding gate the LLM draft gets (H-2, 2026-05-25).
  */
+/**
+ * Phase 3 (2026-05-27) — recipe context loader for mergeRecipesIntoDraft.
+ *
+ * Returns two parallel maps keyed by assembly_id:
+ *   • recipesByAssemblyId — the parsed PriceQuestion[] for any
+ *     shared_assemblies / tenant_custom_assemblies row whose
+ *     price_recipe column is set
+ *   • assembliesById — name + default_unit_price + default_labour_hours
+ *     for EVERY assembly in the trade+tenant scope, so the merge module
+ *     can resolve assembly_override_id swaps regardless of whether the
+ *     swap target itself carries a recipe.
+ *
+ * Both maps are scoped to the intake's trade + tenant (with the same
+ * always_inspection=false filter that loadCandidatePrices uses for
+ * tenant_custom_assemblies — we never let the recipe path price a
+ * service the tradie wants to always inspect).
+ *
+ * Deploy-order-safe: a pre-074 prod (no price_recipe column) yields
+ * recipesByAssemblyId.size === 0, which short-circuits the merge in
+ * runEstimation to a no-op. Same SELECT * approach used by
+ * loadCandidatePrices for the same reason.
+ */
+async function loadRecipeContext(
+  trade: string | null,
+  tenantId: string | null,
+): Promise<{
+  recipesByAssemblyId: Map<string, readonly PriceQuestion[]>
+  assembliesById: Map<string, AssemblyMeta>
+}> {
+  let sharedQ = supabase.from('shared_assemblies').select('*')
+  if (trade) sharedQ = sharedQ.eq('trade', trade)
+
+  const tenantCustomPromise = tenantId
+    ? (() => {
+        let q = supabase
+          .from('tenant_custom_assemblies')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('always_inspection', false)
+        if (trade) q = q.eq('trade', trade)
+        return q
+      })()
+    : Promise.resolve({ data: [] as any[] })
+
+  const [{ data: shared }, { data: custom }] = await Promise.all([
+    sharedQ,
+    tenantCustomPromise,
+  ])
+
+  const recipesByAssemblyId = new Map<string, readonly PriceQuestion[]>()
+  const assembliesById = new Map<string, AssemblyMeta>()
+
+  for (const row of (shared ?? []) as any[]) {
+    if (!row?.id) continue
+    assembliesById.set(row.id, {
+      id: row.id,
+      name: row.name,
+      default_unit_price_ex_gst: row.default_unit_price_ex_gst,
+      default_labour_hours: row.default_labour_hours,
+    })
+    if (Array.isArray(row.price_recipe) && row.price_recipe.length > 0) {
+      recipesByAssemblyId.set(row.id, row.price_recipe as PriceQuestion[])
+    }
+  }
+  // Tenant custom rows override shared by id (custom never shares an id
+  // with shared via UUID birthright; this loop is additive — sets that
+  // key for any tenant-owned id that wasn't in shared).
+  for (const row of (custom ?? []) as any[]) {
+    if (!row?.id) continue
+    assembliesById.set(row.id, {
+      id: row.id,
+      name: row.name,
+      default_unit_price_ex_gst: row.default_unit_price_ex_gst,
+      default_labour_hours: row.default_labour_hours,
+    })
+    if (Array.isArray(row.price_recipe) && row.price_recipe.length > 0) {
+      recipesByAssemblyId.set(row.id, row.price_recipe as PriceQuestion[])
+    }
+  }
+
+  return { recipesByAssemblyId, assembliesById }
+}
+
 export async function loadCandidatePrices(
   pricingBook: any,
   trade: string | null,
