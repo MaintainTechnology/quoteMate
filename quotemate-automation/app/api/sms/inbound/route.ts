@@ -60,6 +60,7 @@ import {
   type ProductChoiceState,
 } from '@/lib/sms/product-options'
 import type { TenantMaterial } from '@/lib/estimate/catalogue'
+import { recordTrace } from '@/lib/log/trace'
 
 // WP9 — mid-conversation product options. Every WP9 block in this route
 // is wrapped in this flag; OFF (default) ⇒ byte-identical behaviour.
@@ -637,6 +638,28 @@ export async function POST(req: Request) {
   console.log('[sms/inbound] step 4 — persisting inbound', {
     conversationId: conversation.id,
     photoCount: inboundPhotoUrls.length,
+  })
+  // Phase 7 — structured trace for the inbound boundary. Fire-and-forget
+  // DB write; failures are silently swallowed by recordTrace().
+  void recordTrace(supabase, {
+    step: 'sms_inbound',
+    status: 'ok',
+    message: `inbound SMS persisted (conversation_id=${conversation.id})`,
+    inputs: {
+      from_number: fromNumber,
+      to_number: toNumber,
+      body_length: inboundBody.length,
+      photo_count: inboundPhotoUrls.length,
+      message_sid: messageSid,
+    },
+    decisions: {
+      tenant_id: tenant?.id ?? null,
+      conversation_id: conversation.id,
+      conversation_status_before: conversation.status,
+      customer_history: customerHistoryHint,
+    },
+    tenant_id: tenant?.id ?? null,
+    sms_conversation_id: conversation.id,
   })
   // 4. Persist the inbound message — including any MMS photo URLs we
   //    just stored. After this point everything is moved into after()
@@ -1847,10 +1870,40 @@ export async function POST(req: Request) {
           sid: outboundSid,
           smsFallbackReason: dispatch.smsAttempt?.reason,
         })
+        void recordTrace(supabase, {
+          step: 'dispatch',
+          status: 'ok',
+          message: `outbound ${outboundChannel} sent (sid=${outboundSid})`,
+          outputs: {
+            channel: outboundChannel,
+            sid: outboundSid,
+            reply_length: (decision.reply_to_send ?? '').length,
+            sms_fallback_reason: dispatch.smsAttempt?.reason ?? null,
+          },
+          decisions: {
+            decision_action: decision.action,
+            decision_job_type: decision.job_type_guess ?? null,
+            ready_for_intake: decision.ready_for_intake ?? null,
+          },
+          tenant_id: tenant?.id ?? null,
+          sms_conversation_id: conversationId,
+        })
       } else {
         console.error('[sms/inbound:after] step 7 — dispatch failed (both channels)', {
           smsAttempt: dispatch.smsAttempt,
           waAttempt: dispatch.waAttempt,
+        })
+        void recordTrace(supabase, {
+          step: 'dispatch',
+          status: 'err',
+          message: 'outbound dispatch FAILED on both SMS and WhatsApp channels',
+          outputs: {
+            sms_attempt: dispatch.smsAttempt,
+            wa_attempt: dispatch.waAttempt,
+          },
+          decisions: { route: 'failed' },
+          tenant_id: tenant?.id ?? null,
+          sms_conversation_id: conversationId,
         })
       }
 
