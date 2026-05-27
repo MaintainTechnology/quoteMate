@@ -16,7 +16,7 @@
 // ════════════════════════════════════════════════════════════════════
 
 import { anthropic } from '@ai-sdk/anthropic'
-import { generateObject } from 'ai'
+import { generateText } from 'ai'
 import { z } from 'zod'
 import { withRetry } from '@/lib/util/retry'
 
@@ -583,21 +583,47 @@ export async function extractSlots(args: {
   // the new threshold and started rejecting every call. Three retries
   // × Sonnet timeout = 300s Vercel function timeout = dialog dies.
   //
-  // Three changes applied here:
-  //   1. mode: 'json' — switches the AI SDK from Anthropic tool_use
-  //      to native JSON output. JSON-mode has much looser schema
-  //      complexity limits and accepts our existing schema as-is.
-  //      Zero downstream change required — the same Zod schema still
-  //      validates the response.
-  //   2. maxAttempts: 3 → 2 — even with the fix we don't want a
-  //      hopeless retry chain eating the whole 300s function budget.
-  //   3. Fail-safe try/catch — if BOTH attempts fail (rate limit,
-  //      provider outage, etc.) we return {} instead of throwing, so
-  //      the dialog turn still completes with the prior state and the
-  //      customer gets a reply instead of a Vercel timeout.
+  // Fix: switch from generateObject (which uses Anthropic tool_use and
+  // triggers the complexity check) to generateText + manual JSON parse
+  // + Zod validation server-side. Anthropic returns the JSON as plain
+  // text — no tool_use schema validator runs — and we validate the
+  // response against the SAME Zod schema we used before. The result is
+  // identical typed output (`SlotExtraction`) with zero downstream
+  // changes.
+  //
+  // Three layered safeguards:
+  //   1. generateText (no tool_use) — bypasses Anthropic's schema
+  //      complexity check entirely. Sonnet writes JSON, we parse.
+  //   2. maxAttempts: 2 — even if the parse fails, we don't burn 300s
+  //      on a hopeless retry chain.
+  //   3. Fail-safe try/catch — if both attempts fail OR parsing fails,
+  //      we return {} so the dialog turn still completes with the
+  //      prior state. Customer gets a reply instead of a Vercel timeout.
+
+  const userPrompt = [
+    tradeScope, // null for both-trades + legacy fallback — .filter(Boolean) drops it
+    tradeScope ? '' : null,
+    `CURRENT STATE (slots we already know):`,
+    stateBlock,
+    '',
+    `LAST AGENT MESSAGE (for context, empty on first turn):`,
+    args.lastAgentMessage
+      ? `  ${args.lastAgentMessage.slice(0, 400)}`
+      : '  (none - first turn)',
+    '',
+    `CUSTOMER MESSAGE (extract from this):`,
+    `  ${args.customerMessage.slice(0, 600)}`,
+    '',
+    // Force strict JSON output — no markdown fences, no commentary.
+    // Sonnet is well-trained to respect this when stated explicitly at
+    // the end of the prompt.
+    'RESPOND WITH ONLY a JSON object matching {"updates": {...slot fields...}, "reasoning": "..."}.',
+    'No markdown fences. No preamble. No commentary outside the JSON.',
+  ].filter((l) => l !== null).join('\n')
+
   try {
-    const { object } = await withRetry(
-      () => generateObject({
+    const { text } = await withRetry(
+      () => generateText({
         // Upgraded 2026-05-14 from Haiku 4.5 → Sonnet 4.6. The extractor is
         // the layer that pulls every fact (name, suburb, room, count,
         // replace-vs-new, fuel type, ceiling type) out of long multi-fact
@@ -608,25 +634,8 @@ export async function extractSlots(args: {
         // worked examples in this prompt only help if the extractor sees
         // every fact in the first place.
         model: anthropic('claude-sonnet-4-6'),
-        // mode:'json' bypasses Anthropic's tool_use schema-complexity
-        // check (see hotfix block above).
-        mode: 'json',
-        schema: SlotExtractionSchema,
         system: SYSTEM_PROMPT,
-        prompt: [
-          tradeScope, // null for both-trades + legacy fallback — .filter(Boolean) drops it
-          tradeScope ? '' : null,
-          `CURRENT STATE (slots we already know):`,
-          stateBlock,
-          '',
-          `LAST AGENT MESSAGE (for context, empty on first turn):`,
-          args.lastAgentMessage
-            ? `  ${args.lastAgentMessage.slice(0, 400)}`
-            : '  (none - first turn)',
-          '',
-          `CUSTOMER MESSAGE (extract from this):`,
-          `  ${args.customerMessage.slice(0, 600)}`,
-        ].filter((l) => l !== null).join('\n'),
+        prompt: userPrompt,
       }),
       {
         maxAttempts: 2,
@@ -638,7 +647,28 @@ export async function extractSlots(args: {
         },
       },
     )
-    return object
+
+    // Strip the most common preamble patterns Sonnet sometimes adds
+    // despite the strict-JSON instruction — markdown fences or a
+    // leading "Here's the JSON:" line. Take the first {...} block.
+    const cleaned = extractJsonObject(text)
+    if (!cleaned) {
+      console.error(
+        '[sms/extract-slots] Sonnet returned non-JSON output — returning empty extraction',
+        text.slice(0, 200),
+      )
+      return { updates: {}, reasoning: 'extractor returned non-JSON output' }
+    }
+
+    const parsed = SlotExtractionSchema.safeParse(JSON.parse(cleaned))
+    if (!parsed.success) {
+      console.error(
+        '[sms/extract-slots] Zod validation failed — returning empty extraction',
+        parsed.error.message.slice(0, 400),
+      )
+      return { updates: {}, reasoning: 'extractor output failed validation' }
+    }
+    return parsed.data
   } catch (err: unknown) {
     // Fail-safe path. Logged loudly so the issue is visible in Vercel
     // logs, but the dialog turn continues with the prior state — the
@@ -653,4 +683,48 @@ export async function extractSlots(args: {
       reasoning: `extractor unavailable: ${msg.slice(0, 120)}`,
     }
   }
+}
+
+/**
+ * Extract the first JSON object literal from a string of LLM output.
+ *
+ * Handles the two patterns Sonnet occasionally produces despite the
+ * strict-JSON prompt instruction:
+ *   1. Markdown fences:  ```json\n{...}\n```
+ *   2. Leading preamble: "Here's the extraction:\n{...}"
+ *
+ * Returns the parseable JSON string, or null if no object literal is
+ * found. Pure — no LLM call, no DB, no side effects.
+ *
+ * Exported for unit-testing.
+ */
+export function extractJsonObject(raw: string): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  // Fast path — already a JSON object.
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed
+  // Markdown fence path — strip ```json…``` or ```…```
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenceMatch) {
+    const inner = fenceMatch[1].trim()
+    if (inner.startsWith('{') && inner.endsWith('}')) return inner
+  }
+  // Generic path — first balanced { … } block.
+  const start = trimmed.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  let end = -1
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
+  }
+  if (end < 0) return null
+  return trimmed.slice(start, end + 1)
 }

@@ -17,6 +17,7 @@ import {
   EMPTY_STATE,
   mergeSlotUpdates,
   normaliseState,
+  extractJsonObject,
   type ConversationState,
 } from './extract-slots'
 
@@ -198,5 +199,88 @@ describe('Phase 4: normaliseState round-trips new slot data', () => {
     expect(r.slots.first_name).toBe('Anant')
     expect(r.slots.distance_to_existing_power).toBeUndefined()
     expect(r.slots.circuit_required).toBeUndefined()
+  })
+})
+
+// 2026-05-27 hotfix tests — covers the generateText + manual JSON
+// parse path that replaced generateObject after Anthropic tightened
+// tool_use schema-complexity validation.
+describe('extractJsonObject — JSON extraction from LLM text output', () => {
+  it('returns the JSON unchanged when the response is already a bare object', () => {
+    const raw = '{"updates": {"first_name": "Jon"}, "reasoning": "name only"}'
+    expect(extractJsonObject(raw)).toBe(raw)
+  })
+
+  it('strips leading/trailing whitespace', () => {
+    const raw = '  \n  {"updates": {}, "reasoning": "noop"}  \n  '
+    expect(extractJsonObject(raw)).toBe('{"updates": {}, "reasoning": "noop"}')
+  })
+
+  it('strips markdown fences (```json ... ```)', () => {
+    const raw = '```json\n{"updates": {"suburb": "Chandler"}, "reasoning": "suburb only"}\n```'
+    expect(extractJsonObject(raw)).toBe(
+      '{"updates": {"suburb": "Chandler"}, "reasoning": "suburb only"}',
+    )
+  })
+
+  it('strips bare ``` fences (no language tag)', () => {
+    const raw = '```\n{"updates": {}, "reasoning": "x"}\n```'
+    expect(extractJsonObject(raw)).toBe('{"updates": {}, "reasoning": "x"}')
+  })
+
+  it('extracts the first balanced JSON object when Sonnet adds preamble', () => {
+    const raw =
+      "Here's the extraction:\n{\"updates\": {\"first_name\": \"Anant\"}, \"reasoning\": \"name\"}\n\nLet me know if you need more.";
+    const out = extractJsonObject(raw)
+    expect(out).toBe('{"updates": {"first_name": "Anant"}, "reasoning": "name"}')
+  })
+
+  it('handles nested JSON objects (balanced-brace tracking)', () => {
+    const raw =
+      '{"updates": {"first_name": "Jon", "nested": {"inner": "value"}}, "reasoning": "test"}'
+    expect(extractJsonObject(raw)).toBe(raw)
+  })
+
+  it('handles deeply nested objects without truncating early', () => {
+    const raw =
+      'Preamble. {"updates": {"a": {"b": {"c": "d"}}}, "reasoning": "nested"} trailing'
+    const out = extractJsonObject(raw)
+    // The extracted JSON should round-trip cleanly through JSON.parse.
+    expect(out).not.toBeNull()
+    if (!out) return
+    const parsed = JSON.parse(out)
+    expect(parsed.updates.a.b.c).toBe('d')
+  })
+
+  it('returns null on empty/whitespace input', () => {
+    expect(extractJsonObject('')).toBeNull()
+    expect(extractJsonObject('   ')).toBeNull()
+  })
+
+  it('returns null when no JSON object is present', () => {
+    expect(extractJsonObject('Sorry, I cannot extract that.')).toBeNull()
+    expect(extractJsonObject('[1, 2, 3]')).toBeNull() // array, not object
+  })
+
+  it('returns null on unbalanced braces', () => {
+    expect(extractJsonObject('{"unterminated": "value"')).toBeNull()
+  })
+
+  it('handles non-string inputs gracefully', () => {
+    expect(extractJsonObject(null as unknown as string)).toBeNull()
+    expect(extractJsonObject(undefined as unknown as string)).toBeNull()
+  })
+
+  it('output round-trips through JSON.parse for the SlotExtractionSchema', () => {
+    const raw =
+      '```json\n{"updates": {"first_name": "Anant", "suburb": "Chandler", "count": 4}, "reasoning": "name + suburb + count"}\n```'
+    const json = extractJsonObject(raw)
+    expect(json).not.toBeNull()
+    if (!json) return
+    const parsed = SlotExtractionSchema.parse(JSON.parse(json))
+    expect(parsed.updates.first_name).toBe('Anant')
+    expect(parsed.updates.suburb).toBe('Chandler')
+    expect(parsed.updates.count).toBe(4)
+    expect(parsed.reasoning).toBe('name + suburb + count')
   })
 })
