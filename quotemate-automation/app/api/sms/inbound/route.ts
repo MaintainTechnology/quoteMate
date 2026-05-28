@@ -27,6 +27,7 @@ import {
 } from '@/lib/sms/service-scope'
 import { isQuoteInflight } from '@/lib/sms/inflight'
 import { quoteAlreadyDrafted as computeQuoteAlreadyDrafted } from '@/lib/sms/quote-already-drafted'
+import { shouldSendPhotoRequest as computeShouldSendPhotoRequest } from '@/lib/sms/photo-request-trigger'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
@@ -1618,44 +1619,35 @@ export async function POST(req: Request) {
 
       // 8b. Photo-request SMS gate — computed early so we can send the photo
       // link BEFORE the quote confirmation (correct UX order).
-      // Photo SMS firing is Sonnet-driven via decision.request_photo_link.
-      // Sonnet sets it true on the verification handshake turn (after all
-      // qualifying questions are answered). Safety-net: if Sonnet reaches
-      // action='finish' on an easy-5 job without setting request_photo_link,
-      // fire on finish so we never silently drop the photo flow.
       //
-      // BUG E fix: gate by EASY_5_JOB_TYPES regardless of Sonnet's flag —
-      // plumbing jobs (blocked_drain, hot_water, etc.) don't benefit from
-      // customer photos, so we never send a photo link for them even if
-      // Sonnet tries to set request_photo_link=true.
-      const sonnetRequestedPhoto = decision.request_photo_link === true
-      const finishFallbackTrigger =
-        decision.action === 'finish' &&
-        EASY_5_JOB_TYPES.has(decision.job_type_guess)
-      const jobTypeQualifiesForPhoto =
-        EASY_5_JOB_TYPES.has(decision.job_type_guess)
-      const shouldSendPhotoRequest =
-        photoRequestToken &&
-        // photo_request_sent_at is the authoritative "did this conversation
-        // get a photo SMS?" signal. We honour it strictly so we never
-        // double-send within the same row.
-        !photoRequestAlreadySent &&
-        // Within-turn guard only: if intake is freshly created this turn,
-        // the photo gate already fired for that draft — don't double.
-        // Deliberately NOT gating on hasExistingIntake / quoteAlreadyDrafted:
-        // a reopened-from-done conversation where the prior draft never
-        // sent a photo (photoRequestAlreadySent=false) must still fire
-        // a fresh photo link when Sonnet asks for one. Otherwise Sonnet
-        // promises "I'll flick you a photo link in a sec" against
-        // photoLink='pending' and the customer never gets one.
-        !freshIntakeId &&
-        // In-flight continuation — the photo SMS already fired for the
-        // quote that's drafting; never fire a second one this turn.
-        !inflightContinuation &&
-        decision.action !== 'escalate_inspection' &&
-        decision.action !== 'end_conversation' &&
-        jobTypeQualifiesForPhoto &&
-        (sonnetRequestedPhoto || finishFallbackTrigger)
+      // Decision pulled out to lib/sms/photo-request-trigger.ts so the
+      // three-trigger composition (Sonnet flag / finish-fallback / WP9
+      // picker) and its seven negative gates are unit-tested and can't
+      // silently regress. See that module's docstring for incident
+      // history including the 2026-05-28 Bug B fix (Sparky convo
+      // 27f22f65 — "all info in turn 1" picker turns).
+      const photoTrigger = computeShouldSendPhotoRequest({
+        photoRequestToken,
+        photoRequestAlreadySent,
+        freshIntakeId,
+        inflightContinuation,
+        decisionAction: decision.action,
+        sonnetRequestedPhoto: decision.request_photo_link === true,
+        offerProductChoice: decision.offer_product_choice === true,
+        jobTypeIsEasy5: EASY_5_JOB_TYPES.has(decision.job_type_guess),
+      })
+      const shouldSendPhotoRequest = photoTrigger.fire
+      if (!shouldSendPhotoRequest) {
+        console.log('[sms/inbound:after] step 8b — photo-request SMS skipped', {
+          conversationId,
+          reason: photoTrigger.reason,
+        })
+      } else {
+        console.log('[sms/inbound:after] step 8b — photo-request SMS will fire', {
+          conversationId,
+          trigger: photoTrigger.reason,
+        })
+      }
 
       // Ordering rules — two cases, both keep a 2s carrier gap on AU
       // long codes so the pair never visibly reorders on the customer's

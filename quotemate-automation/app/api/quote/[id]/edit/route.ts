@@ -196,7 +196,7 @@ export async function POST(
   // plumbing rows and vice versa).
   const { data: intake } = await supabase
     .from('intakes')
-    .select('job_type, scope, caller, trade')
+    .select('job_type, scope, caller, trade, customer_id, call_id')
     .eq('id', quote.intake_id)
     .maybeSingle()
 
@@ -495,20 +495,81 @@ export async function POST(
   if (shouldNotify) {
     after(async () => {
       try {
-        // Resolve customer phone from the intake.caller JSONB. Voice-
-        // sourced quotes can also fall back to calls.caller_number, but
-        // the tradie edit overlay is only reachable from /q/<token> on
-        // SMS-sourced quotes today so intake.caller.phone is the only
-        // path that lands customers.
+        // Resolve customer phone through a 4-source fallback chain.
+        // intake.caller.phone is often EMPTY STRING on SMS-sourced quotes
+        // (the structurer doesn't always backfill it from the conversation
+        // row), so the route used to silently skip the customer SMS even
+        // though the number was sitting on sms_conversations.from_number.
+        // Surfaced 2026-05-28 on quote db0f7864 — tradie edited + sent,
+        // log read "no phone resolvable", customer received nothing.
+        //
+        // Sources in priority order:
+        //   1. intake.caller.phone  (the original JSONB — authoritative
+        //      when the structurer populated it)
+        //   2. sms_conversations.from_number  (SMS-sourced quotes — the
+        //      number the customer actually texted from)
+        //   3. calls.caller_number  (voice-sourced via Vapi)
+        //   4. customers.phone  (linked customer row, if any)
+        //
+        // Empty strings are treated as missing (`.trim() || null`).
         const callerObj = (intake?.caller as { name?: string; phone?: string } | null) ?? null
-        const callerNumber = callerObj?.phone ?? null
         const firstName = callerObj?.name?.split(' ')[0] ?? undefined
+        let callerNumber: string | null = (callerObj?.phone ?? '').trim() || null
+        let phoneSource: 'intake_caller' | 'sms_conversation' | 'call' | 'customer' | null =
+          callerNumber ? 'intake_caller' : null
+
+        if (!callerNumber && quote.intake_id) {
+          const { data: convo } = await supabase
+            .from('sms_conversations')
+            .select('from_number')
+            .eq('intake_id', quote.intake_id)
+            .maybeSingle()
+          const fromNumber = (convo?.from_number as string | null)?.trim() || null
+          if (fromNumber) {
+            callerNumber = fromNumber
+            phoneSource = 'sms_conversation'
+          }
+        }
+
+        if (!callerNumber && intake?.call_id) {
+          const { data: call } = await supabase
+            .from('calls')
+            .select('caller_number')
+            .eq('id', intake.call_id as string)
+            .maybeSingle()
+          const num = (call?.caller_number as string | null)?.trim() || null
+          if (num) {
+            callerNumber = num
+            phoneSource = 'call'
+          }
+        }
+
+        if (!callerNumber && intake?.customer_id) {
+          const { data: cust } = await supabase
+            .from('customers')
+            .select('phone')
+            .eq('id', intake.customer_id as string)
+            .maybeSingle()
+          const num = (cust?.phone as string | null)?.trim() || null
+          if (num) {
+            callerNumber = num
+            phoneSource = 'customer'
+          }
+        }
+
         if (!callerNumber) {
           console.log('[quote/edit] customer notify skipped — no phone resolvable', {
             quoteId,
+            intake_id: quote.intake_id,
+            had_caller_obj: !!callerObj,
+            caller_phone_empty: callerObj?.phone === '',
           })
           return
         }
+        console.log('[quote/edit] customer phone resolved', {
+          quoteId,
+          phoneSource,
+        })
 
         // Pull tenant's outbound number so the SMS lands in the SAME
         // thread as the original quote. Falls back to the env if the
