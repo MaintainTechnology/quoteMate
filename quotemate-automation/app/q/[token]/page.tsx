@@ -17,7 +17,6 @@ import { notFound } from 'next/navigation'
 import { getTierPhoto } from '@/lib/quote/tier-photos'
 import { refreshSignedUrl } from '@/lib/storage/upload'
 import { CustomerPhotosBlock } from './CustomerPhotosBlock'
-import { TierBreakdownToggle } from './TierBreakdownToggle'
 import { generatePreviewImage } from '@/lib/ig-engine/generate'
 import { generateSampleImages } from '@/lib/ig-engine/samples'
 import { PreviewSection } from './PreviewSection'
@@ -1162,15 +1161,11 @@ function TierSummary({
           )}
         </div>
       )}
-      {/* Phase C — customer can opt-in to the full line-item breakdown
-          even in summary mode. Default state is collapsed; expanding is
-          an explicit customer action, so the tradie's chosen lump-sum
-          read is never bypassed without intent. */}
-      {Array.isArray(tier.line_items) && tier.line_items.length > 0 && (
-        <TierBreakdownToggle
-          lineItems={tier.line_items as unknown as Parameters<typeof TierBreakdownToggle>[0]['lineItems']}
-        />
-      )}
+      {/* Phase C "See breakdown" opt-in was removed 2026-05-28 per
+          tradie preference — summary mode is now a pure lump-sum read.
+          Customers who want the per-line detail can ask the tradie
+          directly; tenants who want detail visible by default should
+          switch their quote_display setting to 'itemised'. */}
     </div>
   )
 }

@@ -894,9 +894,12 @@ function Sidebar({
             </ul>
           </div>
         ))}
-        {/* Admin-only nav island. Hidden for non-admin users; the link
-            navigates to a different Next route (not a tab switch) so we
-            render it as a plain anchor rather than a setTab button. */}
+        {/* Admin-only nav island. Hidden for non-admin users.
+            Points at /admin (the command-centre hub) rather than the
+            specific /admin/loader page — from /admin the user can
+            navigate to every admin destination (Bulk Loader, the three
+            Quality Agents, etc.) via the tile grid. Single nav entry
+            instead of one anchor per admin page. */}
         {isAdmin && (
           <div className="border-t border-ink-line">
             <div className="px-4 pt-3.5 pb-1.5">
@@ -907,7 +910,7 @@ function Sidebar({
             <ul className="pb-2">
               <li>
                 <a
-                  href="/admin/loader"
+                  href="/admin"
                   className="w-full text-left flex items-center justify-between gap-3 pl-4 pr-3 py-2.5 font-mono text-[0.7rem] uppercase tracking-[0.14em] font-bold transition-colors border-l-2 border-transparent text-text-dim hover:text-accent hover:bg-ink-card/60"
                 >
                   <span className="flex items-center gap-2.5 min-w-0">
@@ -917,7 +920,7 @@ function Sidebar({
                       aria-hidden="true"
                       className="shrink-0"
                     />
-                    <span className="truncate">Admin loader</span>
+                    <span className="truncate">Admin command centre</span>
                   </span>
                 </a>
               </li>
