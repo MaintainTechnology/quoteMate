@@ -49,24 +49,6 @@ export interface ShouldHoldInput {
   /** The quote's headline total in inc-GST dollars. */
   totalIncGst?: number | string | null;
   /**
-   * Customer has already engaged with a product choice via the WP9
-   * mid-conversation product picker (intake.scope.chosen_product is
-   * set). When true and policy is `always_review`, the gate is bypassed
-   * — holding feels weird after the customer literally tapped "this one".
-   *
-   * Important: this flag does NOT bypass `review_over_threshold`. A
-   * configured dollar threshold is an explicit tradie risk floor —
-   * the picker doesn't override it. A $3,500 picker-driven quote with
-   * a $500 threshold STILL waits for tradie approval. Earlier behaviour
-   * (bypass-wins) was reverted because tradies set the number
-   * specifically to vet jobs over that number, irrespective of channel.
-   *
-   * Set this flag explicitly at the call site so the policy decision
-   * stays inspectable. Default false — never auto-bypass without a
-   * deliberate reason.
-   */
-  customerAlreadyEngaged?: boolean;
-  /**
    * The quote was already routed to the $99 inspection path (validator
    * downgrade, gas HWS, missing tenant_id, etc.). Inspection quotes
    * are by definition "we need eyes on" — the tradie reviewing the
@@ -105,15 +87,16 @@ export function shouldHoldForReview(
     return { hold: false, reason: 'tenant_policy_auto_send' };
   }
   if (policy === 'always_review') {
-    // WP9 chosen-product flow bypasses ONLY always_review — see
-    // ShouldHoldInput docs. The threshold case below ignores this flag
-    // on purpose so a configured dollar floor stays inviolable.
-    if (input.customerAlreadyEngaged === true) {
-      return { hold: false, reason: 'customer_already_chose_product' };
-    }
+    // No bypass. The radio button says "every quote waits for your
+    // approval" — that promise is inviolable. A customer tapping a
+    // product in the WP9 mid-chat picker selects a variant; it is
+    // NOT a price commitment (the customer hasn't seen the final
+    // number yet). Letting that signal silently flip off the tradie's
+    // explicit guardrail was the original behaviour and was wrong.
+    // Tradies who want a value-based gate use review_over_threshold.
     return { hold: true, reason: 'tenant_policy_always_review' };
   }
-  // review_over_threshold — the threshold wins, picker or not.
+  // review_over_threshold — pure dollar comparison.
   const total = toFiniteNumber(input.totalIncGst);
   const threshold = toFiniteNumber(input.threshold);
   if (total === null) {

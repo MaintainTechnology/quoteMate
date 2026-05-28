@@ -1651,16 +1651,26 @@ export async function POST(req: Request) {
         jobTypeQualifiesForPhoto &&
         (sonnetRequestedPhoto || finishFallbackTrigger)
 
-      // Ordering fix: photo link goes FIRST, then "quote on its way" with a
-      // 2s carrier-ordering gap. Previously the confirmation fired first and
-      // the photo link arrived 2.5s later — customers read "quote on its way"
-      // then immediately got asked to send photos, which made no sense.
-      // New order: photo → 2s gap → confirmation.
-      if (shouldSendPhotoRequest) {
-        console.log('[sms/inbound:after] step 8b — dispatching photo-request SMS (before quote confirmation)', {
-          conversationId,
-          jobType: decision.job_type_guess,
-        })
+      // Ordering rules — two cases, both keep a 2s carrier gap on AU
+      // long codes so the pair never visibly reorders on the customer's
+      // phone:
+      //   • action === 'finish'    →  photo link FIRST, then the short
+      //     "quote on its way" reply. Sending the finish line first
+      //     would have the customer reading "your quote is coming" and
+      //     then getting asked for photos out of nowhere.
+      //   • action !== 'finish' (verification handshake, Sonnet set
+      //     request_photo_link=true) →  reply FIRST, then photo link.
+      //     Sonnet's reply on this turn says "I'll flick you a photo
+      //     link in a sec for ..." — the link MUST arrive after that
+      //     reply for the wording to match. Photo-first here produced
+      //     the visible bug surfaced 2026-05-28 (link arrived before
+      //     the message that promised it).
+      //
+      // The actual dispatch is shared between both placements via the
+      // local helper below.
+      const photoBeforeReply = decision.action === 'finish'
+
+      const dispatchPhotoRequestSms = async () => {
         try {
           const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
           const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
@@ -1708,7 +1718,15 @@ export async function POST(req: Request) {
             name: e?.name,
           })
         }
-        // 2s gap before the quote confirmation so AU long-code carrier
+      }
+
+      if (shouldSendPhotoRequest && photoBeforeReply) {
+        console.log('[sms/inbound:after] step 8b — dispatching photo-request SMS BEFORE finish reply', {
+          conversationId,
+          jobType: decision.job_type_guess,
+        })
+        await dispatchPhotoRequestSms()
+        // 2s gap before the finish reply so AU long-code carrier
         // doesn't reorder the two messages.
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
@@ -1916,6 +1934,22 @@ export async function POST(req: Request) {
           : decision.reply_to_send,
         twilio_message_sid: outboundSid,
       })
+
+      // 8c. Photo-link AFTER the verification-handshake reply (the
+      // counterpart to 8b). Sonnet's reply on this turn says "I'll
+      // flick you a photo link in a sec for..."; firing the link 2s
+      // after the reply makes that wording read correctly on the
+      // customer's phone. See the photoBeforeReply comment above for
+      // why this is gated on action !== 'finish'.
+      if (shouldSendPhotoRequest && !photoBeforeReply) {
+        // 2s gap so the reply lands first on AU long-code carriers.
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        console.log('[sms/inbound:after] step 8c — dispatching photo-request SMS AFTER verification reply', {
+          conversationId,
+          jobType: decision.job_type_guess,
+        })
+        await dispatchPhotoRequestSms()
+      }
 
       // 9. Update conversation: bump turn_count, merge assumptions, set status
       //    based on the dialog agent's decision.

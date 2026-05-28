@@ -206,51 +206,28 @@ describe('shouldHoldForReview — bypass rules', () => {
     ).toBe(false)
   })
 
-  it('WP9 customer-engaged flow bypasses always_review', () => {
+  it('always_review has no customer-side bypass — the WP9 product picker does NOT auto-send', () => {
+    // Regression guard. Earlier behaviour treated a customer tapping a
+    // product variant in the mid-chat picker as a price commitment and
+    // silently flipped off the tradie's "review every quote" toggle.
+    // That was wrong: the picker selects a variant, not a price. The
+    // tradie's explicit toggle wins. Tradies who want a value-based
+    // gate use review_over_threshold instead.
     const r = shouldHoldForReview({
       policy: 'always_review',
       totalIncGst: 1941,
-      customerAlreadyEngaged: true,
-    })
-    expect(r.hold).toBe(false)
-    expect(r.reason).toBe('customer_already_chose_product')
-  })
-
-  it('threshold wins over WP9 bypass when policy is review_over_threshold', () => {
-    // The tradie set $500 as a deliberate risk floor. A picker-driven
-    // $1,941 quote still has to wait for approval — picker engagement
-    // is not a get-out-of-review card when the threshold rule applies.
-    const r = shouldHoldForReview({
-      policy: 'review_over_threshold',
-      threshold: 500,
-      totalIncGst: 1941,
-      customerAlreadyEngaged: true,
     })
     expect(r.hold).toBe(true)
-    expect(r.reason).toBe('total_1941_at_or_over_threshold_500')
+    expect(r.reason).toBe('tenant_policy_always_review')
   })
 
-  it('WP9 bypass still auto-sends under-threshold picker quotes', () => {
-    // Sanity: when the threshold rule says "send" anyway, the engaged
-    // flag is irrelevant — same outcome, threshold reason wins.
-    const r = shouldHoldForReview({
-      policy: 'review_over_threshold',
-      threshold: 500,
-      totalIncGst: 200,
-      customerAlreadyEngaged: true,
-    })
-    expect(r.hold).toBe(false)
-    expect(r.reason).toBe('total_200_under_threshold_500')
-  })
-
-  it('inspection bypass still takes priority over WP9 bypass (both result in send)', () => {
-    // Both bypass — verify inspection wins on reason text so audit logs
-    // stay predictable.
+  it('inspection bypass works even when policy would otherwise hold under always_review', () => {
+    // Inspection is the only bypass that overrides always_review —
+    // the $99 site visit has no pricing decision worth reviewing.
     const r = shouldHoldForReview({
       policy: 'always_review',
       totalIncGst: 99,
       isInspection: true,
-      customerAlreadyEngaged: true,
     })
     expect(r.hold).toBe(false)
     expect(r.reason).toBe('inspection_route_bypasses_gate')

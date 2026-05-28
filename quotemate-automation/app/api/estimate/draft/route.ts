@@ -532,16 +532,17 @@ export async function POST(req: Request) {
 
     // Mig 078 — tradie review-before-send policy. Decide ONCE here so
     // the customer-dispatch + tradie-notify branches share one truth.
-    // Inspection routes + WP9 customer-chosen-product flows bypass the
-    // gate (see lib/quote/review-policy.ts docs for why).
+    // Only inspection routes bypass the gate (see lib/quote/review-policy.ts
+    // docs for why). The WP9 product-picker no longer bypasses
+    // always_review — a customer picking a variant is not a price
+    // commitment, so the tradie's explicit "review every quote" toggle
+    // wins over the picker signal.
     const reviewDecision = shouldHoldForReview({
       policy: (pricingBook as { review_policy?: string | null } | null)?.review_policy ?? null,
       threshold: (pricingBook as { review_threshold_inc_gst?: number | string | null } | null)
         ?.review_threshold_inc_gst ?? null,
       totalIncGst: total,
       isInspection,
-      customerAlreadyEngaged:
-        !!(intake?.scope as { chosen_product?: unknown } | null)?.chosen_product,
     })
     log.ok('review-policy decided', {
       hold: reviewDecision.hold,

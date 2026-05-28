@@ -4,12 +4,16 @@
 // scores each (query, candidate) pair with a cross-encoder model that
 // reads both texts together — much sharper relevance than cosine alone.
 //
-// Today only Voyage Rerank is wired up; the interface is structured so
-// swapping to Cohere later is a ~50-LOC addition (one new impl, one env
-// var change). See README in lib/estimate/.
+// Two providers supported: Voyage and Cohere. Either can be the primary
+// (RAG_RERANK_PROVIDER=voyage|cohere, default voyage). When both API keys
+// are set the secondary is used as automatic fallback if the primary
+// call throws (HTTP 5xx, network, rate limit, etc.) — set
+// RAG_RERANK_FALLBACK=false to disable that and use primary only.
 //
 // Disabled at runtime via RAG_RERANK_DISABLED=true. When disabled, the
 // RAG pipeline falls back to ordering by cosine similarity alone.
+
+import { pipelineLog } from '@/lib/log/pipeline'
 
 export type RerankedDoc = {
   /** Original index in the input documents array. */
@@ -36,7 +40,7 @@ export interface Reranker {
 const VOYAGE_RERANK_URL = 'https://api.voyageai.com/v1/rerank'
 const VOYAGE_MODEL = process.env.VOYAGE_RERANK_MODEL ?? 'rerank-2.5'
 
-const voyageReranker: Reranker = {
+export const voyageReranker: Reranker = {
   name: `voyage:${VOYAGE_MODEL}`,
   async rerank(query, docs, topN) {
     if (!process.env.VOYAGE_API_KEY) {
@@ -71,21 +75,112 @@ const voyageReranker: Reranker = {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Factory — picks the configured provider, or null when disabled.
-// Callers MUST handle null and fall back to cosine-only ordering.
+// Cohere Rerank — https://docs.cohere.com/reference/rerank
+//
+// v2 endpoint accepts the same shape we already feed Voyage:
+//   POST https://api.cohere.com/v2/rerank
+//   { model, query, documents: string[], top_n }
+// and returns
+//   { results: [{ index, relevance_score }] } ordered by relevance.
+//
+// Score range 0.0–1.0 matches Voyage closely enough that the
+// MIN_RERANK_SCORE floor in rag.ts (0.30) carries over with no
+// per-provider tuning. If we ever observe systematic drift, calibrate
+// the floor in rag.ts rather than warping scores here.
+// ─────────────────────────────────────────────────────────────────
+
+const COHERE_RERANK_URL = 'https://api.cohere.com/v2/rerank'
+const COHERE_MODEL = process.env.COHERE_RERANK_MODEL ?? 'rerank-v3.5'
+
+export const cohereReranker: Reranker = {
+  name: `cohere:${COHERE_MODEL}`,
+  async rerank(query, docs, topN) {
+    if (!process.env.COHERE_API_KEY) {
+      throw new Error('COHERE_API_KEY not set — cannot call Cohere Rerank')
+    }
+    if (docs.length === 0) return []
+
+    const res = await fetch(COHERE_RERANK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.COHERE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: COHERE_MODEL,
+        query,
+        documents: docs,
+        top_n: Math.min(topN, docs.length),
+      }),
+    })
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '(unreadable)')
+      throw new Error(`Cohere Rerank HTTP ${res.status}: ${errBody.slice(0, 200)}`)
+    }
+
+    const json = (await res.json()) as {
+      results: Array<{ index: number; relevance_score: number }>
+    }
+    return json.results.map((d) => ({ index: d.index, score: d.relevance_score }))
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Chain-with-fallback wrapper
+//
+// Try primary; on ANY thrown error fall through to secondary. If the
+// secondary also throws, re-throw the secondary error so the caller
+// (rag.ts) still falls back to cosine ordering. The primary failure is
+// logged so Vercel logs show whether we're being kept alive by the
+// secondary — actionable signal when one provider is degraded.
+// ─────────────────────────────────────────────────────────────────
+
+export function chainWithFallback(primary: Reranker, secondary: Reranker): Reranker {
+  return {
+    name: `${primary.name}→${secondary.name}`,
+    async rerank(query, docs, topN) {
+      try {
+        return await primary.rerank(query, docs, topN)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        pipelineLog('estimate').err(
+          `rerank primary (${primary.name}) failed — falling back to ${secondary.name}`,
+          msg,
+        )
+        return await secondary.rerank(query, docs, topN)
+      }
+    },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Factory — picks the configured primary, optionally wraps with
+// fallback to the secondary when both keys are set.
+//
+// Returns null when reranking is disabled OR when the configured
+// primary has no API key (so the caller in rag.ts cleanly degrades
+// to cosine ordering instead of throwing on every call).
 // ─────────────────────────────────────────────────────────────────
 
 export function getReranker(): Reranker | null {
   if (process.env.RAG_RERANK_DISABLED === 'true') return null
 
-  const provider = process.env.RAG_RERANK_PROVIDER ?? 'voyage'
-  switch (provider) {
-    case 'voyage':
-      if (!process.env.VOYAGE_API_KEY) return null
-      return voyageReranker
-    // Future provider stubs go here. Implement Reranker, return the impl.
-    // case 'cohere': return cohereReranker
-    default:
-      return null
+  const provider = (process.env.RAG_RERANK_PROVIDER ?? 'voyage') as 'voyage' | 'cohere'
+  const fallbackEnabled = process.env.RAG_RERANK_FALLBACK !== 'false'
+  const hasVoyage = !!process.env.VOYAGE_API_KEY
+  const hasCohere = !!process.env.COHERE_API_KEY
+
+  if (provider === 'cohere') {
+    if (!hasCohere) return null
+    return fallbackEnabled && hasVoyage
+      ? chainWithFallback(cohereReranker, voyageReranker)
+      : cohereReranker
   }
+
+  // Default — voyage primary
+  if (!hasVoyage) return null
+  return fallbackEnabled && hasCohere
+    ? chainWithFallback(voyageReranker, cohereReranker)
+    : voyageReranker
 }
