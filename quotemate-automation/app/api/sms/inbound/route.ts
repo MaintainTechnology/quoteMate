@@ -26,6 +26,7 @@ import {
   type SharedAssemblyScopeRow,
 } from '@/lib/sms/service-scope'
 import { isQuoteInflight } from '@/lib/sms/inflight'
+import { quoteAlreadyDrafted as computeQuoteAlreadyDrafted } from '@/lib/sms/quote-already-drafted'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteFailureSms } from '@/lib/sms/templates'
 import { withRetry } from '@/lib/util/retry'
@@ -753,19 +754,13 @@ export async function POST(req: Request) {
   // guard refuse to re-fire intake/quote even if the freshly-queried
   // intake_id is somehow racy or stale.
   const priorIntakeId = (conversation.intake_id as string | null) ?? null
-  // CRITICAL: only inherit quote-already-drafted status from `prior` when
-  // we are REUSING the prior conversation row. In mode='new', `prior` is
-  // a DIFFERENT (older) conversation for the same phone number; treating
-  // its status as ours would force every new conversation to status='done'
-  // (via the hasExistingIntake override below) and trigger spurious
-  // INFLIGHT canned hold-ons on subsequent inbound turns. Caught while
-  // stress-testing: a fresh conversation after yesterday's done quote
-  // was getting "just finalising the quote we were working on" canned
-  // replies on every other turn.
-  const quoteAlreadyDrafted =
-    mode !== 'new' && (
-      !!priorIntakeId || prior?.status === 'done' || prior?.status === 'structuring'
-    )
+  // Decision pulled out to lib/sms/quote-already-drafted.ts so the rule
+  // is testable + can't silently regress. The 2026-05-28 prod incident
+  // (Sparky convo 1c639179) showed why: the old inline rule conflated
+  // "customer said bye → status=done" with "quote was drafted → status
+  // =done", silently killing photo SMS + WP9 + intake handoff on
+  // re-engagement after a dismissal. See that module's docstring + tests.
+  const quoteAlreadyDrafted = computeQuoteAlreadyDrafted(mode, prior)
   // Slot state captured at request entry. Inside after() we run the slot
   // extractor against the customer's latest inbound and merge any updates
   // back into this state, then persist + pass into the dialog Sonnet call.
@@ -1641,8 +1636,19 @@ export async function POST(req: Request) {
         EASY_5_JOB_TYPES.has(decision.job_type_guess)
       const shouldSendPhotoRequest =
         photoRequestToken &&
+        // photo_request_sent_at is the authoritative "did this conversation
+        // get a photo SMS?" signal. We honour it strictly so we never
+        // double-send within the same row.
         !photoRequestAlreadySent &&
-        !hasExistingIntake &&
+        // Within-turn guard only: if intake is freshly created this turn,
+        // the photo gate already fired for that draft — don't double.
+        // Deliberately NOT gating on hasExistingIntake / quoteAlreadyDrafted:
+        // a reopened-from-done conversation where the prior draft never
+        // sent a photo (photoRequestAlreadySent=false) must still fire
+        // a fresh photo link when Sonnet asks for one. Otherwise Sonnet
+        // promises "I'll flick you a photo link in a sec" against
+        // photoLink='pending' and the customer never gets one.
+        !freshIntakeId &&
         // In-flight continuation — the photo SMS already fired for the
         // quote that's drafting; never fire a second one this turn.
         !inflightContinuation &&
