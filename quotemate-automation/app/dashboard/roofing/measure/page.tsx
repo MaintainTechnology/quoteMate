@@ -14,6 +14,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import type { RoofMetrics, RoofingQuotePrice } from '@/lib/roofing/types'
+import { RoofMap } from '../_components/RoofMap'
 
 type MeasureResponse =
   | {
@@ -82,13 +83,22 @@ export default function RoofingMeasurePage() {
     })
   }, [])
 
-  const onMeasure = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
+  /** Single-source measure runner — both the form submit path and the
+   *  click-on-map-to-recenter path call this with their own address
+   *  triple. Keeps the request shape in one place. */
+  const runMeasure = useCallback(
+    async (overrides?: {
+      address?: string
+      postcode?: string
+      state?: (typeof STATES)[number]
+    }) => {
       if (!token) {
         setErrMsg('Sign in to use the measurement tool.')
         return
       }
+      const a = overrides?.address ?? address
+      const pc = overrides?.postcode ?? postcode
+      const st = overrides?.state ?? state
       setBusy(true)
       setErrMsg(null)
       setResp(null)
@@ -100,7 +110,7 @@ export default function RoofingMeasurePage() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            address: { address, postcode, state },
+            address: { address: a, postcode: pc, state: st },
             inputs: {
               material,
               pitch,
@@ -113,7 +123,6 @@ export default function RoofingMeasurePage() {
         const json = (await res.json()) as MeasureResponse
         setResp(json)
         if (!('ok' in json) || json.ok !== true) {
-          // Surface short summary so the form stays readable
           if ('detail' in json) setErrMsg(json.detail)
           else if ('error' in json) setErrMsg(json.error)
         }
@@ -124,6 +133,52 @@ export default function RoofingMeasurePage() {
       }
     },
     [token, address, postcode, state, material, pitch, intent, yearBuilt, useMock],
+  )
+
+  const onMeasure = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      await runMeasure()
+    },
+    [runMeasure],
+  )
+
+  /** Click on the map → reverse-geocode → re-run measure with the new
+   *  address. Failures fall back to a polite error message. */
+  const onMapRecenter = useCallback(
+    async (lng: number, lat: number) => {
+      if (!token) {
+        setErrMsg('Sign in to use the measurement tool.')
+        return
+      }
+      try {
+        const res = await fetch('/api/roofing/reverse-geocode', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ lng, lat }),
+        })
+        const json = (await res.json()) as
+          | { ok: true; address: string; postcode: string | null; state: typeof STATES[number] | null }
+          | { ok: false; code: string; detail: string }
+        if (!json.ok) {
+          setErrMsg(json.detail)
+          return
+        }
+        const nextAddr = json.address
+        const nextPc = json.postcode ?? postcode
+        const nextSt = (json.state ?? state) as (typeof STATES)[number]
+        setAddress(nextAddr)
+        setPostcode(nextPc)
+        setState(nextSt)
+        await runMeasure({ address: nextAddr, postcode: nextPc, state: nextSt })
+      } catch (e) {
+        setErrMsg(e instanceof Error ? e.message : String(e))
+      }
+    },
+    [token, postcode, state, runMeasure],
   )
 
   return (
@@ -182,6 +237,7 @@ export default function RoofingMeasurePage() {
           <div>
             <Label>State</Label>
             <select
+              aria-label="State"
               value={state}
               onChange={(e) => setState(e.target.value as (typeof STATES)[number])}
               className={INPUT}
@@ -197,6 +253,7 @@ export default function RoofingMeasurePage() {
           <div>
             <Label>Roof material</Label>
             <select
+              aria-label="Roof material"
               value={material}
               onChange={(e) =>
                 setMaterial(e.target.value as (typeof MATERIALS)[number][0])
@@ -214,6 +271,7 @@ export default function RoofingMeasurePage() {
           <div>
             <Label>Roof pitch</Label>
             <select
+              aria-label="Roof pitch"
               value={pitch}
               onChange={(e) =>
                 setPitch(e.target.value as (typeof PITCHES)[number][0])
@@ -231,6 +289,7 @@ export default function RoofingMeasurePage() {
           <div>
             <Label>Job intent</Label>
             <select
+              aria-label="Job intent"
               value={intent}
               onChange={(e) =>
                 setIntent(e.target.value as (typeof INTENTS)[number][0])
@@ -297,7 +356,13 @@ export default function RoofingMeasurePage() {
 
       {/* ── Results ────────────────────────────────────────────── */}
       {resp && resp.ok === true && (
-        <ResultBlock metrics={resp.metrics} price={resp.price} provider={resp.provider} warnings={resp.warnings} />
+        <ResultBlock
+          metrics={resp.metrics}
+          price={resp.price}
+          provider={resp.provider}
+          warnings={resp.warnings}
+          onMapRecenter={onMapRecenter}
+        />
       )}
 
       <div className="relative z-10 bg-accent px-6 py-5 text-center text-white">
@@ -316,11 +381,13 @@ function ResultBlock({
   price,
   provider,
   warnings,
+  onMapRecenter,
 }: {
   metrics: RoofMetrics
   price: RoofingQuotePrice
   provider: 'geoscape' | 'lidar' | 'mock' | 'manual'
   warnings: string[]
+  onMapRecenter: (lng: number, lat: number) => void | Promise<void>
 }) {
   const routing = price.routing
   const routingTone =
@@ -333,6 +400,28 @@ function ResultBlock({
         eyebrow={`Measurement from ${provider}`}
         title="Roof metrics + price band"
       />
+
+      {/* Map — Esri satellite + Geoscape polygon overlay */}
+      <div className="mt-8">
+        <RoofMap
+          polygon={metrics.polygon_geojson}
+          form={metrics.form}
+          stats={{
+            sloped_area_m2: metrics.sloped_area_m2,
+            hips: metrics.hips,
+            valleys: metrics.valleys,
+            storeys: metrics.storeys,
+          }}
+          onRecenter={onMapRecenter}
+        />
+        {!metrics.polygon_geojson && (
+          <p className="mt-3 text-sm text-text-dim">
+            No polygon attached to this measurement — switch off the mock
+            provider once Geoscape is wired to see the building outline on
+            the map.
+          </p>
+        )}
+      </div>
 
       {/* Routing strip */}
       <div className={`mt-8 border border-ink-line border-l-4 ${routingBorder(routingTone)} bg-ink-card px-6 py-5 sm:px-8`}>
