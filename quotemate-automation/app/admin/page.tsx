@@ -18,6 +18,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
+import { RoofingActivation } from './_components/RoofingActivation'
 
 type WhoAmI = {
   ok: boolean
@@ -163,7 +164,7 @@ export default function AdminHomePage() {
       </section>
 
       {/* ── Secondary destinations ───────────────────────────────── */}
-      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-12 sm:px-10 md:pb-28">
+      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-12 pt-12 sm:px-10">
         <SectionHeading eyebrow="Agent surfaces & operator view" title="Drill in further" />
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           {SECONDARY_TILES.map((t) => (
@@ -171,6 +172,9 @@ export default function AdminHomePage() {
           ))}
         </div>
       </section>
+
+      {/* ── Roofing activation panel ──────────────────────────────── */}
+      <RoofingActivation />
 
       {/* ── Closing accent bar ───────────────────────────────────── */}
       <div className="relative z-10 bg-accent px-6 py-5 text-center text-white">
