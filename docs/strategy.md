@@ -805,4 +805,62 @@ The voice-first AI receptionist is a fundraise pitch, not a v1 product. **If you
   - Tradies ask to self-create trades → that is a different security model; its own entry.
   - Phase 0 changes how `category` is stored → reconcile with v7's `lib/estimate/categories.ts` single-source-of-truth note so the two don't drift.
 
+- **v10** (2026-05-29): **roofing as the third trade — shipped ahead of v9's admin loader.**
+
+  **What's settled:**
+
+  Roofing is QuoteMate's third trade, joining electrical (NSW/NECA) and plumbing (QLD/QBCC). Phase 1 ships with the existing hand-wired pattern (a new migration seeding `shared_assemblies` + `shared_materials` rows scoped to `trade='roofing'`, no admin loader involved). The measurement engine starts on **Geoscape Buildings + customer-declared pitch** (precomputed footprints, ~10–15% accuracy on sloped area) with a clean swap-point for a real LiDAR pipeline (PDAL + Open3D over ELVIS data) once Phase 2 volume justifies the 4–6 week Python-worker investment.
+
+  **Why this departs from v9 (intentionally):**
+
+  v9 said: *first real new trade ships end-to-end → backfill the actual migration numbers and note any scope deviation in this entry.* The honest deviation: **v9 Phase 0 is not yet built**, so roofing cannot route through the admin loader. Hand-wiring through the legacy seed pattern (migration 080) is the pragmatic call — it ships in 2–3 weeks instead of 6+. The row set is shaped to be **adoptable by the v9 loader without change** when Phase 0 lands (same `shared_assemblies` columns, same `category`/`properties` JSON convention, same idempotent insert pattern).
+
+  | Area | v9 plan | v10 reality |
+  |---|---|---|
+  | Trade onboarding | Admin CSV via `/admin/loader` | Hand-wired SQL migration (080) |
+  | Trades registry | Global `trades` table + FK constraints | `trade` text column on existing tables (legacy pattern) |
+  | Intake fields | Generic schema reused | **NEW** — roofing runs through its own `lib/roofing/` pipeline, NOT `lib/intake/structure.ts`. IntakeSchema's `['electrical','plumbing']` enum is unchanged (the Anthropic generateObject 24-optional-field cap is preserved). |
+  | Estimator | Generic prompt + per-trade defaults | Roofing bypasses the strict-grounding estimator entirely — a deterministic $/m² × area × loading calculation, no Opus call on the price path. |
+
+  **Roofing-specific decisions:**
+
+  | Decision | Choice | Why |
+  |---|---|---|
+  | Measurement source | Geoscape Buildings + customer pitch declaration (Phase 1) → LiDAR via ELVIS (Phase 2) | Phase 1 ships fast and proves demand; Phase 2 lifts accuracy without changing the customer flow because the `lib/roofing/measure.ts` interface is provider-agnostic. |
+  | Auto-send | **NO — every roofing quote requires tradie review** | Roof jobs are A$8–40k. The v6 Path-B auto-send rule does not apply at these dollar values. This re-introduces a Path-A flow specifically for high-value trades; logged as a deliberate exception, not a strategy reversal. |
+  | Asbestos | Pre-1990 buildings + cement-sheet declaration → forced inspection route | Legal/safety. Australian Consumer Law + state asbestos regulations make any auto-quoted roof work on suspected asbestos a non-starter. |
+  | Coverage fallback | Address outside Geoscape coverage → $99 paid inspection route | Same pattern as low-confidence electrical/plumbing intakes; the Stage 0 IG-engine validator pattern (`lib/ig-engine/validate-inputs.ts`, shipped 2026-05-29) provides the template. |
+  | Pricing model | `$/m² × sloped area × multi-storey loading % × asbestos loading %` then tier-framed (patch / re-roof same material / upgrade) | Roofers price this way operationally; no per-line-item granularity needed. Deterministic — no Opus on the money path → no grounding validator needed for roofing. |
+
+  **Phasing within roofing:**
+
+  | # | Phase | Scope | Trigger to advance |
+  |---|---|---|---|
+  | 1 | Hand-wired seed + Geoscape measurement + dashboard tab + review-required routing | This iteration | First paying roofing tenant + 20 real quotes through the pipeline |
+  | 2 | Real LiDAR pipeline (PDAL + Open3D over ELVIS) replaces Geoscape behind the same interface | Defer | Phase 1 volume + accuracy complaints justify the 4–6 week Python-worker build |
+  | 3 | Roofing flows through the v9 admin loader once v9 Phase 0 ships | Defer | v9 Phase 0 exit gate green |
+
+  **What stays unchanged from v8/v9:**
+
+  - 4-agent architecture (Drafter / Reviewer / Inspection Coordinator / Conversion Engine) — roofing reuses the Reviewer and Inspection Coordinator unchanged
+  - G/B/B tier framing
+  - Paid-inspection fallback at $99
+  - Mobile-first customer portal at `/q/[token]` — extended with a roof-hero strip, otherwise unchanged
+  - Stripe deposit + booking flow
+  - The Path-B auto-send default for electrical/plumbing — roofing is an explicit per-trade override
+
+  **What's OUT of scope for v10:**
+
+  - The real LiDAR pipeline (deferred to roofing Phase 2)
+  - Asbestos detection from satellite imagery (out — relies on the customer's pre-1990 declaration; not the right tool to ML this)
+  - Roofing-specific intake structurer (out — the deterministic flow does not need one)
+  - Multi-line-item roofing breakdowns at the customer's quote level (out for v1 — single sloped-area × rate line, with tier-level material variation)
+  - Voice channel for roofing intake (out — address-first web form is a much better intake channel than SMS/voice for this trade)
+
+  **Trigger for the next iteration:**
+
+  - 20 roofing quotes processed end-to-end → backfill Phase 2 LiDAR decision with real volume + accuracy delta data
+  - Customer complaint pattern emerges (under-quote / over-quote) → record the diagnosis + the patch
+  - Second roofing tenant onboards in a different state (VIC/QLD) → record any state-specific licence/regulatory adjustments needed
+
 - *Future iterations:* drill into specific phases (eval rubric details, onboarding flow design, hipages partnership terms, voice tier economics, full multi-tenancy refactor).
