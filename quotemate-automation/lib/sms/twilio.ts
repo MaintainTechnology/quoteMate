@@ -27,6 +27,9 @@ async function postTwilioMessage(channel: 'sms' | 'whatsapp', opts: {
   text: string
   from?: string
   statusCallback?: string
+  /** One or more public media URLs to attach (turns the SMS into an MMS).
+   *  Twilio fetches these server-side, so they must be publicly reachable. */
+  mediaUrl?: string | string[]
 }): Promise<TwilioSendResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID
   const token = process.env.TWILIO_AUTH_TOKEN
@@ -58,6 +61,12 @@ async function postTwilioMessage(channel: 'sms' | 'whatsapp', opts: {
   body.set('From', fromAddr)
   body.set('Body', opts.text)
   if (opts.statusCallback) body.set('StatusCallback', opts.statusCallback)
+  if (opts.mediaUrl) {
+    const urls = Array.isArray(opts.mediaUrl) ? opts.mediaUrl : [opts.mediaUrl]
+    for (const u of urls) {
+      if (typeof u === 'string' && u.trim()) body.append('MediaUrl', u)
+    }
+  }
 
   let res: Response
   try {
@@ -96,6 +105,7 @@ export function sendSms(opts: {
   text: string
   from?: string
   statusCallback?: string
+  mediaUrl?: string | string[]
 }): Promise<TwilioSendResult> {
   return postTwilioMessage('sms', opts)
 }
@@ -105,6 +115,7 @@ export function sendWhatsApp(opts: {
   text: string
   from?: string
   statusCallback?: string
+  mediaUrl?: string | string[]
 }): Promise<TwilioSendResult> {
   return postTwilioMessage('whatsapp', opts)
 }

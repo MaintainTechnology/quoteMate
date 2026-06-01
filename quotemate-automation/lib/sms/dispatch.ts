@@ -24,6 +24,11 @@ export type DispatchOk = {
   smsAttempt?: { code: string; reason: string }
   /** number of SMS attempts made (1 = first try succeeded, >1 = retried) */
   smsAttempts?: number
+  /** true when media was attached and delivered (MMS). */
+  mms?: boolean
+  /** true when an MMS attempt failed and we fell back to a plain SMS
+   *  (the body still carries the quote-page link). */
+  mediaDropped?: boolean
 }
 
 export type DispatchFail = {
@@ -61,6 +66,7 @@ async function sendSmsWithRetry(opts: {
   to: string
   text: string
   from?: string
+  mediaUrl?: string | string[]
 }): Promise<{ result: TwilioSendResult; attempts: number }> {
   let attempts = 0
   let last: TwilioSendResult | null = null
@@ -96,12 +102,28 @@ export async function dispatchQuoteMessage(opts: {
    *  here so customer-facing SMS replies originate from the same number the
    *  customer texted. WhatsApp always uses TWILIO_WHATSAPP_FROM regardless. */
   from?: string
+  /** Optional media URL(s) to attach as an MMS (e.g. the satellite roof
+   *  image). If the MMS send fails, we automatically retry as a plain SMS
+   *  — the body still carries the quote-page link — before WhatsApp. */
+  mediaUrl?: string | string[]
 }): Promise<DispatchResult> {
-  const { result: smsResult, attempts: smsAttempts } = await sendSmsWithRetry({
+  let mediaDropped = false
+  let attempt = await sendSmsWithRetry({
     to: opts.to,
     text: opts.text,
     from: opts.from,
+    mediaUrl: opts.mediaUrl,
   })
+
+  // MMS attempt failed — fall back to a plain SMS (the link is in the body)
+  // before resorting to WhatsApp.
+  if (!attempt.result.ok && opts.mediaUrl) {
+    console.warn(`[dispatch] MMS send failed (code=${attempt.result.code}) to ${opts.to} — retrying as plain SMS`)
+    mediaDropped = true
+    attempt = await sendSmsWithRetry({ to: opts.to, text: opts.text, from: opts.from })
+  }
+
+  const { result: smsResult, attempts: smsAttempts } = attempt
 
   if (smsResult.ok) {
     return {
@@ -110,6 +132,8 @@ export async function dispatchQuoteMessage(opts: {
       sid: smsResult.sid,
       status: smsResult.status,
       smsAttempts,
+      mms: !!opts.mediaUrl && !mediaDropped,
+      mediaDropped,
     }
   }
 
