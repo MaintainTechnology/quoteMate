@@ -613,7 +613,7 @@ export default function DashboardPage() {
                 Array.isArray(data.tenant.trades) && data.tenant.trades.length > 1
               } />
             )}
-            {tab === 'roofing' && <RoofingHubTab />}
+            {tab === 'roofing' && <RoofingHubTab accessToken={accessToken} />}
           </div>
         </section>
       </div>
@@ -10220,7 +10220,63 @@ function formatTime(iso: string): string {
 // measurement history, coverage indicator, "Generate quote from
 // measurement" CTAs.
 
-function RoofingHubTab() {
+type SavedRoofJob = {
+  id: string
+  address: string | null
+  postcode: string | null
+  state: string | null
+  customer_name: string | null
+  structure_count: number | null
+  combined_area_m2: number | null
+  combined_better_inc_gst: number | null
+  routing: string | null
+  public_token: string | null
+  created_at: string
+}
+
+function RoofingHubTab({ accessToken }: { accessToken: string | null }) {
+  const [jobs, setJobs] = useState<SavedRoofJob[] | null>(null)
+  const [loadingJobs, setLoadingJobs] = useState(true)
+  const [jobsError, setJobsError] = useState<string | null>(null)
+
+  const loadJobs = useCallback(async () => {
+    if (!accessToken) {
+      setJobsError('Not signed in')
+      setLoadingJobs(false)
+      return
+    }
+    setLoadingJobs(true)
+    setJobsError(null)
+    try {
+      const res = await fetch('/api/roofing/save', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        jobs?: SavedRoofJob[]
+        error?: string
+      }
+      if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      setJobs(json.jobs ?? [])
+    } catch (e) {
+      setJobsError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoadingJobs(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (cancelled) return
+      await loadJobs()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadJobs])
+
   return (
     <div className="space-y-7">
       <div>
@@ -10259,6 +10315,75 @@ function RoofingHubTab() {
           </div>
         </div>
       </Link>
+
+      {/* Saved roofing jobs — history of every "Save job" from the
+          measure tool, scoped to this tenant. Click View to open the
+          customer quote page (/q/roof/[token]). */}
+      <div className="border border-ink-line bg-ink-card p-7 sm:p-9">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div className="font-mono text-[0.78rem] font-semibold uppercase tracking-[0.18em] text-accent">
+            Saved roofing jobs{jobs ? ` · ${jobs.length}` : ''}
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadJobs()}
+            className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-text-dim transition-colors hover:text-accent"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {loadingJobs && (
+          <p className="mt-4 text-base text-text-dim">Loading saved jobs…</p>
+        )}
+        {jobsError && !loadingJobs && (
+          <p className="mt-4 text-base text-warning">Couldn&apos;t load saved jobs: {jobsError}</p>
+        )}
+        {!loadingJobs && !jobsError && jobs && jobs.length === 0 && (
+          <p className="mt-4 text-base text-text-dim">
+            No saved jobs yet. Measure a roof above and hit{' '}
+            <span className="text-text-pri">Save job</span> — it&apos;ll show up here.
+          </p>
+        )}
+        {!loadingJobs && !jobsError && jobs && jobs.length > 0 && (
+          <ul className="mt-5 space-y-3">
+            {jobs.map((j) => {
+              const inspection = j.routing === 'inspection_required'
+              const structures = j.structure_count ?? 1
+              return (
+                <li key={j.id} className="border border-ink-line bg-ink-deep p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-text-pri">
+                        {j.address ?? 'Unknown address'}
+                      </div>
+                      <div className="mt-1 font-mono text-xs text-text-dim">
+                        {inspection ? 'Inspection' : fmtAUD(j.combined_better_inc_gst)}
+                        {` · ${structures} structure${structures === 1 ? '' : 's'}`}
+                        {j.combined_area_m2 ? ` · ${Math.round(j.combined_area_m2)} m²` : ''}
+                        {` · ${formatDate(j.created_at)}`}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <Pill tone={inspection ? 'warn' : 'ok'} label={inspection ? 'Inspection' : 'Quote'} />
+                      {j.public_token && (
+                        <a
+                          href={`/q/roof/${j.public_token}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-accent hover:underline"
+                        >
+                          View &rarr;
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
 
       <div className="border border-ink-line bg-ink-card p-7 sm:p-9">
         <div className="font-mono text-[0.78rem] font-semibold uppercase tracking-[0.18em] text-accent">

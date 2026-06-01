@@ -8,6 +8,7 @@
 // views; the full quote + structures are stored verbatim.
 
 import { createClient } from '@supabase/supabase-js'
+import { randomBytes } from 'node:crypto'
 import { SaveRoofMeasurementSchema } from '@/lib/roofing/request-schema'
 
 export const dynamic = 'force-dynamic'
@@ -92,12 +93,15 @@ export async function POST(req: Request) {
     routing: strOrNull(readPath(quote, ['routing', 'decision'])),
     structures,
     quote: quote ?? null,
+    // Unguessable share token so the saved job has a customer-facing page
+    // at /q/roof/[token] (same surface the SMS receptionist links to).
+    public_token: randomBytes(16).toString('hex'),
   }
 
   const { data, error } = await supabase
     .from('roofing_measurements')
     .insert(row)
-    .select('id')
+    .select('id, public_token')
     .single()
 
   if (error) {
@@ -107,5 +111,37 @@ export async function POST(req: Request) {
     )
   }
 
-  return Response.json({ ok: true, id: data.id as string }, { status: 200 })
+  return Response.json(
+    { ok: true, id: data.id as string, public_token: data.public_token as string },
+    { status: 200 },
+  )
+}
+
+// GET /api/roofing/save — list THIS tenant's saved roofing jobs, newest
+// first. Powers the "Saved roofing jobs" history in the dashboard Roof
+// tab. Returns the denormalised summary columns only (the full quote
+// lives on /q/roof/[public_token]).
+export async function GET(req: Request) {
+  const auth = await userAndTenantFromBearer(req)
+  if (!auth) {
+    return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
+  }
+
+  let q = supabase
+    .from('roofing_measurements')
+    .select(
+      'id, address, postcode, state, customer_name, structure_count, combined_area_m2, combined_better_inc_gst, routing, public_token, created_at',
+    )
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  // Scope to the tenant; fall back to the saver when there's no tenant
+  // (so a job still shows for whoever measured it).
+  q = auth.tenantId ? q.eq('tenant_id', auth.tenantId) : q.eq('created_by', auth.userId)
+
+  const { data, error } = await q
+  if (error) {
+    return Response.json({ ok: false, error: 'list_failed', detail: error.message }, { status: 200 })
+  }
+  return Response.json({ ok: true, jobs: data ?? [] }, { status: 200 })
 }
