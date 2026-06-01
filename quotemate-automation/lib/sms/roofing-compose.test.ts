@@ -73,11 +73,11 @@ describe('composeEstimateMessage', () => {
 })
 
 describe('composeInspectionMessage + routing', () => {
-  // cement_sheet shed forces the whole job to inspection.
-  const asbestosShed: RoofStructureInput = { ...shed, inputs: inputs({ material: 'cement_sheet' }) }
-  const quote = priceMultiRoof({ structures: [house, asbestosShed] })
+  // The PRIMARY (cement_sheet house) forces the whole job to inspection.
+  const asbestosHouse: RoofStructureInput = { ...house, inputs: inputs({ material: 'cement_sheet' }) }
+  const quote = priceMultiRoof({ structures: [asbestosHouse, shed] })
 
-  it('the quote routes to inspection', () => {
+  it('routes to inspection when the PRIMARY needs it', () => {
     expect(quote.routing.decision).toBe('inspection_required')
   })
   it('the message states the next step + reason, with no tier price', () => {
@@ -91,6 +91,18 @@ describe('composeInspectionMessage + routing', () => {
     const clean = priceMultiRoof({ structures: [house, shed] })
     expect(buildRoofingReplyMessage({ ...CTX, quote: clean })).toMatch(/here's your roofing estimate/)
     expect(buildRoofingReplyMessage({ ...CTX, quote })).toMatch(/on-site inspection/i)
+  })
+})
+
+describe('estimate flags an inspection-needed secondary (quote the rest)', () => {
+  it('a cement_sheet SECONDARY does not block the quote — primary is quoted, secondary flagged', () => {
+    const asbestosShed: RoofStructureInput = { ...shed, inputs: inputs({ material: 'cement_sheet' }) }
+    const quote = priceMultiRoof({ structures: [house, asbestosShed] })
+    expect(quote.routing.decision).toBe('tradie_review') // not blocked
+    const msg = buildRoofingReplyMessage({ ...CTX, quote })
+    expect(msg).toMatch(/here's your roofing estimate/) // estimate, not inspection
+    expect(msg).toMatch(/heads-up/i) // flags the secondary
+    expect(msg).toMatch(/on-site look/i)
   })
 })
 

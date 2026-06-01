@@ -402,9 +402,11 @@ function defaultStructureLabel(role: RoofStructureRole, secondaryIndex: number):
  * loadings via calculateRoofingPrice — areas are never summed onto a
  * single material rate (a tile house + Colorbond shed would mis-price).
  * The combined tiers sum the per-structure tier amounts (GST is linear,
- * so summing inc-GST per structure is exact). Routing escalates to
- * inspection_required if ANY structure individually requires it; each
- * structure keeps its own line-level routing flag.
+ * so summing inc-GST per structure is exact) over the QUOTABLE structures
+ * only. The whole job routes to inspection ONLY when the PRIMARY dwelling
+ * needs it, or when nothing is quotable — otherwise we quote what we can
+ * and `inspection_structures` flags the rest. Each structure keeps its own
+ * line-level routing flag.
  */
 export function priceMultiRoof(args: {
   structures: RoofStructureInput[]
@@ -436,43 +438,56 @@ export function priceMultiRoof(args: {
     }
   })
 
-  // Combined per-tier totals — sum across structures at the SAME tier index.
+  // Split quotable vs inspection-needed. We price the quotable structures
+  // and FLAG the rest — a small odd outbuilding shouldn't block a quote
+  // for the main roof.
+  const isInspection = (st: RoofStructurePrice) =>
+    st.price.routing.decision === 'inspection_required'
+  const quotable = structures.filter((st) => !isInspection(st))
+  const inspection_structures = structures.filter(isInspection).map((st) => st.label)
+
+  // Combined per-tier totals — over the QUOTABLE structures only.
   const combinedTiers = ([0, 1, 2] as const).map((i): RoofingPriceTier => {
     const tierName = (['good', 'better', 'best'] as const)[i]
-    const exSum = structures.reduce((acc, st) => acc + st.price.tiers[i].ex_gst, 0)
-    const incSum = structures.reduce((acc, st) => acc + st.price.tiers[i].inc_gst, 0)
+    const exSum = quotable.reduce((acc, st) => acc + st.price.tiers[i].ex_gst, 0)
+    const incSum = quotable.reduce((acc, st) => acc + st.price.tiers[i].inc_gst, 0)
     const labelWord = tierName === 'good' ? 'Patch / repair' : tierName === 'better' ? 'Re-roof' : 'Upgrade'
     return {
       tier: tierName,
       label: `${labelWord} — all structures`,
       ex_gst: roundTo(exSum, 2),
       inc_gst: roundTo(incSum, 2),
-      scope: `${labelWord} priced across ${structures.length} structure${structures.length === 1 ? '' : 's'}.`,
+      scope: `${labelWord} priced across ${quotable.length} structure${quotable.length === 1 ? '' : 's'}.`,
     }
   }) as [RoofingPriceTier, RoofingPriceTier, RoofingPriceTier]
 
   const combinedArea = roundTo(
-    structures.reduce((acc, st) => acc + st.price.area_m2, 0),
+    quotable.reduce((acc, st) => acc + st.price.area_m2, 0),
     1,
   )
 
-  const inspection_structures = structures
-    .filter((st) => st.price.routing.decision === 'inspection_required')
-    .map((st) => st.label)
+  // Whole job routes to inspection ONLY when the PRIMARY dwelling needs
+  // it, or when nothing is quotable. Otherwise we quote the quotable
+  // structures and flag the inspection-needed ones separately.
+  const primary = structures.find((st) => st.role === 'primary') ?? structures[0]
+  const primaryNeedsInspection = primary ? isInspection(primary) : false
 
-  const routing: RoofingRoutingDecision =
-    inspection_structures.length > 0
-      ? {
-          decision: 'inspection_required',
-          reason:
-            `${inspection_structures.join(', ')} require${inspection_structures.length === 1 ? 's' : ''} an on-site inspection — ` +
-            'a tradie must attend the property, so the whole job is routed to inspection.',
-        }
-      : {
-          decision: 'tradie_review',
-          reason:
-            'All structures auto-calculated from measurement — every roofing quote requires tradie sign-off before customer send.',
-        }
+  let routing: RoofingRoutingDecision
+  if (primaryNeedsInspection && primary) {
+    routing = { decision: 'inspection_required', reason: primary.price.routing.reason }
+  } else if (quotable.length === 0) {
+    routing = {
+      decision: 'inspection_required',
+      reason:
+        `${inspection_structures.join(', ')} require${inspection_structures.length === 1 ? 's' : ''} an on-site inspection before we can quote.`,
+    }
+  } else {
+    routing = {
+      decision: 'tradie_review',
+      reason:
+        'Quotable structures auto-calculated from measurement — every roofing quote requires tradie sign-off before customer send.',
+    }
+  }
 
   return {
     structures,

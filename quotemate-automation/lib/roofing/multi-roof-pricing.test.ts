@@ -105,14 +105,33 @@ describe('priceMultiRoof — per-structure pricing + aggregation', () => {
     expect(q.combined.tiers[1].inc_gst).toBeCloseTo(expected, 1)
   })
 
-  it('a single inspection-triggering structure routes the WHOLE job to inspection', () => {
+  it('quotable primary + inspection-needed secondary → quote the primary, flag the secondary (whole job NOT inspected)', () => {
     const asbestosShed: RoofStructureInput = { ...shed, inputs: inputs({ material: 'cement_sheet' }) }
     const q = priceMultiRoof({ structures: [house, asbestosShed] })
-    expect(q.routing.decision).toBe('inspection_required')
+    // The whole job is NOT blocked — we quote the main dwelling…
+    expect(q.routing.decision).toBe('tradie_review')
+    // …and flag the secondary that needs a look.
     expect(q.inspection_structures.length).toBe(1)
-    // The house line keeps its own (auto-calculated) routing for transparency.
+    // Combined reflects the QUOTABLE structures only (the house, 220 × 130).
+    expect(q.combined.tiers[1].ex_gst).toBe(220 * 130)
     const houseLine = q.structures.find((s) => s.buildingId === 'b-house')!
     expect(houseLine.price.routing.decision).toBe('tradie_review')
+  })
+
+  it('PRIMARY needs inspection → whole job routes to inspection', () => {
+    const asbestosHouse: RoofStructureInput = { ...house, inputs: inputs({ material: 'cement_sheet' }) }
+    const q = priceMultiRoof({ structures: [asbestosHouse, shed] })
+    expect(q.routing.decision).toBe('inspection_required')
+  })
+
+  it('nothing quotable → inspection', () => {
+    const q = priceMultiRoof({
+      structures: [
+        { ...house, inputs: inputs({ material: 'cement_sheet' }) },
+        { ...shed, inputs: inputs({ material: 'cement_sheet' }) },
+      ],
+    })
+    expect(q.routing.decision).toBe('inspection_required')
   })
 
   it('multi-storey loading applies per structure, not across the whole job', () => {

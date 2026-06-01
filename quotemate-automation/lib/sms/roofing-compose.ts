@@ -45,21 +45,29 @@ const TIER_LABELS: [string, string, string] = ['Patch/repair', 'Re-roof', 'Upgra
  */
 export function composeEstimateMessage(ctx: RoofingReplyContext): string {
   const { quote } = ctx
-  const n = quote.structures.length
+  const flagged = quote.inspection_structures ?? []
+  // The combined total + count reflect the QUOTABLE structures only.
+  const quotableCount = Math.max(1, quote.structures.length - flagged.length)
   const area = Math.round(quote.combined.area_m2)
   const scope =
-    n > 1
-      ? `${n} structures, ~${area} m² total`
+    quotableCount > 1
+      ? `${quotableCount} structures, ~${area} m² total`
       : `~${area} m² of roof`
 
   const lines = quote.combined.tiers.map((t, i) => `• ${TIER_LABELS[i]}: ${fmtAud(t.inc_gst)}`)
 
-  return [
+  const out = [
     `${greeting(ctx.firstName)}here's your roofing estimate for ${ctx.address} (${scope}):`,
     ...lines,
     `Full breakdown + your roof image: ${ctx.quoteUrl}`,
-    `Prices inc GST. A roofer reviews every quote before we book anything.`,
-  ].join('\n')
+  ]
+  if (flagged.length > 0) {
+    out.push(
+      `Heads-up: ${flagged.join(', ')} need${flagged.length === 1 ? 's' : ''} a quick on-site look — we'll sort ${flagged.length === 1 ? 'that' : 'those'} separately.`,
+    )
+  }
+  out.push('Prices inc GST. A roofer reviews every quote before we book anything.')
+  return out.join('\n')
 }
 
 /**
