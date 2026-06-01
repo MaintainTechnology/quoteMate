@@ -291,19 +291,23 @@ export function nextRoofingStep(slots: RoofingSlots): {
     }
   }
   if (!slots.intent) return { step: 'intent', question: QUESTIONS.intent }
+
+  // Material gate — short-circuit to inspection the moment we learn it's
+  // asbestos-suspect or unknown; no point asking pitch in that case.
+  if (slots.material === 'cement_sheet') {
+    return { step: 'inspection', reason: 'cement-sheet/fibro roofs may contain asbestos' }
+  }
+  if (slots.material === 'unknown') {
+    return { step: 'inspection', reason: "we couldn't confirm the roof material" }
+  }
   if (!slots.material) return { step: 'material', question: QUESTIONS.material }
+
+  // Pitch gate — same idea for steep/unknown pitch.
+  if (slots.pitch === 'very_steep' || slots.pitch === 'unknown') {
+    return { step: 'inspection', reason: 'the roof pitch is steep or unknown' }
+  }
   if (!slots.pitch) return { step: 'pitch', question: QUESTIONS.pitch }
 
-  const readiness = roofingReadiness(slots)
-  if (readiness === 'inspection') {
-    const why =
-      slots.material === 'cement_sheet'
-        ? 'cement-sheet/fibro roofs may contain asbestos'
-        : slots.material === 'unknown'
-          ? "we couldn't confirm the roof material"
-          : 'the roof pitch is steep or unknown'
-    return { step: 'inspection', reason: why }
-  }
   return { step: 'ready' }
 }
 
