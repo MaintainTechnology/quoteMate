@@ -67,14 +67,14 @@ export function requiresInspection(args: {
     return {
       decision: 'inspection_required',
       reason:
-        'Address is outside Geoscape building coverage — a tradie needs to attend to measure.',
+        'Address is outside Geoscape building coverage, so a tradie needs to attend to measure.',
     }
   }
   if (inputs.material === 'cement_sheet') {
     return {
       decision: 'inspection_required',
       reason:
-        'Cement-sheet roofs may contain asbestos — mandatory on-site inspection before any quote.',
+        'Cement sheet roofs may contain asbestos, so a mandatory inspection on site is needed before any quote.',
     }
   }
   if (
@@ -85,35 +85,35 @@ export function requiresInspection(args: {
     return {
       decision: 'inspection_required',
       reason:
-        'Building was constructed before 1990 — asbestos risk in roof cavity must be assessed on-site.',
+        'The building was built before 1990, so asbestos risk in the roof cavity must be assessed on site.',
     }
   }
   if (inputs.pitch === 'very_steep' || inputs.pitch === 'unknown') {
     return {
       decision: 'inspection_required',
       reason:
-        'Roof pitch is steep or unknown — fall-protection cost cannot be priced without an on-site measurement.',
+        'Roof pitch is steep or unknown, so fall protection cost cannot be priced without a measurement on site.',
     }
   }
   if (metrics.form === 'complex') {
     return {
       decision: 'inspection_required',
       reason:
-        'Roof form is complex — area and ridge counts need on-site measurement.',
+        'Roof form is complex, so area and ridge counts need a measurement on site.',
     }
   }
   if (metrics.sloped_area_m2 === null) {
     return {
       decision: 'inspection_required',
       reason:
-        'Sloped roof area could not be determined from available data — on-site measurement required.',
+        'Sloped roof area could not be determined from available data, so a measurement on site is required.',
     }
   }
   if ((metrics.storeys ?? 1) >= 3) {
     return {
       decision: 'inspection_required',
       reason:
-        'Building is 3 or more storeys — scaffold/EWP access cannot be priced without an on-site inspection.',
+        'The building is 3 or more storeys, so scaffold or EWP access cannot be priced without an inspection on site.',
     }
   }
   return null
@@ -215,13 +215,13 @@ function tierLabel(intent: RoofJobIntent, tier: 'good' | 'better' | 'best'): str
     return 'Full section repair'
   }
   if (intent === 'gutter_replace') {
-    if (tier === 'good') return 'Gutter replace — Quad profile'
+    if (tier === 'good') return 'Gutter replace, Quad profile'
     if (tier === 'better') return 'Gutter + downpipe replace'
     return 'Gutter + downpipe + flashings'
   }
   if (tier === 'good') return 'Patch / spot repair'
-  if (tier === 'better') return 'Full re-roof — same material'
-  return 'Full re-roof — upgrade material'
+  if (tier === 'better') return 'Full re-roof, same material'
+  return 'Full re-roof, upgrade material'
 }
 
 function tierScopeLine(
@@ -282,7 +282,7 @@ export function calculateRoofingPrice(args: {
     ({
       decision: 'tradie_review',
       reason:
-        'Quote auto-calculated from Geoscape measurement — every roofing quote requires tradie sign-off before customer send.',
+        'Quote auto-calculated from Geoscape measurement. Every roofing quote requires tradie sign-off before customer send.',
     } as RoofingRoutingDecision)
 
   // Sloped area is the canonical pricing input. When inspection routing
@@ -454,7 +454,7 @@ export function priceMultiRoof(args: {
     const labelWord = tierName === 'good' ? 'Patch / repair' : tierName === 'better' ? 'Re-roof' : 'Upgrade'
     return {
       tier: tierName,
-      label: `${labelWord} — all structures`,
+      label: `${labelWord}, all structures`,
       ex_gst: roundTo(exSum, 2),
       inc_gst: roundTo(incSum, 2),
       scope: `${labelWord} priced across ${quotable.length} structure${quotable.length === 1 ? '' : 's'}.`,
@@ -485,7 +485,7 @@ export function priceMultiRoof(args: {
     routing = {
       decision: 'tradie_review',
       reason:
-        'Quotable structures auto-calculated from measurement — every roofing quote requires tradie sign-off before customer send.',
+        'Quotable structures auto-calculated from measurement. Every roofing quote requires tradie sign-off before customer send.',
     }
   }
 
@@ -515,6 +515,6 @@ export function formLabel(form: RoofForm): string {
     case 'skillion':    return 'Skillion (mono-pitch)'
     case 'gable_hip':   return 'Gable + hip combination'
     case 'complex':     return 'Complex / irregular'
-    case 'unknown':     return 'Unknown — needs inspection'
+    case 'unknown':     return 'Unknown, needs inspection'
   }
 }

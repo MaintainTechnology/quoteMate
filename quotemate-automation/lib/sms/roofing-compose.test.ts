@@ -7,6 +7,8 @@ import { priceMultiRoof, type RoofStructureInput } from '@/lib/roofing/pricing'
 import type { RoofMetrics, RoofUserInputs } from '@/lib/roofing/types'
 import {
   buildRoofingReplyMessage,
+  composeBookingMessage,
+  composeCancelMessage,
   composeConfirmMessage,
   composeEstimateMessage,
   composeInspectionMessage,
@@ -58,11 +60,11 @@ describe('composeEstimateMessage', () => {
     expect(msg).toMatch(/inc GST/i)
   })
   it('greets by first name', () => {
-    expect(msg.startsWith('Hi James —')).toBe(true)
+    expect(msg.startsWith('Hi James, ')).toBe(true)
   })
   it('greets generically with no name', () => {
     const m2 = composeEstimateMessage({ ...CTX, firstName: null, quote })
-    expect(m2.startsWith('Hi —')).toBe(true)
+    expect(m2.startsWith('Hi, ')).toBe(true)
   })
   it('says "1 structure" / "of roof" for a single building', () => {
     const single = priceMultiRoof({ structures: [house] })
@@ -82,7 +84,7 @@ describe('composeInspectionMessage + routing', () => {
   })
   it('the message states the next step + reason, with no tier price', () => {
     const msg = composeInspectionMessage({ ...CTX, quote })
-    expect(msg).toMatch(/on-site inspection/i)
+    expect(msg).toMatch(/inspection on site/i)
     expect(msg).toContain(quote.routing.reason)
     expect(msg).toContain(CTX.quoteUrl)
     expect(msg).toMatch(/reply yes/i)
@@ -90,7 +92,7 @@ describe('composeInspectionMessage + routing', () => {
   it('buildRoofingReplyMessage dispatches by routing decision', () => {
     const clean = priceMultiRoof({ structures: [house, shed] })
     expect(buildRoofingReplyMessage({ ...CTX, quote: clean })).toMatch(/here's your roofing estimate/)
-    expect(buildRoofingReplyMessage({ ...CTX, quote })).toMatch(/on-site inspection/i)
+    expect(buildRoofingReplyMessage({ ...CTX, quote })).toMatch(/inspection on site/i)
   })
 })
 
@@ -101,8 +103,8 @@ describe('estimate flags an inspection-needed secondary (quote the rest)', () =>
     expect(quote.routing.decision).toBe('tradie_review') // not blocked
     const msg = buildRoofingReplyMessage({ ...CTX, quote })
     expect(msg).toMatch(/here's your roofing estimate/) // estimate, not inspection
-    expect(msg).toMatch(/heads-up/i) // flags the secondary
-    expect(msg).toMatch(/on-site look/i)
+    expect(msg).toMatch(/note:/i) // flags the secondary
+    expect(msg).toMatch(/look on site/i)
   })
 })
 
@@ -125,6 +127,28 @@ describe('composeConfirmMessage', () => {
     expect(msg).toMatch(/2\)/)
     expect(msg).toMatch(/number for just one/i)
     expect(msg).not.toMatch(/\$\d/)
+  })
+})
+
+describe('no em dashes in any customer-facing message', () => {
+  const quote = priceMultiRoof({ structures: [house, shed] })
+  const inspectionQuote = priceMultiRoof({ structures: [{ ...house, inputs: inputs({ material: 'cement_sheet' }) }, shed] })
+  const messages = [
+    composeEstimateMessage({ ...CTX, quote }),
+    composeInspectionMessage({ ...CTX, quote: inspectionQuote }),
+    composeConfirmMessage({ ...CTX, quote }),
+    composeConfirmMessage({ ...CTX, quote: priceMultiRoof({ structures: [house] }) }),
+    composeCancelMessage('James'),
+    composeCancelMessage(null),
+    composeBookingMessage('James', true),
+    composeBookingMessage(null, false),
+    buildRoofingReplyMessage({ ...CTX, quote }),
+  ]
+  it('contains no em dash (—) or en dash (–)', () => {
+    for (const m of messages) {
+      expect(m.includes('—')).toBe(false)
+      expect(m.includes('–')).toBe(false)
+    }
   })
 })
 

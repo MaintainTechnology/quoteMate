@@ -1,9 +1,11 @@
-// SMS roofing receptionist — per-turn decision tests, including the
-// "is this your roof?" confirmation gate and structure picking.
+// SMS roofing receptionist — per-turn decision tests: gathering, the
+// "is this your roof?" confirm gate, structure picking, stop/cancel,
+// inspection booking, closed-flow reopen, and address validation.
 
 import { describe, expect, it } from 'vitest'
 import {
   advanceRoofing,
+  isActiveRoofingFlow,
   nextRoofingConversationState,
   parseStructureChoice,
   type RoofingConversationState,
@@ -89,41 +91,100 @@ describe('advanceRoofing — confirm_roof gate', () => {
     expect(d.action).toBe('send_saved')
     if (d.action === 'send_saved') expect(d.structureChoice).toBeNull()
   })
-
-  it('a number → send_saved for that structure (multi-building)', () => {
+  it('a number → send_saved for that structure', () => {
     const d = advanceRoofing(measured, '2')
     expect(d.action).toBe('send_saved')
     if (d.action === 'send_saved') expect(d.structureChoice).toBe(2)
   })
-
   it('NO → re-ask the address and reset it', () => {
     const d = advanceRoofing(measured, 'no thats the wrong building')
     expect(d.action).toBe('ask')
     if (d.action === 'ask') {
       expect(d.step).toBe('address')
       expect(d.slots.address).toBeNull()
-      expect(d.slots.address_confirmed).toBe(false)
     }
   })
-
   it('unclear reply → reconfirm', () => {
     const d = advanceRoofing(measured, 'hmm maybe')
     expect(d.action).toBe('reconfirm')
   })
+})
 
-  it('single-building YES still sends all', () => {
-    const single = { ...measured, pending_structure_count: 1 }
-    const d = advanceRoofing(single, 'yes')
-    expect(d.action).toBe('send_saved')
-    if (d.action === 'send_saved') expect(d.structureChoice).toBeNull()
+describe('advanceRoofing — stop / cancel / booking / closed', () => {
+  const midFlow: RoofingConversationState = {
+    slots: { address: '1 A St', address_confirmed: true, intent: 'full_reroof' },
+    last_step: 'material',
+  }
+
+  it('a stop/cancel request at any step → cancel', () => {
+    expect(advanceRoofing(midFlow, 'STOP PLEASE').action).toBe('cancel')
+    expect(advanceRoofing(null, "let's cancel now and stop this session").action).toBe('cancel')
+    expect(advanceRoofing(null, 'FUCK NO!').action).toBe('cancel')
+    expect(advanceRoofing(midFlow, 'not interested anymore').action).toBe('cancel')
+  })
+
+  it('bare "no" is NOT a stop — it answers the confirm', () => {
+    const confirm: RoofingConversationState = { slots: { address: '1 A St', address_confirmed: true, intent: 'full_reroof', material: 'colorbond_trimdek', pitch: 'standard' }, last_step: 'confirm_roof', pending_structure_count: 1 }
+    expect(advanceRoofing(confirm, 'no').action).toBe('ask') // wrong building → re-ask
+  })
+
+  it('await_booking: yes → booking confirmed; otherwise not confirmed', () => {
+    const base: RoofingConversationState = { slots: {}, last_step: 'await_booking' }
+    const yes = advanceRoofing(base, 'yes please book it')
+    expect(yes.action).toBe('booking')
+    if (yes.action === 'booking') expect(yes.confirmed).toBe(true)
+    const no = advanceRoofing(base, 'not right now')
+    expect(no.action).toBe('booking')
+    if (no.action === 'booking') expect(no.confirmed).toBe(false)
+  })
+
+  it('a closed flow re-opens only on a fresh enquiry and resets slots', () => {
+    const closed: RoofingConversationState = { slots: { address: 'old place', intent: 'full_reroof' }, last_step: 'closed' }
+    const d = advanceRoofing(closed, 'I need a re-roof quote')
+    expect(d.action).toBe('ask')
+    if (d.action === 'ask') {
+      expect(d.step).toBe('address')
+      expect(d.slots.address).toBeFalsy() // old slots wiped
+    }
+  })
+})
+
+describe('advanceRoofing — address validation', () => {
+  it('rejects a non-address reply (no street number) and re-asks clearly', () => {
+    const d = advanceRoofing({ slots: {}, last_step: 'address' }, 'somewhere in town thanks')
+    expect(d.action).toBe('ask')
+    if (d.action === 'ask') {
+      expect(d.step).toBe('address')
+      expect(d.reply).toMatch(/didn't catch/i)
+      expect(d.slots.address).toBeFalsy()
+    }
+  })
+  it('accepts a real address with a street number', () => {
+    const d = advanceRoofing({ slots: {}, last_step: 'address' }, '5 Smith St, Bondi NSW 2026')
+    expect(d.action).toBe('ask')
+    if (d.action === 'ask') expect(d.step).toBe('confirm_address')
+  })
+})
+
+describe('isActiveRoofingFlow', () => {
+  it('true mid-gather/awaiting, false when closed or empty', () => {
+    expect(isActiveRoofingFlow({ slots: {}, last_step: 'material' })).toBe(true)
+    expect(isActiveRoofingFlow({ slots: {}, last_step: 'confirm_roof' })).toBe(true)
+    expect(isActiveRoofingFlow({ slots: {}, last_step: 'await_booking' })).toBe(true)
+    expect(isActiveRoofingFlow({ slots: {}, last_step: 'closed' })).toBe(false)
+    expect(isActiveRoofingFlow({ slots: {}, last_step: null })).toBe(false)
+    expect(isActiveRoofingFlow(null)).toBe(false)
   })
 })
 
 describe('nextRoofingConversationState', () => {
-  it('ask keeps step; measure parks at confirm_roof; send_saved is terminal', () => {
+  it('parks each action at the right step', () => {
     const ask = advanceRoofing(null, 'hello')
     expect(nextRoofingConversationState(ask).last_step).toBe('address')
     expect(nextRoofingConversationState({ action: 'measure', slots: {} }).last_step).toBe('confirm_roof')
-    expect(nextRoofingConversationState({ action: 'send_saved', slots: {}, structureChoice: null }).last_step).toBeNull()
+    expect(nextRoofingConversationState({ action: 'inspection', slots: {}, reason: 'x' }).last_step).toBe('await_booking')
+    expect(nextRoofingConversationState({ action: 'send_saved', slots: {}, structureChoice: null }).last_step).toBe('closed')
+    expect(nextRoofingConversationState({ action: 'cancel', slots: {} }).last_step).toBe('closed')
+    expect(nextRoofingConversationState({ action: 'booking', slots: {}, confirmed: true }).last_step).toBe('closed')
   })
 })

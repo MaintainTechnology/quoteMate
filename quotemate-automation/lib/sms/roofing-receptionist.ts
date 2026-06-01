@@ -2,18 +2,22 @@
 // SMS roofing receptionist — pure per-turn decision.
 //
 // Given the conversation's persisted roofing state (gathered slots, the
-// step we last asked about, and any pending measured quote awaiting
+// step we last asked about, any pending measured quote awaiting
 // confirmation) plus the customer's new message, decide the turn:
+//   • cancel     — customer asked to stop / cancel (checked FIRST).
 //   • ask        — fold the answer in, send the next question.
 //   • measure    — enough gathered → run measureAndPriceRoofs, then send
-//                  the roof photo and ask "is this your roof?".
+//                  the roof image link and ask "is this your roof?".
 //   • inspection — gathered but material/pitch forces an on-site visit.
-//   • send_saved — customer confirmed the building (YES, or a numbered
-//                  pick) → send the saved quote (optionally for one
-//                  picked structure).
+//   • send_saved — customer confirmed the building → send the saved quote
+//                  (optionally for one picked structure). Terminal.
 //   • reconfirm  — reply to the photo wasn't clear → re-ask.
+//   • booking    — reply to "shall we book the inspection?". Terminal.
 //
-// The route does the I/O (measure, persist, MMS); this module is pure so
+// Once a flow is closed (quote sent / cancelled / booked), an unrelated
+// message never re-quotes; only a fresh roofing enquiry reopens it.
+//
+// The route does the I/O (measure, persist, SMS); this module is pure so
 // the conversation logic is fully unit-tested.
 // ════════════════════════════════════════════════════════════════════
 
@@ -21,6 +25,7 @@ import {
   applyRoofingAnswer,
   isAffirmative,
   isNegative,
+  isStopRequest,
   mapIntent,
   nextRoofingStep,
   parseYearBuilt,
@@ -53,9 +58,13 @@ export type RoofingTurnDecision =
   | { action: 'inspection'; slots: RoofingSlots; reason: string }
   | { action: 'send_saved'; slots: RoofingSlots; structureChoice: number | null }
   | { action: 'reconfirm'; slots: RoofingSlots }
+  | { action: 'cancel'; slots: RoofingSlots }
+  | { action: 'booking'; slots: RoofingSlots; confirmed: boolean }
 
 const WRONG_BUILDING_REPROMPT =
-  "No worries — what's the correct property address (with suburb & postcode)?"
+  "No worries. What's the correct property address, with suburb and postcode?"
+const ADDRESS_RETRY =
+  "Sorry, I didn't catch a property address there. What's the address? Please include the street number, suburb and postcode."
 
 const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 }
 
@@ -85,13 +94,23 @@ export function advanceRoofing(
   prev: RoofingConversationState | null | undefined,
   inbound: string,
 ): RoofingTurnDecision {
-  const slots: RoofingSlots = { ...(prev?.slots ?? {}) }
-  const lastStep = prev?.last_step ?? null
+  const rawLastStep = prev?.last_step ?? null
+  let slots: RoofingSlots = { ...(prev?.slots ?? {}) }
 
-  // ── Confirmation step: the customer is replying to "is this your roof?" ──
-  if (lastStep === 'confirm_roof') {
+  // (1) Stop / cancel / opt-out — always honoured first, at any step.
+  if (isStopRequest(inbound)) {
+    return { action: 'cancel', slots }
+  }
+
+  // (2) Awaiting "shall we book the inspection?".
+  if (rawLastStep === 'await_booking') {
+    return { action: 'booking', slots, confirmed: isAffirmative(inbound) && !isNegative(inbound) }
+  }
+
+  // (3) Confirmation: replying to "is this your roof?".
+  if (rawLastStep === 'confirm_roof') {
     const count = prev?.pending_structure_count ?? 1
-    if (isNegative(inbound) && !isAffirmative(inbound)) {
+    if (isNegative(inbound)) {
       const reset: RoofingSlots = {
         ...slots,
         address: null,
@@ -111,10 +130,22 @@ export function advanceRoofing(
     return { action: 'reconfirm', slots }
   }
 
-  // ── Gathering inputs ──
+  // (4) Closed flow — a fresh enquiry restarts from scratch.
+  let lastStep: RoofingStep | null = rawLastStep
+  if (rawLastStep === 'closed') {
+    slots = {}
+    lastStep = null
+  }
+
+  // (5) Gathering inputs.
   let nextSlots = slots
   if (lastStep && ANSWERABLE_STEPS.has(lastStep)) {
     nextSlots = applyRoofingAnswer(slots, lastStep, inbound)
+    // An address answer that didn't parse as an address → clarify, don't
+    // store junk (and don't silently re-send the same prompt).
+    if (lastStep === 'address' && !nextSlots.address) {
+      return { action: 'ask', slots: nextSlots, step: 'address', reply: ADDRESS_RETRY }
+    }
   } else {
     if (!nextSlots.intent) {
       const intent = mapIntent(inbound)
@@ -138,16 +169,37 @@ export function advanceRoofing(
  * PURE — the roofing_state to persist after a turn. The route augments
  * the 'measure' result with the saved quote token + structure count (it
  * owns those), and preserves them on 'reconfirm'.
+ *   ask        → park at the asked step
+ *   measure    → park at confirm_roof
+ *   reconfirm  → stay at confirm_roof
+ *   inspection → park at await_booking (waiting for "yes book it")
+ *   send_saved → closed (quote delivered)
+ *   cancel     → closed
+ *   booking    → closed
  */
 export function nextRoofingConversationState(
   decision: RoofingTurnDecision,
 ): RoofingConversationState {
-  if (decision.action === 'ask') {
-    return { slots: decision.slots, last_step: decision.step, pending_quote_token: null, pending_structure_count: null }
+  switch (decision.action) {
+    case 'ask':
+      return { slots: decision.slots, last_step: decision.step, pending_quote_token: null, pending_structure_count: null }
+    case 'measure':
+    case 'reconfirm':
+      return { slots: decision.slots, last_step: 'confirm_roof' }
+    case 'inspection':
+      return { slots: decision.slots, last_step: 'await_booking', pending_quote_token: null, pending_structure_count: null }
+    case 'send_saved':
+    case 'cancel':
+    case 'booking':
+      return { slots: decision.slots, last_step: 'closed', pending_quote_token: null, pending_structure_count: null }
   }
-  if (decision.action === 'measure' || decision.action === 'reconfirm') {
-    return { slots: decision.slots, last_step: 'confirm_roof' }
-  }
-  // send_saved / inspection are terminal.
-  return { slots: decision.slots, last_step: null, pending_quote_token: null, pending_structure_count: null }
+}
+
+/** PURE — is this conversation an ACTIVE roofing flow (mid-gather or
+ *  awaiting a reply), as opposed to closed/empty? The route uses this to
+ *  decide whether to keep handling the thread as roofing. */
+export function isActiveRoofingFlow(prev: RoofingConversationState | null | undefined): boolean {
+  if (!prev || !prev.slots) return false
+  const step = prev.last_step ?? null
+  return step !== null && step !== 'closed'
 }

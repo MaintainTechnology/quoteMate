@@ -5,6 +5,7 @@ import {
   applyRoofingAnswer,
   isAffirmative,
   isNegative,
+  isStopRequest,
   looksLikeRoofingEnquiry,
   mapIntent,
   mapMaterial,
@@ -17,6 +18,29 @@ import {
   toRoofingRequest,
   type RoofingSlots,
 } from './roofing-intake'
+
+describe('isStopRequest', () => {
+  it('catches explicit stop/cancel/opt-out and clear frustration', () => {
+    for (const s of ['STOP PLEASE', 'cancel', "let's cancel now", 'unsubscribe', 'not interested', 'leave me alone', 'FUCK NO!', 'just stop this session', 'nevermind']) {
+      expect(isStopRequest(s)).toBe(true)
+    }
+  })
+  it('does NOT treat a bare yes/no or a normal address as a stop', () => {
+    for (const s of ['yes', 'no', 'yeah thats right', '670 London Rd, Chandler QLD 4155', 'colorbond', 'standard']) {
+      expect(isStopRequest(s)).toBe(false)
+    }
+  })
+})
+
+describe('applyRoofingAnswer address validation', () => {
+  it('ignores a reply with no street number (does not store junk as address)', () => {
+    expect(applyRoofingAnswer({}, 'address', 'somewhere in town').address).toBeUndefined()
+    expect(applyRoofingAnswer({}, 'address', "let's cancel now").address).toBeUndefined()
+  })
+  it('accepts a real address with a street number', () => {
+    expect(applyRoofingAnswer({}, 'address', '5 Smith St, Bondi NSW 2026').address).toBe('5 Smith St, Bondi NSW 2026')
+  })
+})
 
 describe('looksLikeRoofingEnquiry', () => {
   it('matches clear roofing terms', () => {

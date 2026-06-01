@@ -33,10 +33,16 @@ export function fmtAud(n: number): string {
 
 function greeting(firstName?: string | null): string {
   const f = (firstName ?? '').trim().split(/\s+/)[0]
-  return f ? `Hi ${f} — ` : 'Hi — '
+  return f ? `Hi ${f}, ` : 'Hi, '
 }
 
-const TIER_LABELS: [string, string, string] = ['Patch/repair', 'Re-roof', 'Upgrade']
+/** ", <name>" suffix for sign-offs, or "" when unknown. */
+function nameSuffix(firstName?: string | null): string {
+  const f = (firstName ?? '').trim().split(/\s+/)[0]
+  return f ? ` ${f}` : ''
+}
+
+const TIER_LABELS: [string, string, string] = ['Patch / repair', 'Re-roof', 'Upgrade']
 
 /**
  * PURE — the quotable estimate message. Uses quote.combined.tiers
@@ -63,7 +69,7 @@ export function composeEstimateMessage(ctx: RoofingReplyContext): string {
   ]
   if (flagged.length > 0) {
     out.push(
-      `Heads-up: ${flagged.join(', ')} need${flagged.length === 1 ? 's' : ''} a quick on-site look — we'll sort ${flagged.length === 1 ? 'that' : 'those'} separately.`,
+      `Note: ${flagged.join(', ')} need${flagged.length === 1 ? 's' : ''} a quick look on site, so we'll sort ${flagged.length === 1 ? 'that' : 'those'} separately.`,
     )
   }
   out.push('Prices inc GST. A roofer reviews every quote before we book anything.')
@@ -76,14 +82,10 @@ export function composeEstimateMessage(ctx: RoofingReplyContext): string {
  * roof + location.
  */
 export function composeInspectionMessage(ctx: RoofingReplyContext): string {
-  const reason =
-    ctx.quote.inspection_structures.length > 0
-      ? ctx.quote.routing.reason
-      : ctx.quote.routing.reason
   return [
-    `${greeting(ctx.firstName)}for your roof at ${ctx.address} we'll need a quick on-site inspection before we can quote accurately.`,
-    reason,
-    `See the roof + location here: ${ctx.quoteUrl}`,
+    `${greeting(ctx.firstName)}for your roof at ${ctx.address} we'll need a quick inspection on site before we can quote accurately.`,
+    ctx.quote.routing.reason,
+    `See the roof and location here: ${ctx.quoteUrl}`,
     `Reply YES and we'll book a time that suits you.`,
   ].join('\n')
 }
@@ -125,6 +127,18 @@ export function composeConfirmMessage(ctx: RoofingReplyContext): string {
     `Reply YES to quote all of them, the number for just one, or NO if none are right.`,
     `See them here: ${ctx.quoteUrl}`,
   ].join('\n')
+}
+
+/** PURE — polite close when the customer asks to stop / cancel. */
+export function composeCancelMessage(firstName?: string | null): string {
+  return `No problem${nameSuffix(firstName)}. I've stopped there. Just text me anytime if you'd like a roofing quote.`
+}
+
+/** PURE — reply after the inspection "shall we book?" prompt. */
+export function composeBookingMessage(firstName: string | null | undefined, confirmed: boolean): string {
+  return confirmed
+    ? `Great${nameSuffix(firstName)}. A roofer will be in touch shortly to lock in a time for the inspection.`
+    : `No worries${nameSuffix(firstName)}. Just text us whenever you're ready and we'll sort the inspection.`
 }
 
 /**

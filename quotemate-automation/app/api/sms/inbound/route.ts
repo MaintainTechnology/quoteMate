@@ -21,10 +21,13 @@ import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
 import { looksLikeRoofingEnquiry, toRoofingRequest } from '@/lib/sms/roofing-intake'
 import {
   advanceRoofing,
+  isActiveRoofingFlow,
   type RoofingConversationState,
 } from '@/lib/sms/roofing-receptionist'
 import {
   buildRoofingReplyMessage,
+  composeBookingMessage,
+  composeCancelMessage,
   composeConfirmMessage,
   narrowQuoteToStructure,
 } from '@/lib/sms/roofing-compose'
@@ -294,13 +297,12 @@ async function handleRoofingTurn(args: {
   const latestInbound =
     [...turns].reverse().find((t) => t.direction === 'inbound')?.body ?? ''
 
-  // Engage only if we're already mid-roofing-flow, or any inbound this
-  // thread reads like a roofing enquiry.
-  const inRoofingFlow = !!(prevState && prevState.slots)
-  const looksRoofing =
-    inRoofingFlow ||
-    turns.some((t) => t.direction === 'inbound' && looksLikeRoofingEnquiry(t.body))
-  if (!looksRoofing) return false
+  // Engage only if we're in an ACTIVE roofing flow (mid-gather / awaiting
+  // a reply), or THIS message reads like a roofing enquiry. A closed flow
+  // (quote sent / cancelled / booked) is NOT active, so an unrelated
+  // follow-up never re-quotes — only a fresh roofing enquiry reopens it.
+  const activeFlow = isActiveRoofingFlow(prevState)
+  if (!activeFlow && !looksLikeRoofingEnquiry(latestInbound)) return false
 
   const decision = advanceRoofing(prevState, latestInbound)
 
@@ -340,6 +342,20 @@ async function handleRoofingTurn(args: {
     return { address: (data.address as string) ?? '', quote, token }
   }
 
+  // ── Customer asked to stop / cancel — close politely; no re-quote. ──
+  if (decision.action === 'cancel') {
+    await sendReply(composeCancelMessage(firstName))
+    await persist({ slots: {}, last_step: 'closed', pending_quote_token: null, pending_structure_count: null }, 'done')
+    return true
+  }
+
+  // ── Customer replied to "shall we book the inspection?". ──
+  if (decision.action === 'booking') {
+    await sendReply(composeBookingMessage(firstName, decision.confirmed))
+    await persist({ slots: decision.slots, last_step: 'closed', pending_quote_token: null, pending_structure_count: null }, 'done')
+    return true
+  }
+
   // ── Still gathering inputs — ask the next question. ──
   if (decision.action === 'ask') {
     await persist({ slots: decision.slots, last_step: decision.step, pending_quote_token: null, pending_structure_count: null }, 'open')
@@ -364,11 +380,12 @@ async function handleRoofingTurn(args: {
         ? narrowQuoteToStructure(pending.quote, decision.structureChoice)
         : pending.quote
       await sendReply(buildRoofingReplyMessage({ quote: finalQuote, address: pending.address, quoteUrl, firstName }))
-      await persist({ slots: decision.slots, last_step: null, pending_quote_token: null, pending_structure_count: null }, 'done')
+      // Quote delivered → closed. A later "thanks" won't trigger a re-quote.
+      await persist({ slots: decision.slots, last_step: 'closed', pending_quote_token: null, pending_structure_count: null }, 'done')
       return true
     }
     // Lost the pending quote — restart gathering.
-    await sendReply("Sorry, I lost track of that one — what's the property address (with suburb & postcode)?")
+    await sendReply("Sorry, I lost track of that one. What's the property address, with suburb and postcode?")
     await persist({ slots: {}, last_step: 'address' }, 'open')
     return true
   }
@@ -406,9 +423,10 @@ async function handleRoofingTurn(args: {
         // the roof image + map are on the linked page.
         const quoteUrl = `${baseUrl}/q/roof/${token}`
         if (isInspection) {
-          // Inspection — terminal: send the inspection next-step + link.
+          // Inspection: send the next-step + link, then PARK at
+          // await_booking so a "yes" books it (instead of re-quoting).
           await sendReply(buildRoofingReplyMessage({ quote, address: reqInput.address.address, quoteUrl, firstName }))
-          await persist({ slots: decision.slots, last_step: null, pending_quote_token: null, pending_structure_count: null }, 'done')
+          await persist({ slots: decision.slots, last_step: 'await_booking', pending_quote_token: null, pending_structure_count: null }, 'open')
           return true
         }
         // Quotable — send "is this your roof?" + link and PARK at
@@ -423,8 +441,8 @@ async function handleRoofingTurn(args: {
   }
 
   // Fallback — we couldn't measure (provider down or missing fields).
-  await sendReply("Thanks — we've got your roof details. Our team will confirm your quote shortly.")
-  await persist({ slots: decision.slots, last_step: null }, 'done')
+  await sendReply("Thanks, we've got your roof details. Our team will confirm your quote shortly.")
+  await persist({ slots: decision.slots, last_step: 'closed', pending_quote_token: null, pending_structure_count: null }, 'done')
   return true
 }
 

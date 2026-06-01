@@ -54,6 +54,12 @@ export type RoofingStep =
   // After measuring we send the roof photo and wait for the customer to
   // confirm it's the right building (or pick among several / say none).
   | 'confirm_roof'
+  // After an inspection route, waiting for the customer to confirm they
+  // want the on-site visit booked.
+  | 'await_booking'
+  // Conversation finished (quote sent, cancelled, or booked). Only a fresh
+  // roofing enquiry reopens it; an unrelated message never re-quotes.
+  | 'closed'
 
 const AU_STATES: readonly AuState[] = ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'ACT', 'NT']
 
@@ -179,6 +185,20 @@ export function isNegative(text: string): boolean {
   return DENY.test((text ?? '').toLowerCase())
 }
 
+// ── Stop / cancel / opt-out ──────────────────────────────────────────
+// Checked FIRST on every turn so the customer can always bail. Bare "no"
+// is NOT a stop (it's a valid confirm answer); explicit stop words and
+// clear frustration are.
+const STOP_RE = /\b(stop|cancel|cancelled|unsubscribe|quit|end this|end the|not interested|leave me alone|go away|never ?mind|forget it)\b/
+const FRUSTRATION_RE = /\b(f+u+c+k+|f\*+ck|fck|stfu|piss off|bugger off|bullsh|shut up)\b/
+
+/** PURE — true when the customer wants to stop / cancel / opt out. */
+export function isStopRequest(text: string): boolean {
+  const t = (text ?? '').toLowerCase()
+  if (!t.trim()) return false
+  return STOP_RE.test(t) || FRUSTRATION_RE.test(t)
+}
+
 // ── Apply a customer answer for a given step ──────────────────────────
 
 /**
@@ -197,7 +217,10 @@ export function applyRoofingAnswer(
   switch (step) {
     case 'address': {
       const trimmed = msg.trim()
-      if (trimmed.length >= 5) {
+      // Accept only something that actually looks like an address: a
+      // street number plus text, and not a stop/cancel sentence. Stops a
+      // reply like "Let's cancel now" being stored as the address.
+      if (trimmed.length >= 6 && /\d/.test(trimmed) && !isStopRequest(trimmed)) {
         next.address = trimmed
         const pc = parsePostcode(trimmed)
         if (pc) next.postcode = pc
@@ -268,12 +291,15 @@ export function roofingReadiness(slots: RoofingSlots): 'ready' | 'need_more' | '
   return 'ready'
 }
 
-const QUESTIONS: Record<Exclude<RoofingStep, 'ready' | 'inspection' | 'confirm_roof'>, string> = {
-  address: "Happy to sort a roofing quote for you. What's the property address (including suburb & postcode)?",
+const QUESTIONS: Record<
+  Exclude<RoofingStep, 'ready' | 'inspection' | 'confirm_roof' | 'await_booking' | 'closed'>,
+  string
+> = {
+  address: "Happy to sort a roofing quote for you. What's the property address, including suburb and postcode?",
   confirm_address: '', // filled dynamically with the address read-back
-  intent: 'What do you need done — a full re-roof, a repair/patch, a leak traced, or gutters/downpipes?',
-  material: "What's the roof made of? (e.g. Colorbond/metal, concrete or terracotta tiles, or fibro/cement sheet)",
-  pitch: 'Roughly how steep is the roof — flat-ish, standard, or steep?',
+  intent: 'What do you need done? A full re-roof, a repair or patch, a leak traced, or gutters and downpipes?',
+  material: "What's the roof made of? For example Colorbond or metal, concrete or terracotta tiles, or fibro / cement sheet.",
+  pitch: 'Roughly how steep is the roof? Flat, standard, or steep?',
 }
 
 /**
@@ -290,22 +316,22 @@ export function nextRoofingStep(slots: RoofingSlots): {
   if (!slots.address_confirmed) {
     return {
       step: 'confirm_address',
-      question: `Just to confirm — the property is "${slots.address}". Is that right? (yes/no)`,
+      question: `Just to confirm, the property is "${slots.address}". Is that right? Reply yes or no.`,
     }
   }
   if (!slots.intent) return { step: 'intent', question: QUESTIONS.intent }
 
-  // Material gate — short-circuit to inspection the moment we learn it's
+  // Material gate: short-circuit to inspection the moment we learn it's
   // asbestos-suspect or unknown; no point asking pitch in that case.
   if (slots.material === 'cement_sheet') {
-    return { step: 'inspection', reason: 'cement-sheet/fibro roofs may contain asbestos' }
+    return { step: 'inspection', reason: 'cement sheet or fibro roofs may contain asbestos' }
   }
   if (slots.material === 'unknown') {
     return { step: 'inspection', reason: "we couldn't confirm the roof material" }
   }
   if (!slots.material) return { step: 'material', question: QUESTIONS.material }
 
-  // Pitch gate — same idea for steep/unknown pitch.
+  // Pitch gate: same idea for steep or unknown pitch.
   if (slots.pitch === 'very_steep' || slots.pitch === 'unknown') {
     return { step: 'inspection', reason: 'the roof pitch is steep or unknown' }
   }
