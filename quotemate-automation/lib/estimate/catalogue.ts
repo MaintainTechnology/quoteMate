@@ -598,6 +598,26 @@ export interface ApplyChosenResult {
 
 const SUNDRY_RE = /sundr|seal|tape|\bclip\b|terminal|^fittings,/i
 
+/**
+ * Index of a tier's "headline" material line — the non-sundry, non-labour line
+ * that represents the main product (downlight, GPO, tap…). Used by
+ * applyChosenProduct (which line to overwrite with the customer's pick) and by
+ * the reconcile backstop (which line's quantity should equal item_count).
+ * Prefers a non-sundry material line; falls back to any non-labour line; -1 if
+ * none. Pure.
+ */
+export function findHeadlineMaterialIndex(
+  items: Array<Record<string, any>> | null | undefined,
+): number {
+  if (!Array.isArray(items)) return -1
+  const notLabour = (li: any) => li && li.source !== 'labour' && li.source !== 'call_out'
+  let idx = items.findIndex(
+    (li) => notLabour(li) && !SUNDRY_RE.test(String(li?.description ?? '')),
+  )
+  if (idx < 0) idx = items.findIndex((li) => notLabour(li))
+  return idx
+}
+
 export function applyChosenProduct(
   draft: any,
   chosen: ChosenProductInput | null | undefined,
@@ -638,7 +658,6 @@ export function applyChosenProduct(
       | undefined
     if (!tier || !Array.isArray(tier.line_items) || tier.line_items.length === 0) continue
     const items = tier.line_items
-    const notLabour = (li: any) => li && li.source !== 'labour' && li.source !== 'call_out'
     // IDEMPOTENCY (2026-05-29) — if Opus has already emitted the chosen
     // product (typical happy path now that the tool returns the UUID-
     // anchored source), overwrite THAT line in place. Otherwise the
@@ -648,13 +667,8 @@ export function applyChosenProduct(
     // same product in the same tier (the Atomic 5ad1ca16 / ca7ded23
     // incident, 2026-05-28).
     let idx = items.findIndex(refsChosenProduct)
-    if (idx < 0) {
-      // Prefer the headline (non-sundry) material line; else any material line.
-      idx = items.findIndex(
-        (li) => notLabour(li) && !SUNDRY_RE.test(String(li?.description ?? '')),
-      )
-      if (idx < 0) idx = items.findIndex((li) => notLabour(li))
-    }
+    // Prefer the headline (non-sundry) material line; else any material line.
+    if (idx < 0) idx = findHeadlineMaterialIndex(items)
     if (idx < 0) continue
 
     const li = items[idx]

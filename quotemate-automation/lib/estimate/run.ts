@@ -21,6 +21,7 @@ import {
   type CatalogueProductRef,
 } from './catalogue'
 import { applyMinLabourFloor } from './min-labour'
+import { reconcileTierMath, collapseDuplicateTiers, checkQuantityVsItemCount } from './reconcile'
 import { specGuardMode, evaluateSpecGuard } from './spec-guard'
 import {
   mergeRecipesIntoDraft,
@@ -587,6 +588,35 @@ export async function runEstimation(
           err?.message ?? String(err),
         )
       }
+    }
+
+    // ── Deterministic quote-integrity backstops (post-grounding, pre-return) ──
+    // Grounding proved each UNIT price; these make the BILL consistent with
+    // those proven prices, collapse fake-identical tiers, and flag a quantity
+    // that disagrees with item_count — without fabricating a price, changing a
+    // billed quantity, or downgrading a good quote. Best-effort: a failure here
+    // must never break an already-grounded quote.
+    try {
+      const { corrections } = reconcileTierMath(draft)
+      collapseDuplicateTiers(draft)
+      const qtyFlags = checkQuantityVsItemCount(draft, intake?.scope?.item_count)
+      if (qtyFlags.length > 0) {
+        draft.risk_flags = [
+          ...(Array.isArray(draft.risk_flags) ? draft.risk_flags : []),
+          ...qtyFlags,
+        ]
+      }
+      if (corrections.length > 0 || qtyFlags.length > 0) {
+        cacheLog.ok('reconcile backstops applied', {
+          math_corrections: corrections.length,
+          quantity_flags: qtyFlags.length,
+        })
+      }
+    } catch (err: any) {
+      cacheLog.err(
+        'reconcile backstops failed (non-fatal — quote unaffected)',
+        err?.message ?? String(err),
+      )
     }
 
     trace('estimate', 'ok', {
