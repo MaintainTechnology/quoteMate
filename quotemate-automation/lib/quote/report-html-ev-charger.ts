@@ -44,8 +44,11 @@ import { clampDiscountPct } from './early-bird'
  *  to this template's OUTPUT so cached EV PDFs — and only those — regenerate.
  *
  *  ev2 — the Images section now leads with the Gemini render of the charger in
- *  the customer's own photo (spec ev-charger-location-photo R12/R14). */
-export const EV_ESTIMATE_TEMPLATE_KEY = 'ev2'
+ *  the customer's own photo (spec ev-charger-location-photo R12/R14).
+ *  ev3 — direction 1B "Numbered & banded": the full-bleed summary band with its
+ *  hero total, numbered section heads, hairline lists, facing Inclusions /
+ *  Exclusions cards, one white card per tier and the accent accept band. */
+export const EV_ESTIMATE_TEMPLATE_KEY = 'ev3'
 
 /** How long the printed estimate says its prices stand (R7). Presentational:
  *  derived at render, never stored, and it gates nothing in the funnel. */
@@ -299,13 +302,6 @@ function dedupeStrings(items: Array<string | null | undefined>): string[] {
   return out
 }
 
-function bulletSection(heading: string, items: string[]): string {
-  if (items.length === 0) return ''
-  return `
-  <h3 class="ev-sub">${esc(heading)}</h3>
-  <ul class="bullets">${items.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
-}
-
 function visibleTiers(
   input: EvChargerEstimateInput,
 ): Array<{ key: 'good' | 'better' | 'best'; tier: NonNullable<EvEstimateTier> }> {
@@ -390,12 +386,14 @@ function phaseTable(title: string, items: EvEstimateLineItem[]): string {
         <td>${esc(li.description)}</td>
         <td class="num">${esc(qtyCell(li))}</td>
         <td class="num">${aud2(asMoneyNumber(li.unit_price_ex_gst))}</td>
-        <td class="num">${aud2(asMoneyNumber(li.total_ex_gst))}</td>
+        <td class="num-last">${aud2(asMoneyNumber(li.total_ex_gst))}</td>
       </tr>`,
     )
     .join('')
+  // No <section> here — 1B nests every phase table AND the totals inside ONE
+  // white card, which tierBlock opens. The first and last columns lose their
+  // outer padding so the table sits flush to the card's inner edges.
   return `
-  <section class="part ev-phase">
     <h3 class="ev-phase-title">${esc(title)}</h3>
     <table>
       <thead>
@@ -403,18 +401,17 @@ function phaseTable(title: string, items: EvEstimateLineItem[]): string {
           <th>Description</th>
           <th class="num">Qty</th>
           <th class="num">Rate</th>
-          <th class="num">Amount</th>
+          <th class="num-last">Amount</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
         <tr class="ev-group-total">
-          <td colspan="3" class="num">Group Total:</td>
-          <td class="num">${aud2(groupTotal)}</td>
+          <td colspan="3">Group Total:</td>
+          <td class="num-last">${aud2(groupTotal)}</td>
         </tr>
       </tfoot>
-    </table>
-  </section>`
+    </table>`
 }
 
 /**
@@ -425,10 +422,21 @@ function phaseTable(title: string, items: EvEstimateLineItem[]): string {
  * registered gets no GST row and a total equal to the subtotal — never a fixed
  * 10% line.
  */
-function totalsBlock(
-  tier: NonNullable<EvEstimateTier>,
-  money: { discountPct?: number | null; gstRegistered?: boolean | null },
-): string {
+type EvMoney = { discountPct?: number | null; gstRegistered?: boolean | null }
+
+/**
+ * The three reconciling figures, computed once.
+ *
+ * Extracted so the banded direction's hero `Total:` panel and the totals block
+ * print the SAME number — R1's total appears twice on the page now, and two
+ * independent sums would eventually disagree.
+ */
+function evTotals(tier: NonNullable<EvEstimateTier>, money: EvMoney): {
+  exBase: number
+  gstAmount: number
+  total: number
+  gstRegistered: boolean
+} {
   const gstRegistered = money.gstRegistered ?? true
   const pct = clampDiscountPct(money.discountPct)
   const rawEx = asMoneyNumber(tier.subtotal_ex_gst)
@@ -436,25 +444,23 @@ function totalsBlock(
   // electrical, whose early-booking discount has been unreachable since v20;
   // discounting it here keeps the three rows reconciling if that ever changes.
   const exBase = pct > 0 ? Math.round(rawEx * (1 - pct / 100) * 100) / 100 : rawEx
-  const totalCents = totalIncGstCents(rawEx, {
-    discountPct: pct,
-    gstRegistered,
-  })
-  const total = totalCents / 100
-  const gstAmount = total - exBase
+  const total = totalIncGstCents(rawEx, { discountPct: pct, gstRegistered }) / 100
+  return { exBase, gstAmount: total - exBase, total, gstRegistered }
+}
+
+function totalsBlock(tier: NonNullable<EvEstimateTier>, money: EvMoney): string {
+  const { exBase, gstAmount, total, gstRegistered } = evTotals(tier, money)
   const rows = [
-    `<tr><td class="ev-total-label">Subtotal (ex GST):</td><td class="num">${aud2(exBase)}</td></tr>`,
+    `<div class="ev-total-row"><span class="ev-total-label">Subtotal (ex GST):</span><span class="num">${aud2(exBase)}</span></div>`,
     gstRegistered
-      ? `<tr><td class="ev-total-label">GST (10%):</td><td class="num">${aud2(gstAmount)}</td></tr>`
+      ? `<div class="ev-total-row"><span class="ev-total-label">GST (10%):</span><span class="num">${aud2(gstAmount)}</span></div>`
       : '',
-    `<tr class="ev-grand"><td class="ev-total-label">Total:</td><td class="num">${aud2(total)}</td></tr>`,
+    `<div class="ev-grand"><span class="ev-grand-label">Total:</span><span class="num">${aud2(total)}</span></div>`,
   ]
     .filter(Boolean)
     .join('')
   return `
-  <table class="ev-totals">
-    <tbody>${rows}</tbody>
-  </table>`
+    <div class="ev-totals-wrap"><div class="ev-totals">${rows}</div></div>`
 }
 
 /** One tier: its phased tables and its totals. Tier arity is untouched — every
@@ -483,26 +489,30 @@ function tierBlock(
         input.selectedTier === entry.key ? ' <span class="chip">Recommended</span>' : ''
       }</h2>`
     : ''
-  return `${heading}${tables}${totalsBlock(entry.tier, {
+  const totals = totalsBlock(entry.tier, {
     discountPct: input.appliedDiscountPct,
     gstRegistered: input.gstRegistered,
-  })}`
+  })
+  // One white card per tier: every phase table plus that tier's totals. The
+  // `part ev-phase` class pair is load-bearing — report-html-ev-charger.test.ts
+  // finds the end of the Optional Upgrades section by searching forward for
+  // `<section class="part ev-phase"`, so renaming it silently breaks that test's
+  // "no prices above the tables" assertion rather than failing it loudly.
+  return `${heading}
+  <section class="part ev-phase">${tables}${totals}
+  </section>`
 }
 
 function optionalUpgradesSection(input: EvChargerEstimateInput): string {
   const upsells = (input.optionalUpsells ?? []).filter((u) => (u?.name ?? '').trim())
-  const notes = [EV_SURGE_PROTECTION_NOTE, EV_SWITCHBOARD_CAPACITY_NOTE]
-  const noteHtml = notes
-    .map(
-      (n) => `
-    <div class="ev-upgrade">
-      <div class="ev-upgrade-title">${esc(n.title)}</div>
-      <p class="note">${esc(n.body)}</p>
-    </div>`,
-    )
-    .join('')
+  const note = (n: { title: string; body: string }): string => `
+      <div class="ev-note">
+        <div class="ev-upgrade-title">${esc(n.title)}</div>
+        <p>${esc(n.body)}</p>
+      </div>`
   const upsellHtml = upsells.length
-    ? `<ul class="bullets">${upsells
+    ? `
+      <div class="ev-upsells">${upsells
         .map((u) => {
           const price = u.price_ex_gst
           // A price prints ONLY when a catalogue row produced one. Anything else
@@ -513,35 +523,71 @@ function optionalUpgradesSection(input: EvChargerEstimateInput): string {
                   totalIncGstCents(price, { gstRegistered: input.gstRegistered }),
                 ).toLocaleString('en-AU')} inc GST`
               : 'quoted on site'
-          return `<li>${esc(u.name.trim())} — <span class="ev-upsell-price">${esc(priced)}</span></li>`
+          return `
+        <div class="ev-upsell"><span class="ev-upsell-name">${esc(
+          u.name.trim(),
+        )}</span><span class="ev-upsell-price">${esc(priced)}</span></div>`
         })
-        .join('')}</ul>`
+        .join('')}
+      </div>`
     : ''
+  // 1B splits the advisory notes across two columns: the surge-protection note
+  // fills the left, the switchboard note and the priced rows stack on the right.
   return `
-  <h2>Optional Upgrades &amp; Recommendations</h2>
-  ${noteHtml}
-  ${upsellHtml}`
+  ${sectionHead('02', 'Optional Upgrades &amp; Recommendations')}
+  <div class="ev-upgrades">
+    <div>${note(EV_SURGE_PROTECTION_NOTE)}</div>
+    <div class="ev-upgrades-right">${note(EV_SWITCHBOARD_CAPACITY_NOTE)}${upsellHtml}</div>
+  </div>`
 }
 
 function imagesSection(images: EvEstimateImage[]): string {
   if (images.length === 0) return ''
+  // 1B gives the image the full text column rather than a 280px-capped figure
+  // in a flex row. Full-bleed images are direction 1C, not this one.
   return `
-  <h2>Images</h2>
-  <div class="ev-images">${images
+  ${sectionHead('03', 'Images')}
+  ${images
     .map(
       (img) => `
-    <figure class="figure ev-image">
-      <img src="${esc(img.src)}" alt="${esc(img.caption ?? 'Job image')}">
-      ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ''}
-    </figure>`,
+  <img class="ev-image" src="${esc(img.src)}" alt="${esc(img.caption ?? 'Job image')}">`,
     )
-    .join('')}</div>`
+    .join('')}`
 }
 
-/** The two-column Prepared For / Proposal Details block that replaces the
- *  chrome's flat sub-line (R2/R3/R6/R7). Omits any line with no value, and the
- *  whole Prepared For column when nothing at all is known. */
-function introMeta(input: EvChargerEstimateInput, issued: Date): string {
+/**
+ * A numbered section head — the design system's own Part-marker vocabulary,
+ * reused for the four top-level sections (01 Scope of Work, 02 Optional
+ * Upgrades, 03 Images, 04 Terms). `headingHtml` is HTML, not text: the
+ * Optional Upgrades title carries a literal `&amp;`.
+ *
+ * The numbers are not decoration — they are the reading order of an estimate,
+ * and only these four sections carry one. The nested Description / Assumptions
+ * subheads stay unnumbered so the hierarchy still reads as two levels.
+ */
+function sectionHead(index: string, headingHtml: string): string {
+  return `<div class="ev-secthead"><span class="ev-marker">${esc(
+    index,
+  )}</span><h2>${headingHtml}</h2></div>`
+}
+
+/**
+ * The full-bleed white summary band: estimate number + ESTIMATE, Prepared For
+ * and Site Address on the left, the ink hero Total and Proposal Details on the
+ * right. Replaces the chrome's rule + intro block wholesale (R2/R3/R6/R7).
+ *
+ * `totalLabel` is the already-formatted grand total from evTotals(), so the
+ * hero figure and the totals block can never disagree. Null when there is no
+ * priced tier — the panel is then omitted rather than printing $0.00.
+ *
+ * Omits any line with no value, and the whole Prepared For column when nothing
+ * at all is known.
+ */
+function summaryBand(
+  input: EvChargerEstimateInput,
+  issued: Date,
+  totalLabel: string | null,
+): string {
   const preparedLines = dedupeStrings([
     input.customerEmail,
     input.customerPhone,
@@ -550,76 +596,231 @@ function introMeta(input: EvChargerEstimateInput, issued: Date): string {
   const preparedFor =
     name || preparedLines.length
       ? `
-    <div class="ev-meta-col">
-      <div class="ev-meta-label">Prepared For:</div>
-      ${name ? `<div class="ev-meta-name">${esc(name)}</div>` : ''}
-      ${preparedLines.join('')}
-      ${
-        input.siteAddress
-          ? `<div class="ev-meta-label ev-meta-label-sub">Site Address</div>
-             <div class="ev-meta-line">${esc(input.siteAddress)}</div>`
-          : ''
-      }
-    </div>`
+        <div>
+          <div class="ev-meta-label">Prepared For:</div>
+          ${name ? `<div class="ev-meta-name">${esc(name)}</div>` : ''}
+          ${preparedLines.join('')}
+        </div>`
       : ''
-  const details = `
-    <div class="ev-meta-col ev-meta-col-right">
-      <div class="ev-meta-label">Proposal Details:</div>
-      <div class="ev-meta-line"><strong>Date:</strong> ${esc(fmtDate(issued))}</div>
-      <div class="ev-meta-line"><strong>Valid Until:</strong> ${esc(
-        fmtDate(addDays(issued, EV_ESTIMATE_VALID_DAYS)),
-      )}</div>
-      ${
-        input.estimatedTimeframe
-          ? `<div class="ev-meta-line"><strong>Est. timeframe:</strong> ${esc(
-              input.estimatedTimeframe,
-            )}</div>`
-          : ''
-      }
-    </div>`
-  return `<div class="ev-meta">${preparedFor}${details}</div>`
+  const site = input.siteAddress
+    ? `
+        <div>
+          <div class="ev-meta-label">Site Address</div>
+          <div class="ev-meta-line ev-meta-line-sub">${esc(input.siteAddress)}</div>
+        </div>`
+    : ''
+  const bandMeta =
+    preparedFor || site ? `<div class="ev-band-meta">${preparedFor}${site}</div>` : ''
+
+  const totalPanel = totalLabel
+    ? `
+        <div class="ev-total-panel">
+          <div class="ev-total-panel-label">Total:</div>
+          <div class="ev-total-panel-fig">${esc(totalLabel)}</div>
+        </div>`
+    : ''
+
+  return `
+  <div class="ev-band">
+    <div class="ev-band-row">
+      <div>
+        <div class="ev-eyebrow">${esc(input.estimateRef)}</div>
+        <div class="ev-title">ESTIMATE</div>
+        ${bandMeta}
+      </div>
+      <div class="ev-band-right">
+        ${totalPanel}
+        <div class="ev-details">
+          <div class="ev-meta-label">Proposal Details:</div>
+          <div class="ev-details-list">
+            <div><strong>Date:</strong> ${esc(fmtDate(issued))}</div>
+            <div><strong>Valid Until:</strong> ${esc(
+              fmtDate(addDays(issued, EV_ESTIMATE_VALID_DAYS)),
+            )}</div>
+            ${
+              input.estimatedTimeframe
+                ? `<div><strong>Est. timeframe:</strong> ${esc(input.estimatedTimeframe)}</div>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`
 }
 
-/** EV-only styling, contributed through the body slot so the shared chrome
- *  needs no new CSS file (R2). Tokens only — no new colours. */
+/** EV-only styling for direction 1B "Numbered & banded", contributed through
+ *  the body slot so the shared chrome needs no new CSS file (R2). Tokens only
+ *  — no new colours, no new fonts.
+ *
+ *  FULL-BLEED: the chrome's `body` has no horizontal padding, so the two bands
+ *  (`.ev-band`, `.ev-accept`) reach the 7.27in content edge simply by carrying
+ *  their own 30px insets, and everything else is wrapped in `.ev-body`, which
+ *  supplies the document's 30px sides. No negative margins, no calc() — the
+ *  width contract that lets Gotenberg measure one continuous page is untouched.
+ */
 const EV_STYLE = `
 <style>
-  .ev-meta{ display:flex; justify-content:space-between; gap:24px; margin-top:10px; }
-  .ev-meta-col{ font-size:11px; color:var(--sec); }
-  .ev-meta-col-right{ text-align:right; }
+  /* Header — logo cap tightened from the chrome's 60px so the four contact
+     lines stop out-weighing it; the ABN line becomes a mono micro-label. */
+  .brand .logo{ max-height:52px; max-width:205px; }
+  .head-meta{ font-size:10.5px; color:var(--sec); line-height:1.5; }
+  /* The chrome's body carries no horizontal padding, so its header sits flush
+     at x=0. Give the header the same 30px inset .ev-body uses, or the logo
+     hangs 30px to the left of every heading beneath it. */
+  header{ padding:0 30px; }
+
+  /* ── Full-bleed white summary band (replaces the chrome's intro block) ── */
+  .ev-band{ margin-top:20px; background:var(--card); border-top:3px solid var(--accent);
+    border-bottom:1px solid var(--line); padding:18px 30px 20px; }
+  .ev-band-row{ display:flex; justify-content:space-between; align-items:flex-start; gap:28px; }
+  .ev-eyebrow{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
+    letter-spacing:0.2em; text-transform:uppercase; color:var(--dim); }
+  .ev-title{ font-size:34px; font-weight:800; text-transform:uppercase;
+    letter-spacing:-0.035em; line-height:1; margin:3px 0 0; color:var(--pri); }
+  .ev-band-meta{ display:flex; gap:24px; margin-top:16px; }
+  .ev-band-right{ flex:none; text-align:right; }
   .ev-meta-label{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
-    letter-spacing:0.16em; text-transform:uppercase; color:var(--pri); font-weight:600;
-    margin-bottom:3px; }
-  .ev-meta-label-sub{ margin-top:8px; }
-  .ev-meta-name{ font-weight:800; color:var(--pri); font-size:12px; }
-  .ev-meta-line{ margin-top:1px; }
-  .ev-meta-line strong{ color:var(--pri); }
-  .ev-sub{ font-size:11.5px; font-weight:800; text-transform:uppercase;
-    letter-spacing:0.02em; color:var(--pri); margin:14px 0 4px; }
-  .ev-scope{ color:var(--sec); margin:6px 0 0; }
-  .ev-upgrade{ margin-top:10px; }
-  .ev-upgrade-title{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
     letter-spacing:0.16em; text-transform:uppercase; color:var(--pri); font-weight:600; }
+  .ev-meta-name{ font-weight:800; font-size:12px; margin-top:3px; color:var(--pri); }
+  .ev-meta-line{ font-size:11px; color:var(--sec); }
+  .ev-meta-line-sub{ margin-top:3px; }
+
+  /* Hero total — the same figure the totals block prints, never a second sum. */
+  .ev-total-panel{ background:var(--pri); color:var(--paper); padding:12px 16px 14px; }
+  .ev-total-panel-label{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
+    letter-spacing:0.18em; text-transform:uppercase; color:var(--accent); }
+  .ev-total-panel-fig{ font-family:'JetBrains Mono','Courier New',monospace;
+    font-variant-numeric:tabular-nums; font-size:30px; font-weight:600;
+    letter-spacing:-0.03em; line-height:1.1; margin-top:3px; }
+  .ev-details{ margin-top:10px; }
+  .ev-details-list{ display:grid; gap:1px; margin-top:3px; font-size:11px; color:var(--sec); }
+  .ev-details-list strong{ color:var(--pri); }
+
+  /* ── The 30px document body every non-bleeding block sits in ── */
+  .ev-body{ padding:0 30px; }
+
+  /* Numbered section heads (01-04) */
+  .ev-secthead{ display:flex; align-items:center; gap:12px; margin:26px 0 10px; }
+  .ev-marker{ font-family:'JetBrains Mono','Courier New',monospace; font-weight:600;
+    font-size:16px; line-height:1; color:var(--accent-ink); background:var(--accent);
+    padding:7px 10px; min-width:38px; text-align:center; }
+  .ev-secthead h2{ font-size:14px; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.01em; margin:0; color:var(--pri); }
+
+  .ev-scope{ color:var(--sec); font-size:12px; margin:0; }
+  .ev-sub{ font-size:11.5px; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.02em; color:var(--pri); margin:20px 0 8px; }
+
+  /* NB: these comments ship inside the document, so none of them may repeat a
+     section heading verbatim — the spec tests assert an omitted section's
+     heading is absent from the whole HTML, and a comment would satisfy the
+     search and hide a genuinely missing section.
+
+     The works list — the 1px grid gap over --line IS the divider. */
+  .ev-hairlist{ display:grid; gap:1px; background:var(--line); border:1px solid var(--line); }
+  .ev-hairlist > div{ background:var(--card); padding:8px 13px; font-size:11.5px; color:var(--sec); }
+
+  /* What we assume — 5x5 accent squares, optically aligned to the first line. */
+  ul.ev-assume{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+  ul.ev-assume li{ display:flex; gap:9px; font-size:11.5px; color:var(--sec); }
+  ul.ev-assume li .mark{ flex:none; width:5px; height:5px; background:var(--accent); margin-top:7px; }
+
+  /* What's in / what's out, as facing cards; what is OUT reads as clearly as
+     what is IN. Only the card top border and heading carry the flag colour. */
+  .ev-cards{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px; }
+  /* Only one of the two present (an estimate with no exclusions is common) —
+     it takes the full width rather than sitting beside an empty column. */
+  .ev-cards-one{ grid-template-columns:1fr; }
+  .ev-card{ border:1px solid var(--line); background:var(--card); padding:12px 14px; }
+  .ev-card-inc{ border-top:3px solid var(--accent); }
+  .ev-card-exc{ border-top:3px solid #B45309; }
+  .ev-card h3{ font-size:11.5px; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.02em; margin:0 0 9px; color:var(--pri); }
+  .ev-card-exc h3{ color:#B45309; }
+  .ev-card ul{ list-style:none; margin:0; padding:0; display:grid; gap:7px; }
+  .ev-card li{ font-size:11px; color:var(--sec); padding-left:14px; border-left:2px solid var(--line); }
+  .ev-card-inc li{ border-left-color:var(--accent); }
+
+  /* Optional upgrades — advisory notes left, notes + priced rows right. */
+  .ev-upgrades{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .ev-upgrades-right{ display:grid; gap:12px; align-content:start; }
+  .ev-note{ border:1px solid var(--line); background:var(--card); padding:12px 14px; }
+  .ev-upgrade-title{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
+    letter-spacing:0.16em; text-transform:uppercase; color:var(--pri); font-weight:600;
+    margin-bottom:5px; }
+  .ev-note p{ color:var(--sec); font-size:11px; margin:0; }
+  .ev-upsells{ display:grid; gap:1px; background:var(--line); border:1px solid var(--line); }
+  .ev-upsell{ display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+    background:var(--card); padding:9px 13px; }
+  .ev-upsell-name{ font-size:11px; font-weight:700; color:var(--pri); }
   .ev-upsell-price{ font-family:'JetBrains Mono','Courier New',monospace;
-    font-variant-numeric:tabular-nums; }
-  .ev-tier-heading{ margin-top:22px; }
-  .ev-phase{ padding:12px 14px; }
+    font-variant-numeric:tabular-nums; font-size:11px; font-weight:600; white-space:nowrap; }
+
+  /* Phase card — the tables AND the totals live in one white card. */
+  .ev-phase{ border:1px solid var(--line); background:var(--card); padding:14px 16px;
+    margin-top:22px; page-break-inside:avoid; }
   .ev-phase-title{ font-size:12px; font-weight:800; text-transform:uppercase;
-    letter-spacing:-0.01em; margin:0; color:var(--pri); }
-  .ev-phase table{ margin-top:6px; }
-  .ev-phase td.num, .ev-phase th.num, .ev-totals td.num{
-    font-family:'JetBrains Mono','Courier New',monospace; font-variant-numeric:tabular-nums; }
+    letter-spacing:-0.01em; margin:0 0 10px; color:var(--pri); }
+  .ev-phase table + .ev-phase-title{ margin-top:20px; }
+  .ev-phase table{ width:100%; border-collapse:collapse; }
+  .ev-phase th{ font-family:'JetBrains Mono','Courier New',monospace; font-size:9px;
+    font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim);
+    border-bottom:2px solid var(--pri); text-align:left; padding:0 8px 6px 0; }
+  .ev-phase th.num{ text-align:right; padding:0 8px 6px; white-space:nowrap; }
+  .ev-phase th.num-last{ text-align:right; padding:0 0 6px 8px; white-space:nowrap; }
+  .ev-phase td{ border-bottom:1px solid var(--line); padding:9px 8px 9px 0;
+    vertical-align:top; font-size:11px; color:var(--pri); }
+  .ev-phase td.num{ padding:9px 8px; text-align:right; white-space:nowrap;
+    font-family:'JetBrains Mono','Courier New',monospace; font-variant-numeric:tabular-nums;
+    color:var(--sec); }
+  .ev-phase td.num-last{ padding:9px 0 9px 8px; text-align:right; white-space:nowrap;
+    font-family:'JetBrains Mono','Courier New',monospace; font-variant-numeric:tabular-nums;
+    font-weight:600; color:var(--pri); }
   .ev-group-total td{ border-bottom:none; border-top:2px solid var(--pri);
-    font-weight:800; padding-top:7px; }
-  .ev-totals{ width:auto; min-width:280px; margin:12px 0 0 auto; }
-  .ev-totals td{ border-bottom:1px solid var(--line); padding:5px 6px; }
-  .ev-totals .ev-total-label{ color:var(--sec); }
-  .ev-totals .ev-grand td{ border-bottom:none; border-top:2px solid var(--pri);
-    font-weight:800; font-size:14px; color:var(--pri); padding-top:8px; }
-  .ev-images{ display:flex; flex-wrap:wrap; gap:12px; }
-  .ev-image{ flex:1 1 200px; max-width:280px; margin:8px 0 0; }
-  .ev-image img{ max-height:240px; }
-  .ev-terms{ margin-top:22px; }
+    font-family:'JetBrains Mono','Courier New',monospace; font-size:10px; letter-spacing:0.1em;
+    text-transform:uppercase; font-weight:600; text-align:right; padding:9px 8px 0 0;
+    color:var(--pri); }
+  .ev-group-total td.num-last{ font-size:13px; letter-spacing:normal; text-transform:none;
+    padding:9px 0 0 8px; }
+
+  /* Totals nested in the same card, right-aligned. */
+  .ev-totals-wrap{ display:flex; justify-content:flex-end; margin-top:16px; }
+  .ev-totals{ min-width:290px; }
+  .ev-total-row{ display:flex; justify-content:space-between; gap:16px; padding:6px 0;
+    border-bottom:1px solid var(--line); font-size:11.5px; }
+  .ev-total-row .ev-total-label{ color:var(--sec); }
+  .ev-total-row .num{ font-family:'JetBrains Mono','Courier New',monospace;
+    font-variant-numeric:tabular-nums; color:var(--pri); }
+  .ev-grand{ display:flex; justify-content:space-between; align-items:baseline; gap:16px;
+    margin-top:8px; padding:11px 13px; background:var(--pri); color:var(--paper); }
+  .ev-grand-label{ font-family:'JetBrains Mono','Courier New',monospace; font-size:10px;
+    letter-spacing:0.16em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  .ev-grand .num{ font-family:'JetBrains Mono','Courier New',monospace;
+    font-variant-numeric:tabular-nums; font-size:20px; font-weight:600; letter-spacing:-0.02em; }
+
+  .ev-tier-heading{ margin-top:22px; }
+
+  /* Images span the text column (full-bleed images are direction 1C). */
+  .ev-image{ width:100%; height:320px; object-fit:cover; object-position:50% 60%;
+    display:block; border:1px solid var(--line); }
+
+  /* Terms — two columns, the GST/currency line spanning both. */
+  .ev-terms{ border:1px solid var(--line); background:var(--card); padding:14px 16px; }
+  .ev-terms-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
+  .ev-terms-grid > div{ font-size:11px; color:var(--sec); }
+  .ev-terms-span{ grid-column:1 / -1; }
+
+  /* Full-bleed accept band. The chrome's global link colour must not leak. */
+  .ev-accept{ margin-top:22px; background:var(--accent); color:var(--accent-ink);
+    padding:14px 30px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .ev-accept-line{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.02em; }
+  .ev-accept-url{ font-family:'JetBrains Mono','Courier New',monospace; font-size:10.5px;
+    margin-top:3px; word-break:break-all; color:var(--accent-ink); }
+  .ev-accept a{ color:var(--accent-ink); text-decoration:none; }
+  .ev-accept-total{ font-family:'JetBrains Mono','Courier New',monospace;
+    font-variant-numeric:tabular-nums; font-size:18px; font-weight:600; white-space:nowrap; }
+
 </style>`
 
 /**
@@ -643,34 +844,98 @@ export function buildEvChargerEstimateHtml(input: EvChargerEstimateInput): strin
 
   const scopeLead = (input.scopeOfWorks ?? '').trim()
 
+  // The hero total mirrors the FIRST visible tier — the one the customer reads
+  // as "the price" when tiers are collapsed to one, and the top of the ladder
+  // when they are not. Null when nothing is priced, so the panel is omitted
+  // rather than printing $0.00.
+  const heroTier = tiers[0]?.tier ?? null
+  const heroTotal = heroTier
+    ? aud2(
+        evTotals(heroTier, {
+          discountPct: input.appliedDiscountPct,
+          gstRegistered: input.gstRegistered,
+        }).total,
+      )
+    : null
+
+  const terms = evEstimateTerms(gstRegistered)
+  // The GST/currency basis is the last term and spans both columns — it
+  // qualifies every line above it, so it must not read as one more item.
+  const termsHtml = terms
+    .map(
+      (t, i) =>
+        `<div${i === terms.length - 1 ? ' class="ev-terms-span"' : ''}>${esc(t)}</div>`,
+    )
+    .join('')
+
+  const acceptBand = input.quoteViewUrl
+    ? `
+  <div class="ev-accept">
+    <div>
+      <div class="ev-accept-line">View and accept this estimate online</div>
+      <div class="ev-accept-url">${esc(input.quoteViewUrl)}</div>
+    </div>
+    ${heroTotal ? `<div class="ev-accept-total">${esc(heroTotal)}</div>` : ''}
+  </div>`
+    : ''
+
   const body = `
 ${EV_STYLE}
-  <h2>Scope of Work</h2>
+  <div class="ev-body">
+  ${sectionHead('01', 'Scope of Work')}
   ${scopeLead ? `<p class="ev-scope">${esc(scopeLead)}</p>` : ''}
-  ${bulletSection('Description of Works', description)}
-  ${bulletSection('Assumptions', assumptions)}
-  ${bulletSection('Inclusions', inclusions)}
-  ${bulletSection('Exclusions', exclusions)}
+  ${
+    description.length
+      ? `<h3 class="ev-sub">Description of Works</h3>
+  <div class="ev-hairlist">${description.map((d) => `<div>${esc(d)}</div>`).join('')}</div>`
+      : ''
+  }
+  ${
+    assumptions.length
+      ? `<h3 class="ev-sub">Assumptions</h3>
+  <ul class="ev-assume">${assumptions
+    .map((a) => `<li><span class="mark"></span><span>${esc(a)}</span></li>`)
+    .join('')}</ul>`
+      : ''
+  }
+  ${
+    inclusions.length || exclusions.length
+      ? `<div class="ev-cards${inclusions.length && exclusions.length ? '' : ' ev-cards-one'}">
+    ${
+      inclusions.length
+        ? `<div class="ev-card ev-card-inc"><h3>Inclusions</h3><ul>${inclusions
+            .map((i) => `<li>${esc(i)}</li>`)
+            .join('')}</ul></div>`
+        : ''
+    }
+    ${
+      exclusions.length
+        ? `<div class="ev-card ev-card-exc"><h3>Exclusions</h3><ul>${exclusions
+            .map((e) => `<li>${esc(e)}</li>`)
+            .join('')}</ul></div>`
+        : ''
+    }
+  </div>`
+      : ''
+  }
   ${optionalUpgradesSection(input)}
   ${tiers.map((entry) => tierBlock(input, entry, showTierLabels)).join('')}
   ${imagesSection(images)}
-  <div class="ev-terms">
-    <h2>Terms &amp; Conditions</h2>
-    <ul class="bullets">${evEstimateTerms(gstRegistered)
-      .map((t) => `<li>${esc(t)}</li>`)
-      .join('')}</ul>
+  ${sectionHead('04', 'Terms &amp; Conditions')}
+  <div class="ev-terms"><div class="ev-terms-grid">${termsHtml}</div></div>
   </div>`
 
   return renderReportDocument(branding, {
     docTitle: `Estimate ${input.estimateRef} — ${branding.businessName}`,
     titleText: 'ESTIMATE',
     eyebrow: input.estimateRef,
-    introMetaHtml: introMeta(input, issued),
+    // 1B replaces the chrome's rule + intro block with the full-bleed band, and
+    // the closing line with the accent accept band. Both must reach the document
+    // edges, which nothing nested inside those wrappers can do.
+    introBlockHtml: summaryBand(input, issued, heroTotal),
+    closingHtml: acceptBand || null,
     dateLabel: fmtDate(issued),
     bodyHtml: body,
-    closingLine: input.quoteViewUrl
-      ? `View and accept this estimate online: ${input.quoteViewUrl}`
-      : null,
     footerPriceNote: gstRegistered ? 'Prices include GST' : 'Prices are not subject to GST',
   })
 }

@@ -382,11 +382,10 @@ describe('derivations', () => {
 
 describe('template key', () => {
   it('is stable so cached EV PDFs regenerate only on a deliberate bump', () => {
-    // ev2 — the Images section now leads with the Gemini render of the charger
-    // in the customer's own photo (spec ev-charger-location-photo R14). The
-    // bump is what makes already-cached EV PDFs pick that up; it must never be
-    // changed casually, which is why this pin exists.
-    expect(EV_ESTIMATE_TEMPLATE_KEY).toBe('ev2')
+    // ev3 — direction 1B "Numbered & banded" (EST-0006 redesign). The bump is
+    // what makes already-cached EV PDFs re-render into the new template; it
+    // must never be changed casually, which is why this pin exists.
+    expect(EV_ESTIMATE_TEMPLATE_KEY).toBe('ev3')
   })
 })
 

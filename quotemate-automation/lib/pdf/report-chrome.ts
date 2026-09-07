@@ -95,6 +95,25 @@ export type ReportDocument = {
   closingLine?: string | null
   /** Point-of-use GST basis for the repeating footer. */
   footerPriceNote?: string | null
+  /**
+   * Replace the accent rule + `.intro-block` (eyebrow / title / intro meta)
+   * with the trade's own markup. Already-built HTML.
+   *
+   * Exists for the EV charger estimate's banded direction, whose summary band
+   * is FULL-BLEED: it carries its own 30px insets and must reach the document
+   * edges, which a block nested inside `.intro-block` cannot do. Suppressing
+   * the default by passing empty slots is not possible — `titleText` falls back
+   * to "Quotation" — so the replacement has to be explicit.
+   *
+   * Omit it and every other trade renders exactly as before.
+   */
+  introBlockHtml?: string | null
+  /**
+   * Replace the `<p class="closing">` line with the trade's own markup — same
+   * full-bleed reasoning as `introBlockHtml` (the EV accept band). When set,
+   * `closingLine` is ignored.
+   */
+  closingHtml?: string | null
 }
 
 function wordmark(b: TenantBranding): string {
@@ -382,7 +401,10 @@ export function renderReportDocument(branding: TenantBranding, doc: ReportDocume
     <div class="brand">${wordmark(branding)}</div>
     <div class="head-meta">${headerMeta}</div>
   </header>
-  <div class="rule"></div>
+  ${
+    doc.introBlockHtml
+      ? doc.introBlockHtml
+      : `<div class="rule"></div>
 
   <div class="intro-block">
     ${doc.eyebrow ? `<div class="eyebrow">${esc(doc.eyebrow)}</div>` : ''}
@@ -394,7 +416,8 @@ export function renderReportDocument(branding: TenantBranding, doc: ReportDocume
       }${esc(doc.dateLabel)}${doc.customerContact ? ` · ${esc(doc.customerContact)}` : ''}</div>`
     }
     ${doc.introHtml ? `<p class="intro">${doc.introHtml}</p>` : ''}
-  </div>
+  </div>`
+  }
 
   ${doc.bodyHtml}
 
@@ -407,7 +430,13 @@ export function renderReportDocument(branding: TenantBranding, doc: ReportDocume
       : ''
   }
 
-  ${doc.closingLine ? `<p class="closing">${esc(doc.closingLine)}</p>` : ''}
+  ${
+    doc.closingHtml
+      ? doc.closingHtml
+      : doc.closingLine
+        ? `<p class="closing">${esc(doc.closingLine)}</p>`
+        : ''
+  }
 
   <div class="accentbar">${esc(
     branding.licenceLine ? branding.licenceLine : branding.businessName,
