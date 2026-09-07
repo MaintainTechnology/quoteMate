@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Charger Signal Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* QuoteMax "Command Centre" — warm charcoal ground, single Caterpillar-yellow
+     accent, square corners, borders and lit edges instead of shadows.
+     Dark-first: :root carries the committed palette, light is the override. */
+  :root {
+    --ground: #16120F;
+    --raised: #1E1916;
+    --raised-2: #241E1A;
+    --hairline: #332A24;
+    --hairline-soft: #262019;
+    --ink: #F2EDE7;
+    --ink-dim: #A2968B;
+    --ink-faint: #6F655C;
+    --accent: #FFC400;
+    --accent-dim: #8A6B08;
+    --blocked: #E0705C;
+    --lit: rgba(255,196,0,.14);
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --ground: #F6F3EE;
+      --raised: #FFFFFF;
+      --raised-2: #FBF8F3;
+      --hairline: #DCD3C7;
+      --hairline-soft: #EBE4D9;
+      --ink: #1A1512;
+      --ink-dim: #5C5249;
+      --ink-faint: #8C8177;
+      --accent: #8A6B08;
+      --accent-dim: #C9A83A;
+      --blocked: #B23F28;
+      --lit: rgba(138,107,8,.10);
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #F6F3EE;
+    --raised: #FFFFFF;
+    --raised-2: #FBF8F3;
+    --hairline: #DCD3C7;
+    --hairline-soft: #EBE4D9;
+    --ink: #1A1512;
+    --ink-dim: #5C5249;
+    --ink-faint: #8C8177;
+    --accent: #8A6B08;
+    --accent-dim: #C9A83A;
+    --blocked: #B23F28;
+    --lit: rgba(138,107,8,.10);
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 96px; }
+
+  /* ── masthead ─────────────────────────────────────────── */
+  .mast { border-bottom: 1px solid var(--hairline); padding-bottom: 28px; margin-bottom: 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px;
+  }
+  h1 {
+    font-size: clamp(30px, 4.6vw, 46px); font-weight: 800; letter-spacing: -.025em;
+    line-height: 1.05; margin: 0 0 14px; text-wrap: balance;
+  }
+  .standfirst { color: var(--ink-dim); max-width: 66ch; margin: 0; font-size: 16px; }
+  .verified {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+    margin-top: 18px; display: flex; flex-wrap: wrap; gap: 6px 20px;
+  }
+  .verified b { color: var(--ink-dim); font-weight: 500; }
+
+  /* ── repo map ─────────────────────────────────────────── */
+  h2 {
+    font-size: 12px; font-family: var(--mono); font-weight: 700; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-faint);
+    margin: 56px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline-soft);
+  }
+  .repos { display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); }
+  .repo { background: var(--raised); padding: 18px 20px; display: grid; gap: 6px; }
+  .repo-name { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink); }
+  .repo-role { color: var(--ink-dim); font-size: 14px; }
+  .repo-path { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); word-break: break-all; }
+  .repo.live { border-left: 3px solid var(--accent); background: linear-gradient(90deg, var(--lit), transparent 220px), var(--raised); }
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--accent-dim);
+    color: var(--accent); margin-left: 8px; vertical-align: 2px;
+  }
+  .tag.muted { border-color: var(--hairline); color: var(--ink-faint); }
+
+  /* ── signal path ──────────────────────────────────────── */
+  .band {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 40px 0 14px; display: flex; align-items: center; gap: 12px;
+  }
+  .band::after { content: ""; flex: 1; height: 1px; background: var(--hairline-soft); }
+  .band .svc { color: var(--accent); }
+
+  .stage { display: grid; grid-template-columns: 52px 1fr; gap: 0 18px; position: relative; }
+  .stage + .stage { margin-top: 2px; }
+  .rail { display: flex; flex-direction: column; align-items: center; }
+  .num {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ground);
+    background: var(--ink-dim); width: 26px; height: 26px; display: grid; place-items: center;
+    flex: none;
+  }
+  .stage.sends .num { background: var(--accent); }
+  .stage.gate .num { background: var(--blocked); color: #fff; }
+  .thread { width: 1px; flex: 1; background: var(--hairline); min-height: 14px; }
+  .body { padding-bottom: 22px; min-width: 0; }
+  .what { font-weight: 700; font-size: 15.5px; margin: 2px 0 6px; letter-spacing: -.01em; }
+  .why { color: var(--ink-dim); margin: 0 0 10px; max-width: 68ch; font-size: 14px; }
+
+  .loc {
+    font-family: var(--mono); font-size: 12.5px; display: flex; flex-wrap: wrap;
+    align-items: baseline; gap: 0 8px; margin: 0 0 6px;
+  }
+  .loc .file { color: var(--ink); }
+  .loc .ln {
+    color: var(--ground); background: var(--ink-faint); padding: 0 6px;
+    font-weight: 700; font-size: 11.5px;
+  }
+  .stage.sends .loc .ln { background: var(--accent); }
+  .loc .sym { color: var(--ink-dim); }
+
+  .emits {
+    display: inline-block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em;
+    text-transform: uppercase; padding: 3px 8px; margin-top: 4px;
+    border: 1px solid var(--accent-dim); color: var(--accent); background: var(--lit);
+  }
+  .emits.stop { border-color: var(--blocked); color: var(--blocked); background: transparent; }
+
+  pre {
+    font-family: var(--mono); font-size: 12px; line-height: 1.65; margin: 10px 0 0;
+    background: var(--raised); border: 1px solid var(--hairline); border-left: 2px solid var(--hairline);
+    padding: 12px 14px; overflow-x: auto; color: var(--ink-dim);
+  }
+  pre b { color: var(--ink); font-weight: 500; }
+  pre .c { color: var(--ink-faint); }
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tw { overflow-x: auto; border: 1px solid var(--hairline); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 560px; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 700;
+    padding: 10px 14px; background: var(--raised-2); border-bottom: 1px solid var(--hairline);
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--hairline-soft); vertical-align: top; background: var(--raised); }
+  tr:last-child td { border-bottom: 0; }
+  td.m, th.m { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  td.dim { color: var(--ink-dim); }
+  .yes { color: var(--accent); font-weight: 700; }
+  .no { color: var(--blocked); font-weight: 700; }
+
+  .note {
+    border-left: 2px solid var(--accent); background: var(--lit);
+    padding: 14px 18px; margin: 22px 0 0; color: var(--ink-dim); font-size: 14px;
+  }
+  .note b { color: var(--ink); }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: no-preference) { .stage { transition: none; } }
+  @media (max-width: 620px) {
+    .stage { grid-template-columns: 34px 1fr; gap: 0 12px; }
+    .num { width: 22px; height: 22px; font-size: 11px; }
+  }
+</style>
+<style>
+  /* standalone reset — the hosted wrapper normally supplies these */
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">QuoteMax · Electrical · ev_charger</p>
+    <h1>EV Charger Signal Path</h1>
+    <p class="standfirst">
+      Every file and line an inbound SMS touches, from the Twilio callback to the quote
+      message landing on the customer's phone. Three services, two repositories. Line
+      numbers were read from the working tree, not recalled.
+    </p>
+    <div class="verified">
+      <span><b>Traced against</b> intake 855150c8 → quote fb696afb</span>
+      <span><b>Tenant</b> Sparky 6dca084c</span>
+      <span><b>Number</b> +61468048422</span>
+      <span><b>Result</b> $652 inc GST, 3 tiers</span>
+    </div>
+  </header>
+
+  <h2>The three services</h2>
+  <div class="repos">
+    <div class="repo">
+      <div class="repo-name">qm-front-desk <span class="tag muted">Railway</span></div>
+      <div class="repo-role">Twilio's actual webhook target. Identifies tenant + trade, then forwards. Does not quote.</div>
+      <div class="repo-path">Receptionists/qm-front-desk · https://qm-front-desk-production.up.railway.app</div>
+    </div>
+    <div class="repo live">
+      <div class="repo-name">qm-electrical-receptionist <span class="tag">the receptionist</span></div>
+      <div class="repo-role">NestJS. Holds the entire conversation, the estimator and the send. This is the code that answers every electrical SMS.</div>
+      <div class="repo-path">Receptionists/qm-electrical-receptionist · port 3101</div>
+    </div>
+    <div class="repo">
+      <div class="repo-name">quotemate-automation <span class="tag muted">Vercel</span></div>
+      <div class="repo-role">Next.js. Serves the customer quote page and the PDF — including the EV estimate template. Its own <span style="font-family:var(--mono);font-size:12px">app/api/sms/inbound</span> is the same logic but is <em>not</em> what answers Sparky.</div>
+      <div class="repo-path">quotemate-automation · https://quotemax.com.au</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>The one thing that surprises everyone.</b> The Front Desk forwards to the receptionist by
+    POSTing <span style="font-family:var(--mono);font-size:12.5px">/api/receptionist/simulate</span>
+    with an <span style="font-family:var(--mono);font-size:12.5px">x-sim-key</span> header. That endpoint reads like a test
+    harness, but it is the production channel — which is why
+    <span style="font-family:var(--mono);font-size:12.5px">SMS_SIMULATE_ENABLED=1</span> is set in prod. It synthesises a
+    Twilio-shaped request, <em>signs it with the service's own auth token</em>, and calls the same
+    handler a genuine callback would hit. There is no signature bypass anywhere.
+  </div>
+
+  <!-- ══ BAND 1 ══ -->
+  <div class="band"><span class="svc">Front Desk</span> · routing only</div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">1</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Twilio POSTs the inbound SMS</p>
+      <p class="why">The number's <span style="font-family:var(--mono);font-size:12.5px">smsUrl</span> points here, not at quotemax.com.au. Nine of twelve provisioned numbers do.</p>
+      <p class="loc"><span class="file">src/frontdesk/front-desk.controller.ts</span><span class="ln">106</span><span class="sym">@Post('sms/inbound')</span></p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">2</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Decide tenant and trade</p>
+      <p class="why">Resolves which tradie owns the destination number, then classifies the message to one of five trades. Electrical wins for an EV charger enquiry.</p>
+      <p class="loc"><span class="file">src/frontdesk/route-turn.ts</span><span class="sym">· llm-route.ts · directory.ts</span></p>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">3</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Forward to the electrical receptionist</p>
+      <p class="why">20-second timeout. A trade maps to a URL via <span style="font-family:var(--mono);font-size:12.5px">serviceFor()</span> — <span style="font-family:var(--mono);font-size:12.5px">RECEPTIONIST_ELECTRICAL_URL</span>, defaulting to localhost:3101.</p>
+      <p class="loc"><span class="file">src/frontdesk/front-desk.service.ts</span><span class="ln">180</span><span class="sym">forward()</span></p>
+      <span class="emits">HTTP → receptionist</span>
+    </div>
+  </div>
+
+  <!-- ══ BAND 2 ══ -->
+  <div class="band"><span class="svc">Electrical receptionist</span> · the whole conversation</div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">4</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Synthesise and sign the webhook</p>
+      <p class="why">Rebuilds the Twilio form body, computes the expected signature with <span style="font-family:var(--mono);font-size:12.5px">TWILIO_AUTH_TOKEN</span>, and hands it to the route as a Web <span style="font-family:var(--mono);font-size:12.5px">Request</span>.</p>
+      <p class="loc"><span class="file">src/receptionist/receptionist.controller.ts</span><span class="sym">simulate() → inboundRoute()</span></p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">5</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The pipeline entry point</p>
+      <p class="why">3,288 lines. Everything from here to the reply lives in this one file.</p>
+      <p class="loc"><span class="file">src/receptionist/inbound.route.ts</span><span class="ln">390</span><span class="sym">export async function POST</span></p>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">6</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Signature check — unconditional</p>
+      <p class="why">No env bypass exists. The URL is rebuilt from forwarded headers so the signed string matches what the caller signed.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">395</span><span class="sym">parseTwilioForm(rawBody)</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">411</span><span class="sym">validateTwilioSignature()</span></p>
+      <p class="loc"><span class="file">lib/sms/twilio-validator.ts</span><span class="ln">8</span><span class="sym">twilio.validateRequest</span></p>
+      <span class="emits stop">403 on mismatch · line 423</span>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">7</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Media-only messages survive the field check</p>
+      <p class="why">Twilio posts an empty <span style="font-family:var(--mono);font-size:12.5px">Body</span> when a photo is sent with no caption. A synthetic <span style="font-family:var(--mono);font-size:12.5px">'[photo]'</span> keeps the transcript, the dedupe key and the LLM turn working on text.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">438</span><span class="sym">inboundNumMedia / inboundHasMedia</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">441</span><span class="sym">inboundBody = raw || '[photo]'</span></p>
+      <span class="emits stop">400 on genuinely empty · line 445</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">8</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Conversation lookup and the inflight lock</p>
+      <p class="why">Three modes: <span style="font-family:var(--mono);font-size:12.5px">new</span>, <span style="font-family:var(--mono);font-size:12.5px">reuse</span>, <span style="font-family:var(--mono);font-size:12.5px">inflight</span>. Inflight means the customer texted again while their quote was still drafting.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">613</span><span class="sym">sms_conversations lookup</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">630</span><span class="sym">type LookupMode</span></p>
+      <p class="loc"><span class="file">lib/sms/inflight.ts</span><span class="ln">—</span><span class="sym">isQuoteInflight()</span></p>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">9</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Fetch and store MMS media</p>
+      <p class="why">Media is pulled from Twilio and written to the <span style="font-family:var(--mono);font-size:12.5px">intake-photos</span> bucket <em>before</em> the inbound row is persisted, so the photo can never be orphaned by a later failure.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">922</span><span class="sym">numMedia / MediaUrl0</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">993</span><span class="sym">photo_paths: inboundPhotoPaths</span></p>
+      <span class="emits">Storage write</span>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">10</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Persist the inbound message</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">987</span><span class="sym">sms_messages.insert</span></p>
+      <span class="emits">DB write</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">11</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Extract slots from the thread</p>
+      <p class="why">Sonnet 5 reads the transcript and fills <span style="font-family:var(--mono);font-size:12.5px">conversation_state.slots</span>. For EV that means <span style="font-family:var(--mono);font-size:12.5px">charger_model</span>, <span style="font-family:var(--mono);font-size:12.5px">switchboard_distance</span>, <span style="font-family:var(--mono);font-size:12.5px">phase</span>, <span style="font-family:var(--mono);font-size:12.5px">spare_capacity</span>, <span style="font-family:var(--mono);font-size:12.5px">supplied_by</span>.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">1415</span><span class="sym">extractSlots({...})</span></p>
+      <p class="loc"><span class="file">lib/sms/extract-slots.ts</span><span class="ln">—</span><span class="sym">777 lines</span></p>
+      <p class="loc"><span class="file">lib/sms/model.ts</span><span class="ln">32</span><span class="sym">SMS_RECEPTIONIST_MODEL = 'claude-sonnet-5'</span></p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">12</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The dialog turn</p>
+      <p class="why">Returns a <span style="font-family:var(--mono);font-size:12.5px">TurnDecision</span>: <span style="font-family:var(--mono);font-size:12.5px">action</span>, <span style="font-family:var(--mono);font-size:12.5px">reply_to_send</span>, <span style="font-family:var(--mono);font-size:12.5px">job_type_guess</span>, <span style="font-family:var(--mono);font-size:12.5px">request_photo_link</span>. The tenant's enabled catalogue rows are rendered into a <b>TENANT SERVICES</b> block, and the EV assembly's three clarifying questions become MUST-ASK items.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">1865</span><span class="sym">decideNextTurn({...})</span></p>
+      <p class="loc"><span class="file">lib/sms/dialog.ts</span><span class="ln">712</span><span class="sym">MUST-ASK prompt block</span></p>
+      <p class="loc"><span class="file">lib/sms/dialog.ts</span><span class="ln">1356</span><span class="sym">easyListNotExhaustiveLines()</span></p>
+      <pre><span class="c">// dialog.ts:1356 — why this function exists</span>
+The easy-5 list is the AUTO-QUOTE <b>vocabulary</b>, not the tradie's
+catalogue. Without these lines the model read the 5-item opener as
+an exhaustive scope and <b>declined services the tradie had enabled</b>.</pre>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">13</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Grounding check on the reply</p>
+      <p class="why">Refuses any customer-facing sentence quoting money. Money is in neither the authoritative nor the conversational bucket — a customer cannot authorise a figure by typing it. A refusal drops the turn to the deterministic fallback.</p>
+      <p class="loc"><span class="file">lib/sms/llm-receptionist.ts</span><span class="ln">299</span><span class="sym">assertGroundedReply()</span></p>
+      <p class="loc"><span class="file">lib/sms/llm-receptionist.ts</span><span class="ln">226</span><span class="sym">MONEY_CONTEXT</span></p>
+      <span class="emits stop">Refusal → "hit a quick snag"</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">14</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Quote readiness</p>
+      <p class="why">Decides whether enough facts exist to draft. Only runs when there is no existing intake and the model said <span style="font-family:var(--mono);font-size:12.5px">finish</span>.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2255</span><span class="sym">!hasExistingIntake &amp;&amp; action === 'finish'</span></p>
+      <p class="loc"><span class="file">lib/sms/quote-readiness.ts</span><span class="ln">530</span><span class="sym">evaluateQuoteReadiness()</span></p>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">15</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The photo link — "step 8b"</p>
+      <p class="why">Seven negative gates run before any trigger. <span style="font-family:var(--mono);font-size:12.5px">job_type_not_easy5</span> is the one that used to block every EV turn; <span style="font-family:var(--mono);font-size:12.5px">PHOTO_ELIGIBLE_JOB_TYPES</span> is the superset that fixed it.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">206</span><span class="sym">PHOTO_ELIGIBLE_JOB_TYPES</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2360</span><span class="sym">computeShouldSendPhotoRequest()</span></p>
+      <p class="loc"><span class="file">lib/sms/photo-request-trigger.ts</span><span class="ln">79</span><span class="sym">the easy-5 gate</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2415</span><span class="sym">buildPhotoRequestSms()</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2416</span><span class="sym">dispatchQuoteMessage()</span></p>
+      <span class="emits">SMS → customer (upload link)</span>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">16</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Send the conversational reply</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2662</span><span class="sym">dispatchQuoteMessage()</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2761</span><span class="sym">sms_messages.insert (outbound)</span></p>
+      <p class="loc"><span class="file">lib/sms/dispatch.ts</span><span class="ln">149</span><span class="sym">SMS-first, WhatsApp fallback</span></p>
+      <span class="emits">SMS → customer</span>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">17</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Hand off to intake structuring</p>
+      <p class="why">Guarded by <span style="font-family:var(--mono);font-size:12.5px">sideEffectsAllowed()</span>, which stops a thread belonging to another trade from minting an electrical intake. Self-call over localhost, bearing <span style="font-family:var(--mono);font-size:12.5px">CRON_SECRET</span>.</p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2857</span><span class="sym">sideEffectsAllowed({...})</span></p>
+      <p class="loc"><span class="file">inbound.route.ts</span><span class="ln">2869</span><span class="sym">fetch(ENGINE_BASE_URL + '/api/intake/structure')</span></p>
+      <span class="emits">HTTP → self :3101</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">18</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Structure the intake</p>
+      <p class="why">Opus 4.8 stitches the SMS transcript into a typed intake and writes the row: <span style="font-family:var(--mono);font-size:12.5px">job_type</span>, <span style="font-family:var(--mono);font-size:12.5px">trade</span>, <span style="font-family:var(--mono);font-size:12.5px">address</span>, <span style="font-family:var(--mono);font-size:12.5px">scope.specs.supplied_by</span>, <span style="font-family:var(--mono);font-size:12.5px">photo_paths</span>, <span style="font-family:var(--mono);font-size:12.5px">confidence</span>.</p>
+      <p class="loc"><span class="file">src/intake/structure.route.ts</span><span class="ln">136</span><span class="sym">export async function POST</span></p>
+      <p class="loc"><span class="file">structure.route.ts</span><span class="ln">143</span><span class="sym">isCronAuthorised(req)</span></p>
+      <p class="loc"><span class="file">structure.route.ts</span><span class="ln">627</span><span class="sym">intakes.insert</span></p>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">19</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Dispatch to the estimator</p>
+      <p class="loc"><span class="file">structure.route.ts</span><span class="ln">960</span><span class="sym">fetch('/api/estimate/draft')</span></p>
+      <span class="emits">HTTP → self :3101</span>
+    </div>
+  </div>
+
+  <!-- ══ BAND 3 ══ -->
+  <div class="band"><span class="svc">Estimator</span> · intake → priced quote</div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">20</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Auth and the billing gate</p>
+      <p class="why">A blocked gate is a dropped lead: by this point the customer has been told a quote is coming. <span style="font-family:var(--mono);font-size:12.5px">billing_exempt</span> passes it.</p>
+      <p class="loc"><span class="file">src/estimate/draft.route.ts</span><span class="ln">68</span><span class="sym">export async function POST</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">80</span><span class="sym">isCronAuthorised(req)</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">158</span><span class="sym">checkQuoteEntitlement()</span></p>
+      <span class="emits stop">Blocked → silent skip</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">21</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Run the estimate</p>
+      <p class="why">Model cascade Opus 4.8 → 4.7 → Sonnet 4.6, with RAG + rerank. Every dollar comes from a tool call — the model never free-forms a price. For a customer-supplied charger the tool returns the install-only price.</p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">370</span><span class="sym">runEstimation()</span></p>
+      <p class="loc"><span class="file">lib/estimate/run.ts</span><span class="ln">—</span><span class="sym">3,217 lines</span></p>
+      <p class="loc"><span class="file">lib/estimate/electrical-prompt.ts</span><span class="ln">—</span><span class="sym">WP5 / WP5b supply rules</span></p>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">22</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Grounding — and the order that matters</p>
+      <p class="why">The phantom-line drop runs at 872, <em>before</em> the grounding pass at 885. It has to: a failed grounding bails to the tradie-review hold at the bottom of the function, which sits below the EV customer-supply fence at 1425 — so the fence would never get a turn.</p>
+      <p class="loc"><span class="file">lib/estimate/run.ts</span><span class="ln">872</span><span class="sym">dropUnpricedPhantomEvChargerLines()</span></p>
+      <p class="loc"><span class="file">lib/estimate/run.ts</span><span class="ln">885</span><span class="sym">validateQuoteGrounding()</span></p>
+      <p class="loc"><span class="file">lib/estimate/run.ts</span><span class="ln">1411</span><span class="sym">ensureChargerSuppliedSeparatelyAssumption()</span></p>
+      <p class="loc"><span class="file">lib/estimate/run.ts</span><span class="ln">1425</span><span class="sym">enforceEvChargerCustomerSupplyFence()</span></p>
+      <span class="emits stop">Ungrounded → hold or inspection</span>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">23</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The spec guard</p>
+      <p class="why">Compares the customer's requested specs against the chosen product. With no SpecDefs for a category it now checks <em>nothing</em> rather than everything — comparing free text against a product description could never match, and the resulting flag silently held every EV quote.</p>
+      <p class="loc"><span class="file">lib/estimate/spec-guard.ts</span><span class="ln">87</span><span class="sym">reconcileProductSpecs()</span></p>
+      <p class="loc"><span class="file">lib/estimate/spec-guard.ts</span><span class="ln">113</span><span class="sym">the checkKeys fallback</span></p>
+      <p class="loc"><span class="file">lib/estimate/spec-registry.ts</span><span class="ln">112</span><span class="sym">ev_charger: [{ key: 'phase' }]</span></p>
+      <span class="emits stop">Mismatch → [spec-guard] risk flag</span>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">24</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Write the quote row and mint Stripe</p>
+      <p class="why">Electrical takes only the flat $99 refundable site visit. The three tiers are computed, stored and shown, but not sold against.</p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">526</span><span class="sym">decideRouting()</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">567</span><span class="sym">quotes.insert</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">762</span><span class="sym">createInspectionCheckoutSession()</span></p>
+      <span class="emits">DB write · Stripe session</span>
+    </div>
+  </div>
+
+  <div class="stage gate">
+    <div class="rail"><div class="num">25</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The gate that actually decides</p>
+      <p class="why">Two routing systems disagree, and this is the one that matters. <span style="font-family:var(--mono);font-size:12.5px">decideRouting()</span> almost always returns <span style="font-family:var(--mono);font-size:12.5px">tradie_review</span> because <span style="font-family:var(--mono);font-size:12.5px">AUTO_SEND_JOBTYPES</span> is unset. The customer SMS is gated by <span style="font-family:var(--mono);font-size:12.5px">shouldHoldForReview()</span> instead, which honours the tenant's <span style="font-family:var(--mono);font-size:12.5px">review_policy</span> — unless a risk flag overrides it.</p>
+      <p class="loc"><span class="file">lib/routing/decide.ts</span><span class="ln">85</span><span class="sym">decideRoutingDetailed()</span></p>
+      <p class="loc"><span class="file">lib/quote/review-policy.ts</span><span class="ln">91</span><span class="sym">shouldHoldForReview()</span></p>
+      <p class="loc"><span class="file">lib/quote/review-policy.ts</span><span class="ln">148</span><span class="sym">safetyReviewReasons()</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">828</span><span class="sym">the call site</span></p>
+      <span class="emits stop">hold=true → customer gets nothing</span>
+    </div>
+  </div>
+
+  <div class="stage sends">
+    <div class="rail"><div class="num">26</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">Send the quote</p>
+      <p class="why">Tier heading comes from <span style="font-family:var(--mono);font-size:12.5px">pricing_book.quote_tier_mode</span> — Sparky is <span style="font-family:var(--mono);font-size:12.5px">single</span>, hence "YOUR OPTION" rather than "YOUR OPTIONS".</p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">981</span><span class="sym">buildQuoteSms()</span></p>
+      <p class="loc"><span class="file">draft.route.ts</span><span class="ln">1026</span><span class="sym">dispatchQuoteWithPdf()</span></p>
+      <p class="loc"><span class="file">lib/sms/templates.ts</span><span class="ln">1097</span><span class="sym">buildQuoteSms()</span></p>
+      <p class="loc"><span class="file">lib/sms/templates.ts</span><span class="ln">149</span><span class="sym">YOUR OPTION / OPTIONS</span></p>
+      <span class="emits">SMS → customer (the quote)</span>
+      <pre><span class="c">// what lands on the phone</span>
+View full quote: <b>quotemax.com.au/q/&lt;share_token&gt;</b>       <span class="c">templates.ts:129</span>
+PDF copy:        <b>.../api/q/&lt;share_token&gt;/pdf</b>            <span class="c">templates.ts:130</span>
+BETTER: $652
+Tap to lock in your site visit ($99 refundable):    <span class="c">templates.ts:67</span>
+                 <b>.../r/&lt;share_token&gt;/inspection</b></pre>
+    </div>
+  </div>
+
+  <!-- ══ BAND 4 ══ -->
+  <div class="band"><span class="svc">Platform</span> · what the links open</div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">27</div><div class="thread"></div></div>
+    <div class="body">
+      <p class="what">The customer document</p>
+      <p class="why">Rendered by the Next.js app, not the receptionist — which is why the receptionist has no copy of the EV template and does not need one. Precedence: a tradie-authored <span style="font-family:var(--mono);font-size:12.5px">report_doc</span> wins, then the EV estimate template, then the generic report.</p>
+      <p class="loc"><span class="file">lib/quote/pdf.ts</span><span class="ln">573</span><span class="sym">renderQuoteDocumentHtml()</span></p>
+      <p class="loc"><span class="file">lib/quote/pdf.ts</span><span class="ln">599</span><span class="sym">buildEvChargerEstimateHtml(ev)</span></p>
+      <p class="loc"><span class="file">lib/quote/pdf.ts</span><span class="ln">609</span><span class="sym">isEvChargerEstimate()</span></p>
+      <p class="loc"><span class="file">lib/quote/report-html-ev-charger.ts</span><span class="ln">631</span><span class="sym">the EV template itself</span></p>
+      <p class="loc"><span class="file">—</span><span class="sym">PDF via Gotenberg, HTML → PDF</span></p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="rail"><div class="num">28</div></div>
+    <div class="body">
+      <p class="what">Estimate numbering</p>
+      <p class="why">Assigned on first render, not at insert — which is why a quote that is never opened keeps a null <span style="font-family:var(--mono);font-size:12.5px">estimate_number</span>. Only 3 of 256 quotes carry one.</p>
+      <p class="loc"><span class="file">lib/quote/pdf.ts</span><span class="ln">—</span><span class="sym">drawEstimateNumber (idempotent under concurrency)</span></p>
+    </div>
+  </div>
+
+  <h2>Where something leaves the process</h2>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Stage</th><th class="m">Location</th><th>What escapes</th></tr></thead>
+      <tbody>
+        <tr><td>3</td><td class="m">front-desk.service.ts:180</td><td class="dim">HTTP to the receptionist</td></tr>
+        <tr><td>9</td><td class="m">inbound.route.ts:922</td><td class="dim">Media fetched from Twilio, written to storage</td></tr>
+        <tr><td>10</td><td class="m">inbound.route.ts:987</td><td class="dim">Inbound <span class="m">sms_messages</span> row</td></tr>
+        <tr><td>15</td><td class="m">inbound.route.ts:2416</td><td class="dim"><b>SMS</b> — the photo upload link</td></tr>
+        <tr><td>16</td><td class="m">inbound.route.ts:2662</td><td class="dim"><b>SMS</b> — the conversational reply</td></tr>
+        <tr><td>17</td><td class="m">inbound.route.ts:2869</td><td class="dim">Self-call to <span class="m">/api/intake/structure</span></td></tr>
+        <tr><td>19</td><td class="m">structure.route.ts:960</td><td class="dim">Self-call to <span class="m">/api/estimate/draft</span></td></tr>
+        <tr><td>24</td><td class="m">draft.route.ts:567 · 762</td><td class="dim">Quote row · Stripe $99 session</td></tr>
+        <tr><td>26</td><td class="m">draft.route.ts:1026</td><td class="dim"><b>SMS</b> — the quote, PDF link, payment link</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Gates, in the order they can stop you</h2>
+  <div class="tw">
+    <table>
+      <thead><tr><th class="m">Gate</th><th class="m">Where</th><th>Fails when</th><th>Customer sees</th></tr></thead>
+      <tbody>
+        <tr><td class="m">Signature</td><td class="m">inbound:411</td><td class="dim">Not signed with the auth token</td><td class="dim">Nothing (403)</td></tr>
+        <tr><td class="m">Missing fields</td><td class="m">inbound:445</td><td class="dim">No body <em>and</em> no media</td><td class="dim">Nothing (400, Twilio retries)</td></tr>
+        <tr><td class="m">Grounding (reply)</td><td class="m">llm-receptionist:299</td><td class="dim">Reply states money</td><td class="dim">"hit a quick snag"</td></tr>
+        <tr><td class="m">easy-5 / photo</td><td class="m">photo-request-trigger:79</td><td class="dim">job_type not photo-eligible</td><td class="dim">No upload link</td></tr>
+        <tr><td class="m">sideEffectsAllowed</td><td class="m">inbound:2857</td><td class="dim">Another trade's thread is active</td><td class="dim">No intake, no quote</td></tr>
+        <tr><td class="m">CRON_SECRET</td><td class="m">structure:143 · draft:80</td><td class="dim">Secret absent — fail-closed</td><td class="dim">Failure SMS</td></tr>
+        <tr><td class="m">Billing</td><td class="m">draft:158</td><td class="dim">Not entitled and not exempt</td><td class="dim">Silence</td></tr>
+        <tr><td class="m">Grounding (price)</td><td class="m">run:885</td><td class="dim">A line item has no candidate row</td><td class="dim">Held, or $99 inspection</td></tr>
+        <tr><td class="m">Spec guard</td><td class="m">spec-guard:87</td><td class="dim">Requested spec ≠ product</td><td class="dim">Held for review</td></tr>
+        <tr><td class="m">Review policy</td><td class="m">review-policy:91</td><td class="dim">Policy or a risk flag says hold</td><td class="dim">Silence until approval</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Reading order, if you only open five files</h2>
+  <div class="tw">
+    <table>
+      <thead><tr><th class="m">#</th><th class="m">File</th><th class="m">Lines</th><th>Why this one</th></tr></thead>
+      <tbody>
+        <tr><td class="m">1</td><td class="m">receptionist/inbound.route.ts</td><td class="m">3,288</td><td class="dim">The whole conversation. Start at <span class="m">POST</span>, line 390.</td></tr>
+        <tr><td class="m">2</td><td class="m">lib/sms/dialog.ts</td><td class="m">2,057</td><td class="dim">The prompt. Line 712 is the MUST-ASK block that drives the EV questions.</td></tr>
+        <tr><td class="m">3</td><td class="m">estimate/draft.route.ts</td><td class="m">1,411</td><td class="dim">Quote row, Stripe, and the send. Line 828 decides whether anyone hears from you.</td></tr>
+        <tr><td class="m">4</td><td class="m">lib/estimate/run.ts</td><td class="m">3,217</td><td class="dim">Pricing and grounding. Lines 872–885 are the EV-critical ordering.</td></tr>
+        <tr><td class="m">5</td><td class="m">lib/sms/templates.ts</td><td class="m">—</td><td class="dim">Every word the customer reads. <span class="m">buildQuoteSms</span> at 1097.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>Two known inconsistencies, so you are not surprised while reading.</b>
+    The photo-request template has an ev_charger branch in <span style="font-family:var(--mono);font-size:12.5px">quotemate-automation</span>
+    that frames the photo as required, but the receptionist's copy has no such branch and falls
+    through to four randomised variants that all say "optional" — the opposite of what the readiness
+    gate enforces. And the receptionist's <span style="font-family:var(--mono);font-size:12.5px">quote-readiness.ts</span> is 549 lines
+    against the platform's 670: <span style="font-family:var(--mono);font-size:12.5px">ev_photo</span> blocking and the
+    <span style="font-family:var(--mono);font-size:12.5px">clarify_gate_count</span> cap were never ported across.
+  </div>
+
+</div>
+</body>
+</html>
