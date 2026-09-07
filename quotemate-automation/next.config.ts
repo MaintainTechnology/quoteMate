@@ -11,6 +11,25 @@ const nextConfig: NextConfig = {
   // any Docker host. Vercel ignores this flag (uses its own pipeline) so it's
   // safe to leave on for both deploy targets.
   output: "standalone",
+  // DEV ONLY — ignored in production builds. Next blocks cross-origin requests
+  // to dev-only assets and endpoints, and the dev server is initialised on
+  // localhost. Serving `next dev` through a tunnel means the browser's origin
+  // is the tunnel host, so every dev-only endpoint is refused — most visibly
+  // the HMR socket, which fails on a loop:
+  //   WebSocket connection to
+  //   'wss://<sub>.ngrok-free.dev/_next/webpack-hmr?id=…' failed
+  // Nothing user-facing breaks (the page and its API routes are not dev-only
+  // endpoints), but hot reload is dead and the console fills with retries that
+  // read like a real fault while testing the customer photo-upload flow.
+  // Wildcards cover the regenerated subdomain a free tunnel hands out.
+  allowedDevOrigins: [
+    "*.ngrok-free.dev",
+    "*.ngrok-free.app",
+    "*.ngrok.io",
+    "*.ngrok.app",
+    "*.trycloudflare.com",
+    "*.loca.lt",
+  ],
   turbopack: {
     root: path.join(__dirname, "."),
   },
