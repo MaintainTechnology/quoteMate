@@ -46,6 +46,12 @@ const CALLERS = [
   // already sends `Bearer ${CRON_SECRET}` and this test is what keeps it that
   // way. (Shipped in 6bc5527b; the glob check caught it unregistered.)
   'app/api/quote-request/[token]/route.ts',
+  // The customer photo-upload endpoint behind /upload/<token>. An SMS thread
+  // that reached an identified job_type but has no intake yet is resumed by
+  // handing the just-uploaded photos to /api/intake/structure — without the
+  // header that resume 401s in production and the customer's photo never
+  // produces a quote, which is the exact failure this glob check exists for.
+  'app/api/upload/[token]/route.ts',
 ] as const
 
 describe('guarded internal routes', () => {

@@ -87,3 +87,87 @@ export function composeInspectionOffer(
   const who = !trade ? 'someone out' : trade === 'plumbing' ? 'a plumber' : 'a sparky'
   return `Thanks${namePart} - for that we'll need to send ${who} for a quick look. Want me to text you a $${INSPECTION_FEE_AUD} inspection booking? It's credited toward the job if you go ahead.`
 }
+
+// ── Never claim to send a link that is not being sent ───────────────────
+//
+// The URL is never part of the model's reply: the photo link is a SEPARATE,
+// deterministic SMS, and whether it goes out is decided by
+// shouldSendPhotoRequest — which never sees the reply text. So the model can
+// promise a link the sender has already been latched out of delivering, and
+// nothing notices. In production, 204 of 245 outbound messages mentioning a
+// "link" carried no URL, across 136 conversations and all five active tenants.
+//
+// assertGroundedReply cannot catch this: it validates only content the model
+// EMITTED (money, counts, areas, links) — a MISSING link trips none of its
+// branches. This is the complementary check, and it is deliberately a strip,
+// not an append: appending the URL here would bypass every negative gate in
+// photo-request-trigger.ts, each of which encodes real incident history.
+
+/** A clause promising a link is on its way ("sending the link now",
+ *  "I'll flick you a link", "resending now"). */
+const PROMISE_CLAUSE_RE =
+  /\b(send|sending|sent|resend|resending|re-send|flick|flicking|text|texting|share|sharing|shoot|shooting)\b/i
+
+/** A clause that only makes sense once a link exists ("just tap it",
+ *  "tap the link to upload a photo"). Dangling without a URL, so it goes too. */
+const DANGLING_CLAUSE_RE = /\b(tap|click|follow|open|use)\b.*\b(it|link|below|through)\b/i
+
+/** Said when the reply would otherwise be emptied. True, and promises nothing. */
+export const NO_LINK_FALLBACK = "Thanks - I'll get your quote sorted and come back to you shortly."
+
+/**
+ * Remove any promise to send a link from a drafted reply.
+ *
+ * PURE. Apply it ONLY when no link is actually going out on this turn — it is
+ * the complement to shouldSendPhotoRequest, not a replacement for it.
+ *
+ * Works clause by clause rather than sentence by sentence, because the real
+ * failing messages put the whole promise in one clause of a single sentence
+ * ("No worries Jeff - sending that link through again now, just tap it to…").
+ * Sentence-level stripping would take the entire reply.
+ *
+ * Never appends the URL: doing so would bypass every negative gate in
+ * photo-request-trigger.ts, each of which encodes real incident history.
+ */
+export function stripLinkPromise(reply: string): string {
+  if (!reply) return reply
+  // A reply carrying a real URL is telling the truth — leave it alone.
+  if (/https?:\/\//i.test(reply)) return reply
+  if (!/\b(link|upload)\b/i.test(reply)) return reply
+
+  // Split on clause boundaries, KEEPING the separators so the rejoin reads
+  // naturally. Sentence enders are boundaries too.
+  const parts = reply.split(/([,;]|\s+[—–-]\s+|(?<=[.!?])\s+)/)
+  const kept: string[] = []
+  for (let i = 0; i < parts.length; i += 2) {
+    const clause = parts[i] ?? ''
+    const sep = parts[i + 1] ?? ''
+    const mentionsLink = /\b(link|upload)\b/i.test(clause)
+    // The whole reply is already known to be about a link, so a bare promise
+    // clause with no object ("resending now", "sending that through again")
+    // is promising the link even without naming it. Dispatching a PERSON is a
+    // different promise and must survive.
+    const promisesSomeone = /\b(someone|sparky|plumber|electrician|tech|team|crew)\b/i.test(clause)
+    const drop =
+      (PROMISE_CLAUSE_RE.test(clause) && !promisesSomeone) ||
+      (mentionsLink && DANGLING_CLAUSE_RE.test(clause)) ||
+      // "just tap it" — refers to a link named in a clause we just dropped.
+      (kept.length > 0 && DANGLING_CLAUSE_RE.test(clause) && /\bit\b/i.test(clause))
+    if (!drop) kept.push(clause.trim() ? clause.trim() + (sep.trim() === ',' ? ',' : '') : '')
+  }
+
+  let out = kept.filter(Boolean).join(' ')
+  out = out
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.!?,])/g, '$1')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/^[\s,;:—–-]+/, '')
+    .replace(/[\s,;:—–-]+$/, '')
+    .trim()
+
+  // Nothing meaningful survived — say something true instead of shipping a
+  // fragment or, worse, the original promise.
+  if (out.replace(/[^a-z]/gi, '').length < 12) return NO_LINK_FALLBACK
+  if (!/[.!?]$/.test(out)) out += '.'
+  return out
+}

@@ -101,7 +101,11 @@ import {
 } from '@/lib/sms/service-scope'
 import { isQuoteInflight } from '@/lib/sms/inflight'
 import { quoteAlreadyDrafted as computeQuoteAlreadyDrafted } from '@/lib/sms/quote-already-drafted'
-import { shouldSendPhotoRequest as computeShouldSendPhotoRequest } from '@/lib/sms/photo-request-trigger'
+import {
+  shouldSendPhotoRequest as computeShouldSendPhotoRequest,
+  customerAskedForPhotoLink,
+} from '@/lib/sms/photo-request-trigger'
+import { stripLinkPromise } from '@/lib/sms/dialog-grounding'
 import {
   evaluateQuoteReadiness,
   clarifyingEnforcementEnabled,
@@ -3857,21 +3861,55 @@ export async function POST(req: Request) {
       // silently regress. See that module's docstring for incident
       // history including the 2026-05-28 Bug B fix (Sparky convo
       // 27f22f65 — "all info in turn 1" picker turns).
+      // The customer explicitly asking for the link is the one thing allowed
+      // past the two LIFETIME latches (already_sent / fresh_intake_this_turn).
+      // Without this, "can you send the link again" is structurally
+      // unanswerable: the sender is latched shut for the rest of the
+      // conversation while the prompt keeps telling the model the link has not
+      // gone out, so it promises one every turn and none is ever dispatched.
+      const askedForLink = customerAskedForPhotoLink(
+        turns.filter((t) => t.direction === 'inbound').at(-1)?.body ?? '',
+      )
       const photoTrigger = computeShouldSendPhotoRequest({
         photoRequestToken,
         photoRequestAlreadySent,
         freshIntakeId,
         inflightContinuation,
         decisionAction: decision.action,
-        sonnetRequestedPhoto: decision.request_photo_link === true,
+        sonnetRequestedPhoto: decision.request_photo_link === true || askedForLink,
         offerProductChoice: decision.offer_product_choice === true,
+        customerAskedForLink: askedForLink,
         // "is this job type allowed a photo request" — the easy-5 plus EV (R7).
-        jobTypeIsEasy5: PHOTO_ELIGIBLE_JOB_TYPES.has(decision.job_type_guess),
+        // Prefer the STICKY slot over this turn's guess: on a bare "can you
+        // send the link" the model has no job to guess from and returns
+        // 'unknown', which would fail this gate and suppress the re-send. Same
+        // fallback the EV readiness gate already uses ~180 lines above.
+        jobTypeIsEasy5: PHOTO_ELIGIBLE_JOB_TYPES.has(
+          String(conversationState.slots?.job_type ?? decision.job_type_guess ?? ''),
+        ),
         // R9 — never re-ask once the customer has sent one or told us they
         // cannot. Only EV sets this; every other job keeps the old behaviour.
         photoRequirementSatisfied: evPhotoRequirementSatisfied,
       })
       const shouldSendPhotoRequest = photoTrigger.fire
+      // Never ship a reply that promises a link when no link is going out.
+      // This is the only point where both facts are in scope: the drafted
+      // reply text, and the gate's decision. The reply and the photo SMS are
+      // dispatched separately and neither has ever checked the other, which is
+      // how 204 of 245 "link" messages went out carrying no URL.
+      //
+      // Strips the promise; deliberately does NOT append the URL — that would
+      // bypass every negative gate above, each with its own incident history.
+      if (!shouldSendPhotoRequest && decision.reply_to_send) {
+        const cleaned = stripLinkPromise(decision.reply_to_send)
+        if (cleaned !== decision.reply_to_send) {
+          console.warn('[sms/inbound:after] stripped an unbacked link promise from the reply', {
+            conversationId,
+            gateReason: photoTrigger.reason,
+          })
+          decision = { ...decision, reply_to_send: cleaned }
+        }
+      }
       if (!shouldSendPhotoRequest) {
         console.log('[sms/inbound:after] step 8b — photo-request SMS skipped', {
           conversationId,

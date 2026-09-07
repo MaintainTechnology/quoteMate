@@ -59,6 +59,24 @@ export type PhotoRequestTriggerInput = {
    *  immediately asked for one again, contradicting R9's "never asked again in
    *  that conversation". */
   photoRequirementSatisfied?: boolean
+  /** The customer EXPLICITLY asked for the link on this turn ("can you send
+   *  the link", "didn't get it", "resend"). Defeats the two lifetime latches
+   *  below — and only those two.
+   *
+   *  Why this exists: `photoRequestAlreadySent` and `freshIntakeId` are
+   *  permanent for the life of a conversation, so once either flipped, the
+   *  ONLY code path that can emit an /upload/ URL was unreachable forever.
+   *  Meanwhile the dialog prompt reads a different flag and kept telling the
+   *  model the link had not been sent, so it promised one on every subsequent
+   *  turn and none was ever dispatched. Across production, 204 of 245 outbound
+   *  messages mentioning a "link" carry no URL.
+   *
+   *  Scope is deliberately narrow: a customer asking for a link they were
+   *  promised is always a legitimate re-send, but the remaining gates
+   *  (no_token, escalate_inspection, end_conversation, job_type_not_easy5)
+   *  stay absolute — each encodes a decision the customer's ask cannot
+   *  override. */
+  customerAskedForLink?: boolean
 }
 
 export type PhotoRequestTriggerOutcome =
@@ -77,13 +95,51 @@ export type PhotoRequestTriggerOutcome =
         | 'no_trigger'
     }
 
+/**
+ * Did the customer just ask for the upload link, or say they never got it?
+ *
+ * PURE, and deliberately narrow. It only ever RE-SENDS a link the customer was
+ * already promised, so a false positive costs one extra SMS carrying a real,
+ * working URL — while a false negative leaves them stuck exactly as the
+ * reported thread was. It is not a general intent classifier and must not
+ * become one: broad matching here would re-fire the photo request on ordinary
+ * conversation and undo the gates it sits in front of.
+ *
+ * Matches the shapes customers actually used in production: "can you give me
+ * the link", "didnt received the link", "resend", "send it again", "link
+ * doesn't work". Requires an explicit link/photo reference so a bare "again"
+ * or "didn't get it" about something else does not trigger.
+ */
+export function customerAskedForPhotoLink(text: string | null | undefined): boolean {
+  const s = (text ?? '').toLowerCase().trim()
+  if (!s) return false
+  // Must be about a link/upload/photo at all.
+  if (!/\b(link|url|upload|photo|picture|pic)\b/.test(s)) return false
+  return (
+    // asking for it
+    /\b(send|resend|re-send|give|share|text|sms)\b/.test(s) ||
+    // never arrived / broken — covers "didnt received the link" (sic)
+    /\b(didn'?t|dint|never|no|not|haven'?t|havent|can'?t|cant|couldn'?t|doesn'?t|doesnt|don'?t|dont|won'?t|wont)\b[^.?!]{0,24}\b(get|got|receiv\w*|see|find|open|work\w*|load\w*|arriv\w*|come|came)\b/.test(s) ||
+    /\b(where|missing|broken|expired|dead|invalid)\b/.test(s) ||
+    /\bagain\b/.test(s)
+  )
+}
+
 export function shouldSendPhotoRequest(
   input: PhotoRequestTriggerInput,
 ): PhotoRequestTriggerOutcome {
   // Negative gates first — these are absolute suppressions.
   if (!input.photoRequestToken) return { fire: false, reason: 'no_token' }
-  if (input.photoRequestAlreadySent) return { fire: false, reason: 'already_sent' }
-  if (input.freshIntakeId) return { fire: false, reason: 'fresh_intake_this_turn' }
+  // These two are LIFETIME latches, so an explicit re-ask is the one thing
+  // allowed past them — otherwise "can you send the link again" is structurally
+  // unanswerable and the model is left promising a link the sender can never
+  // emit. Everything below stays absolute.
+  if (input.photoRequestAlreadySent && !input.customerAskedForLink) {
+    return { fire: false, reason: 'already_sent' }
+  }
+  if (input.freshIntakeId && !input.customerAskedForLink) {
+    return { fire: false, reason: 'fresh_intake_this_turn' }
+  }
   if (input.inflightContinuation) return { fire: false, reason: 'inflight_continuation' }
   if (input.decisionAction === 'escalate_inspection') return { fire: false, reason: 'escalate_inspection' }
   if (input.decisionAction === 'end_conversation') return { fire: false, reason: 'end_conversation' }

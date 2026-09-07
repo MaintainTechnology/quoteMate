@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   shouldSendPhotoRequest,
+  customerAskedForPhotoLink,
   type PhotoRequestTriggerInput,
 } from './photo-request-trigger'
 
@@ -148,5 +149,128 @@ describe('shouldSendPhotoRequest — negative gates beat triggers', () => {
       offerProductChoice: true,
     })
     expect(r).toEqual({ fire: false, reason: 'already_sent' })
+  })
+})
+
+// ── Customer re-ask defeats the two LIFETIME latches ────────────────────
+//
+// Live evidence: 204 of 245 outbound SMS mentioning a "link" carried no URL,
+// across 136 conversations and all five active tenants. `already_sent` and
+// `fresh_intake_this_turn` are permanent for the life of a conversation, so
+// once either flipped, the only code able to emit an /upload/ URL was
+// unreachable — while the dialog prompt read a DIFFERENT flag and kept telling
+// the model the link had not been sent. So it promised one every turn and none
+// was dispatched. Reported thread: Sparky convo 473735ae, 2026-09-07, where the
+// customer asked three times and was ultimately pushed to a $99 site visit for
+// want of a photo he could never upload.
+describe('shouldSendPhotoRequest — customer explicitly asks for the link', () => {
+  it('re-sends after already_sent when the customer asks', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      photoRequestAlreadySent: true,
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: true, reason: 'sonnet_requested' })
+  })
+
+  it('re-sends once an intake exists when the customer asks', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      freshIntakeId: 'intake-1',
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: true, reason: 'sonnet_requested' })
+  })
+
+  it('re-sends when BOTH lifetime latches are set (the reported thread)', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      photoRequestAlreadySent: true,
+      freshIntakeId: 'intake-1',
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: true, reason: 'sonnet_requested' })
+  })
+
+  it('still needs a token — asking cannot conjure one', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      photoRequestToken: null,
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: false, reason: 'no_token' })
+  })
+
+  it('does NOT override the inspection route', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      decisionAction: 'escalate_inspection',
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: false, reason: 'escalate_inspection' })
+  })
+
+  it('does NOT override end_conversation', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      decisionAction: 'end_conversation',
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: false, reason: 'end_conversation' })
+  })
+
+  it('does NOT override an ineligible job type', () => {
+    const r = shouldSendPhotoRequest({
+      ...baseline(),
+      jobTypeIsEasy5: false,
+      customerAskedForLink: true,
+      sonnetRequestedPhoto: true,
+    })
+    expect(r).toEqual({ fire: false, reason: 'job_type_not_easy5' })
+  })
+
+  it('asking alone is not a trigger — something must still request the photo', () => {
+    const r = shouldSendPhotoRequest({ ...baseline(), customerAskedForLink: true })
+    expect(r).toEqual({ fire: false, reason: 'no_trigger' })
+  })
+})
+
+describe('customerAskedForPhotoLink', () => {
+  // Verbatim from the reported production thread.
+  it.each([
+    'Can you give me the link',
+    'Didnt received the link',
+    "Didn't get the link",
+    'can you resend the link please',
+    'send the link again',
+    'the link doesnt work',
+    'where is the link',
+    'that link is broken',
+    'never got the photo link',
+    'can you text me the upload link',
+  ])('matches %j', (s) => {
+    expect(customerAskedForPhotoLink(s)).toBe(true)
+  })
+
+  // Must NOT re-fire on ordinary conversation — a false positive here re-sends
+  // a photo request mid-dialog for no reason.
+  it.each([
+    'Yes that&apos;s right',
+    'About 8 metres',
+    'Single phase, plenty of spare ways',
+    'can you send someone out next week',
+    'didnt get a chance to look yet',
+    'send me the quote again',
+    '',
+    null,
+    undefined,
+  ])('does not match %j', (s) => {
+    expect(customerAskedForPhotoLink(s as string | null | undefined)).toBe(false)
   })
 })

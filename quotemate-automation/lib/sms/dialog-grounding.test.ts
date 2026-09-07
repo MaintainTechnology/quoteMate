@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest'
 import {
   enforceDialogGrounding,
   composeInspectionOffer,
+  stripLinkPromise,
   type DialogDecisionLike,
 } from './dialog-grounding'
 import { INSPECTION_FEE_AUD } from '@/lib/quote/money'
@@ -263,5 +264,53 @@ describe('Phase 1b — composeInspectionOffer', () => {
 
   it('a known job type still wins over the trade hint', () => {
     expect(composeInspectionOffer('hot_water', null, ['electrical'])).toContain('plumber')
+  })
+})
+
+describe('stripLinkPromise', () => {
+  // Verbatim from the reported thread (Sparky, 2026-09-07). The customer asked
+  // three times; every one of these shipped with no URL anywhere in the SMS.
+  const REPORTED = [
+    "Good on ya Jeff - still got all your details for the EV charger at 670 London Road, three-phase, 2025 model, about 5m from the switchboard. Just need that photo of the charger spot to lock in the quote - sending the link now.",
+    "No worries Jeff - sending that link through again now, just tap it to upload a photo of the charger spot and I'll get your quote sorted.",
+    "Sorry about that Jeff, resending now - tap the link to upload a photo of the charger spot at 670 London Road and I'll get your quote sorted.",
+  ]
+
+  it.each(REPORTED)('removes the promise from a real failing message', (msg) => {
+    const out = stripLinkPromise(msg)
+    expect(out).not.toBe(msg)
+    expect(out).not.toMatch(/sending (the|that) link|resending/i)
+    expect(out.length).toBeGreaterThan(0)
+  })
+
+  it('leaves a reply that carries a REAL url completely alone', () => {
+    const msg = 'Jeph, last thing - send a photo of the spot: https://x.dev/upload/abc'
+    expect(stripLinkPromise(msg)).toBe(msg)
+  })
+
+  it('leaves ordinary replies untouched', () => {
+    for (const msg of [
+      "Cheers Jeph - what suburb's the job in?",
+      'Good one - roughly how far is the parking spot from the switchboard?',
+      'Righto - single-phase or three-phase supply?',
+    ]) {
+      expect(stripLinkPromise(msg)).toBe(msg)
+    }
+  })
+
+  it('never returns an empty string — a blank SMS is worse than an over-promise', () => {
+    expect(stripLinkPromise('Sending the link now.')).not.toBe('')
+  })
+
+  it('is a no-op on empty input', () => {
+    expect(stripLinkPromise('')).toBe('')
+  })
+
+  it('keeps the useful half of the sentence', () => {
+    const out = stripLinkPromise(
+      "Beauty Jeph - I'll flick you a link for the photo. What suburb's the job in?",
+    )
+    expect(out).toContain('suburb')
+    expect(out).not.toMatch(/flick you a link/i)
   })
 })
