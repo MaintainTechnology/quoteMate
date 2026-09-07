@@ -39,7 +39,11 @@ export default async function DashboardQuoteViewerPage({
       // R12): the toolbar's "Issue final quote" is shown only on a row whose
       // payment was the $99 site visit (paid_tier='inspection') and which is
       // itself the chain root (quote_kind='initial').
-      'id, intake_id, tenant_id, good, better, best, needs_inspection, paid_at, paid_tier, quote_kind, parent_quote_id, deposit_paid, status, selected_tier, scope_of_works, assumptions, risk_flags, report_doc, report_style',
+      // NOTE: `deposit_paid` is NOT a column — it is derived from paid_at (see
+      // app/api/tenant/me/route.ts, which computes it for the dashboard list).
+      // Selecting it made PostgREST fail the whole read, so `quote` came back
+      // null and this page 404'd EVERY quote, not just unpaid ones.
+      'id, intake_id, tenant_id, good, better, best, needs_inspection, paid_at, paid_tier, quote_kind, parent_quote_id, status, selected_tier, scope_of_works, assumptions, risk_flags, report_doc, report_style',
     )
     .eq('share_token', token)
     .maybeSingle()
@@ -55,9 +59,13 @@ export default async function DashboardQuoteViewerPage({
         .maybeSingle()
     : { data: null }
   const trade = ((intake?.trade as string | null | undefined) ?? 'electrical').trim() || 'electrical'
+  // Same derivation the dashboard list uses (app/api/tenant/me/route.ts): a
+  // quote counts as paid once Stripe stamped paid_at. Suppresses the
+  // "Send to Customer" CTA on an already-paid quote.
+  const depositPaid = !!quote.paid_at
   const sendCta = confirmSendCta(
     (quote.status as string | null | undefined) ?? null,
-    !!quote.deposit_paid,
+    depositPaid,
   )
 
   // Customer contact on file for the "Send to Customer" panel.
