@@ -87,7 +87,42 @@ export async function tenantByDestinationSms(
   const match = rows.find(
     (t) => normaliseAuMobile(t.twilio_sms_number ?? '') === canonical,
   )
-  return match ?? null
+  if (match) return match
+  // Last resort, LOCAL DEVELOPMENT ONLY (migration 197) — a tenant's
+  // spare dev number, so a developer can point a second Twilio number at
+  // their laptop without taking the tenant's live number down.
+  //
+  // The gate is deliberately NODE_ENV rather than a feature flag: a flag
+  // is something you can forget to unset, whereas `npm run dev` is the
+  // only thing that produces 'development' — Vercel sets 'production' on
+  // preview deploys as well as production. So a number parked in this
+  // column routes on a developer's machine and nowhere else, and a number
+  // left pointing at the production webhook by mistake resolves to no
+  // tenant (a disconnected line) instead of quoting as that tenant.
+  //
+  // Runs only after BOTH production lookups miss, so it can never shadow
+  // a live number. Errors are swallowed: on a database that has not taken
+  // migration 197 yet, the column is absent and this must degrade to
+  // "no tenant", never throw into the webhook.
+  if (process.env.NODE_ENV === 'development') {
+    const { data: dev, error } = await supabase
+      .from('tenants')
+      .select(SELECT_COLS)
+      .eq('twilio_sms_number_dev', canonical)
+      .maybeSingle()
+    if (error) {
+      console.warn('[tenant/lookup] dev-number lookup skipped', { message: error.message })
+      return null
+    }
+    if (dev) {
+      console.warn('[tenant/lookup] resolved via DEV number — local development only', {
+        toNumber: canonical,
+        tenant: (dev as unknown as TenantRow).business_name,
+      })
+      return dev as unknown as TenantRow
+    }
+  }
+  return null
 }
 
 /** Voice webhooks: find the tenant by the Vapi assistant_id from the payload. */
