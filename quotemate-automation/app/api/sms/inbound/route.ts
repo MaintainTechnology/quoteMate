@@ -1754,7 +1754,35 @@ export async function POST(req: Request) {
   // downstream (estimator, etc.) can scope by tenant.
   // Fail-soft: no tenant match → null → existing pipeline uses the
   // legacy single pricing_book (back-compat for pre-v6 conversations).
-  const { tenantByDestinationSms, isTransactableTenantStatus } = await import('@/lib/tenant/lookup')
+  const { tenantByDestinationSms, isProvisionedAgentNumber, isTransactableTenantStatus } =
+    await import('@/lib/tenant/lookup')
+
+  // ─────── Self-conversation guard ───────
+  // The SENDER is one of our own provisioned agent lines, so this "inbound" is
+  // an agent's own outbound reply arriving back at us. Twilio fires a number's
+  // own smsUrl on delivery, so this happens the moment a second provisioned
+  // line is pointed at this webhook — the ordinary setup when a tenant-owned
+  // number is used as the test customer. Unguarded, the two ends answer each
+  // other: a live run produced 104 messages before it was stopped by hand.
+  //
+  // Ack Twilio (200 + empty TwiML) so it does not retry, and write nothing: no
+  // customer row, no conversation, no reply. A genuine customer never texts
+  // from a provisioned line, and a tradie texting their own number is not a
+  // quotable enquiry either.
+  //
+  // NOT tenantByDestinationSms — that also resolves the development-only spare
+  // number, which is precisely what a developer points at their laptop to act
+  // as the test CUSTOMER. Dropping their traffic would be worse than the loop.
+  const senderLine = await isProvisionedAgentNumber(supabase, fromNumber)
+  if (senderLine) {
+    console.warn('[sms/inbound] dropping self-conversation — sender is a provisioned agent line', {
+      from: fromNumber,
+      to: toNumber,
+      tenant: senderLine.business_name,
+    })
+    return ackTwiml()
+  }
+
   const tenant = await tenantByDestinationSms(supabase, toNumber)
   if (tenant) {
     console.log('[sms/inbound] step 2a — tenant resolved by destination number', {

@@ -125,6 +125,48 @@ export async function tenantByDestinationSms(
   return null
 }
 
+/**
+ * Is this number one of OUR provisioned agent lines?
+ *
+ * Used by the SMS webhook's self-conversation guard: Twilio fires a number's
+ * own smsUrl on delivery, so pointing a second provisioned line at the same
+ * webhook makes every agent reply arrive back as an "inbound" from an agent
+ * number, and the two ends answer each other.
+ *
+ * Deliberately checks ONLY the live `twilio_sms_number`, never the
+ * development-only `twilio_sms_number_dev` that tenantByDestinationSms also
+ * consults. That spare line is exactly what a developer points at their laptop
+ * to act as the test CUSTOMER, and treating it as an agent line would silently
+ * drop their own test traffic — a worse failure than the loop this prevents.
+ *
+ * Fail-soft: any lookup error returns false, so a database blip degrades to
+ * today's behaviour (process the message) rather than dropping real enquiries.
+ */
+export async function isProvisionedAgentNumber(
+  supabase: SupabaseClient,
+  number: string,
+): Promise<TenantRow | null> {
+  const canonical = normaliseAuMobile(number)
+  if (!canonical) return null
+  const direct = await supabase
+    .from('tenants')
+    .select(SELECT_COLS)
+    .eq('twilio_sms_number', canonical)
+    .maybeSingle()
+  if (direct.data) return direct.data as unknown as TenantRow
+  // Legacy rows may hold a non-canonical format (see tenantByDestinationSms).
+  const { data, error } = await supabase
+    .from('tenants')
+    .select(SELECT_COLS)
+    .not('twilio_sms_number', 'is', null)
+  if (error) {
+    console.warn('[tenant/lookup] agent-line check skipped', { message: error.message })
+    return null
+  }
+  const rows = (data ?? []) as unknown as TenantRow[]
+  return rows.find((t) => normaliseAuMobile(t.twilio_sms_number ?? '') === canonical) ?? null
+}
+
 /** Voice webhooks: find the tenant by the Vapi assistant_id from the payload. */
 export async function tenantByVapiAssistant(
   supabase: SupabaseClient,
