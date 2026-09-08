@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "timestamp": "2026-09-07T07:09:47.198Z",
   "mode": "local",
   "memoryUsage": {
@@ -9,6 +10,18 @@
     "arrayBuffers": 117872
   },
   "uptime": 2161.6239603,
+=======
+  "timestamp": "2026-09-08T04:12:10.786Z",
+  "mode": "local",
+  "memoryUsage": {
+    "rss": 63168512,
+    "heapTotal": 23216128,
+    "heapUsed": 21363352,
+    "external": 4005825,
+    "arrayBuffers": 107816
+  },
+  "uptime": 242.0885532,
+>>>>>>> sms-receptionist-fix
   "optimizations": {
     "cacheHitRate": 0.78,
     "avgResponseTime": 45
