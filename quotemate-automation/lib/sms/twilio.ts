@@ -78,9 +78,10 @@ async function postTwilioMessage(channel: 'sms' | 'whatsapp', opts: {
         Accept: 'application/json',
       },
       body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
     })
-  } catch (e: any) {
-    return { ok: false, code: 'NETWORK', reason: e?.message ?? 'fetch failed', raw: null }
+  } catch (e) {
+    return { ok: false, code: 'AMBIGUOUS', reason: e instanceof Error ? e.message : 'Provider acceptance unknown', raw: null }
   }
 
   // The fetch above already returned a Response, so Twilio HAS received the
@@ -94,7 +95,7 @@ async function postTwilioMessage(channel: 'sms' | 'whatsapp', opts: {
   let text: string
   try {
     text = await res.text()
-  } catch (e: any) {
+  } catch (e) {
     if (res.ok) {
       return {
         ok: true,
@@ -110,25 +111,25 @@ async function postTwilioMessage(channel: 'sms' | 'whatsapp', opts: {
     }
     return {
       ok: false,
-      code: String(res.status),
-      reason: `HTTP ${res.status} (response body unreadable: ${e?.message ?? 'res.text() failed'})`,
+      code: res.status >= 500 ? 'AMBIGUOUS' : String(res.status),
+      reason: `HTTP ${res.status} (response body unreadable: ${e instanceof Error ? e.message : 'res.text() failed'})`,
       raw: null,
     }
   }
-  let parsed: any = null
+  let parsed: Partial<TwilioMessageResponse> & { code?: string | number; message?: string; rawText?: string } = {}
   try { parsed = JSON.parse(text) } catch { parsed = { rawText: text } }
 
   if (!res.ok || parsed?.error_code) {
     return {
       ok: false,
-      code: String(parsed?.code ?? parsed?.error_code ?? res.status),
+      code: res.status >= 500 ? 'AMBIGUOUS' : String(parsed?.code ?? parsed?.error_code ?? res.status),
       reason: parsed?.message ?? parsed?.error_message ?? `HTTP ${res.status}`,
-      raw: parsed,
+      raw: parsed as TwilioMessageResponse,
     }
   }
 
   const m = parsed as TwilioMessageResponse
-  return { ok: true, sid: m.sid, status: m.status, to: m.to, raw: m }
+  return { ok: true, sid: typeof m.sid === 'string' ? m.sid : '', status: m.status ?? 'accepted', to: m.to ?? toAddr, raw: m }
 }
 
 export function sendSms(opts: {
@@ -149,4 +150,20 @@ export function sendWhatsApp(opts: {
   mediaUrl?: string | string[]
 }): Promise<TwilioSendResult> {
   return postTwilioMessage('whatsapp', opts)
+}
+
+/** Reconciliation is read-only; it must never create another carrier message. */
+export async function readTwilioMessage(messageSid: string): Promise<{ status: string; errorCode: string | null }> {
+  if (!/^SM[0-9a-f]{32}$/i.test(messageSid)) throw new Error('Invalid message SID')
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const token = process.env.TWILIO_AUTH_TOKEN
+  if (!sid || !token) throw new Error('Twilio reconciliation configuration missing')
+  const response = await fetch(`${API_BASE}/Accounts/${sid}/Messages/${messageSid}.json`, {
+    headers: { Authorization: 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64') },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) throw new Error(`Twilio reconciliation HTTP ${response.status}`)
+  const result = await response.json()
+  if (result.sid !== messageSid || typeof result.status !== 'string') throw new Error('Invalid reconciliation response')
+  return { status: result.status, errorCode: result.error_code == null ? null : String(result.error_code) }
 }

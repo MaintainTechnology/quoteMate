@@ -16,6 +16,7 @@ import type {
 } from '@/lib/commercial-painting/types'
 import { PAINT_SYSTEMS, MAX_LABOUR_RATE_PER_HR } from '@/lib/commercial-painting/types'
 import { StatusPill, type Tone } from '../quote-ui'
+import { PaintCorrectionItemSchema } from '@/lib/commercial-painting/correction-contract'
 
 const SYSTEM_LABELS: Record<PaintSystem, string> = {
   spray_matt: 'Spray matt (exposed ceiling)',
@@ -34,7 +35,6 @@ function toRows(items: PaintTakeoffItem[]): Row[] {
 
 function rowsToItems(rows: Row[]): PaintTakeoffItem[] {
   return rows
-    .filter((r) => r.surface.trim() && Number.isFinite(r.quantity) && r.quantity > 0)
     .map((row) => {
       const { uid, ...item } = row
       void uid
@@ -70,7 +70,7 @@ function SourceChip({ row }: { row: Row }) {
 
 /** Coats range the bulk-set + per-row inputs accept. */
 const COATS_MIN = 1
-const COATS_MAX = 6
+const COATS_MAX = 4
 
 export function PaintTakeoffEditor({
   initialItems,
@@ -78,18 +78,22 @@ export function PaintTakeoffEditor({
   finishesSchedule,
   overallNote,
   pricing,
+  disabled = false,
   defaultLabourRate,
   onConfirm,
+  onDirty,
 }: {
   initialItems: PaintTakeoffItem[]
   flags: ReconcileFlag[]
   finishesSchedule: Array<{ code: string; product: string; sheen: string; surfaces: string }>
   overallNote: string
   pricing: boolean
+  disabled?: boolean
   /** The labour $/hr the last price used (tenant/seed default or a prior
    *  override) — shown as the placeholder so the field reflects reality. */
   defaultLabourRate?: number | null
   onConfirm: (items: PaintTakeoffItem[], labourRatePerHr: number | null) => void
+  onDirty?: () => void
 }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(initialItems))
   const [showFlags, setShowFlags] = useState(true)
@@ -102,6 +106,7 @@ export function PaintTakeoffEditor({
   const [labourRateError, setLabourRateError] = useState<string | null>(null)
 
   function patch(uid: number, partial: Partial<Row>) {
+    onDirty?.()
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...partial } : r)))
   }
 
@@ -110,6 +115,7 @@ export function PaintTakeoffEditor({
     const n = Math.round(Number(bulkCoats))
     if (!Number.isFinite(n) || n < COATS_MIN) return
     const coats = Math.min(COATS_MAX, Math.max(COATS_MIN, n))
+    onDirty?.()
     setRows((prev) => prev.map((r) => ({ ...r, coats })))
   }
 
@@ -120,10 +126,15 @@ export function PaintTakeoffEditor({
    * default (which the server would do for an out-of-range value).
    */
   function handleConfirm() {
+    const items = rowsToItems(rows)
+    if (!items.length || items.length > 5000 || items.some(item => !PaintCorrectionItemSchema.safeParse(item).success)) {
+      setLabourRateError('Check every line: a named surface, non-negative quantity, 1–4 whole coats, and any supplied height above 0 and below 30 metres are required. No rows have been removed.')
+      return
+    }
     const raw = labourRate.trim()
     if (raw === '') {
       setLabourRateError(null)
-      onConfirm(rowsToItems(rows), null)
+      onConfirm(items, null)
       return
     }
     const n = Number(raw)
@@ -134,10 +145,11 @@ export function PaintTakeoffEditor({
       return
     }
     setLabourRateError(null)
-    onConfirm(rowsToItems(rows), n)
+    onConfirm(items, n)
   }
 
   function addRow(room: string) {
+    onDirty?.()
     setRows((prev) => [
       ...prev,
       {
@@ -412,6 +424,7 @@ export function PaintTakeoffEditor({
             max={MAX_LABOUR_RATE_PER_HR}
             value={labourRate}
             onChange={(e) => {
+              onDirty?.()
               setLabourRate(e.target.value)
               if (labourRateError) setLabourRateError(null)
             }}
@@ -425,7 +438,7 @@ export function PaintTakeoffEditor({
         </label>
         <button
           type="button"
-          disabled={pricing}
+          disabled={pricing || disabled}
           aria-busy={pricing}
           onClick={handleConfirm}
           className="rounded-ctl inline-flex cursor-pointer items-center gap-2.5 bg-accent px-5 py-3 text-sm font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-50"
@@ -444,7 +457,7 @@ export function PaintTakeoffEditor({
         </span>
         <button
           type="button"
-          onClick={() => setRows(toRows(initialItems))}
+          onClick={() => { onDirty?.(); setRows(toRows(initialItems)) }}
           className="inline-flex cursor-pointer items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-text-dim transition-colors hover:text-text-sec"
         >
           <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Reset edits

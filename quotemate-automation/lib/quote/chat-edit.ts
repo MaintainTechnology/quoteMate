@@ -22,6 +22,7 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { generateText, stepCountIs } from 'ai'
 import { makeTools } from '@/lib/estimate/tools'
+import { finiteQuoteNumber } from './numeric-input'
 import {
   validateQuoteGrounding,
   detectCrossTierDuplicates,
@@ -39,11 +40,14 @@ export type TierKey = 'good' | 'better' | 'best'
 export const TIER_KEYS: TierKey[] = ['good', 'better', 'best']
 
 export type ChatEditLineItem = {
+  original_line_index?: number
   description: string
   quantity: number
   unit?: string
   unit_price_ex_gst: number
   source?: string
+  supplied_by?: 'tradie' | 'customer'
+  safety_note?: string
 }
 
 export type ChatEditTier = {
@@ -121,13 +125,24 @@ export function parseProposal(text: string): { found: boolean; message: string; 
     if (!t || typeof t !== 'object') continue
     const tt = t as Record<string, unknown>
     const items = Array.isArray(tt.line_items) ? tt.line_items : []
+    if (items.some((li) => !li || typeof li !== 'object' ||
+        typeof li.description !== 'string' || !li.description.trim() ||
+        finiteQuoteNumber(li.quantity) === null || finiteQuoteNumber(li.unit_price_ex_gst) === null ||
+        finiteQuoteNumber(li.quantity)! < 0 || finiteQuoteNumber(li.unit_price_ex_gst)! < 0)) {
+      return { found: false, message: '', tiers: {} }
+    }
+    if (items.some((li) => li && typeof li === 'object' && 'original_line_index' in li &&
+        (!Number.isSafeInteger(li.original_line_index) || li.original_line_index < 0))) {
+      return { found: false, message: '', tiers: {} }
+    }
     const line_items: ChatEditLineItem[] = items
       .filter((li): li is Record<string, unknown> => !!li && typeof li === 'object')
       .map((li) => ({
+        ...(typeof li.original_line_index === 'number' ? { original_line_index: li.original_line_index } : {}),
         description: String(li.description ?? '').trim(),
-        quantity: Number(li.quantity),
+        quantity: finiteQuoteNumber(li.quantity)!,
         unit: li.unit != null ? String(li.unit) : undefined,
-        unit_price_ex_gst: Number(li.unit_price_ex_gst),
+        unit_price_ex_gst: finiteQuoteNumber(li.unit_price_ex_gst)!,
         ...(li.source != null && String(li.source).trim() ? { source: String(li.source) } : {}),
       }))
       .filter(
@@ -158,13 +173,21 @@ export function reconcileLineSource(
   proposed: ChatEditLineItem,
   currentLines: ChatEditLineItem[] | undefined,
 ): string | undefined {
-  const match = (currentLines ?? []).find(
-    (l) => normDesc(l.description) === normDesc(proposed.description),
-  )
+  const match = currentLineForProposal(proposed, currentLines)
   if (match?.source) return match.source
   const s = (proposed.source ?? '').trim().toLowerCase()
   if (s === MANUAL_LINE_SOURCE) return 'tradie_edit'
   return proposed.source
+}
+
+function currentLineForProposal(proposed: ChatEditLineItem, lines: ChatEditLineItem[] = []) {
+  const matches = proposed.original_line_index !== undefined
+    ? lines.filter((line) => line.original_line_index === proposed.original_line_index)
+    : lines.filter((line) => normDesc(line.description) === normDesc(proposed.description))
+  if (matches.length > 1 || (proposed.original_line_index !== undefined && matches.length !== 1)) {
+    throw new Error('ambiguous_line_provenance')
+  }
+  return matches[0]
 }
 
 /** Apply reconcileLineSource across a proposed tier's line items. */
@@ -173,16 +196,22 @@ export function reconcileTierSources(
   current: ChatEditTier | undefined,
 ): ChatEditTier {
   if (!proposed) return proposed
+  const indices = proposed.line_items.flatMap((line) => line.original_line_index === undefined ? [] : [line.original_line_index])
+  if (new Set(indices).size !== indices.length) throw new Error('duplicate_line_identity')
   return {
     ...proposed,
     line_items: proposed.line_items.map((li) => {
       const source = reconcileLineSource(li, current?.line_items)
+      const original = currentLineForProposal(li, current?.line_items)
       const next: ChatEditLineItem = {
         description: li.description,
         quantity: li.quantity,
         unit: li.unit,
         unit_price_ex_gst: li.unit_price_ex_gst,
       }
+      if (original?.original_line_index !== undefined) next.original_line_index = original.original_line_index
+      if (original?.supplied_by !== undefined) next.supplied_by = original.supplied_by
+      if (original?.safety_note !== undefined) next.safety_note = original.safety_note
       if (source) next.source = source
       return next
     }),
@@ -352,7 +381,7 @@ OUTPUT — return ONLY a JSON object, no prose outside it:
     }
   }
 }
-Include a tier in "tiers" ONLY if you changed it; omit tiers you did not touch. For each changed tier, line_items must be the COMPLETE list for that tier (all kept lines plus your changes), not just the delta.`
+Include a tier in "tiers" ONLY if you changed it; omit tiers you did not touch. For each changed tier, line_items must be the COMPLETE list for that tier (all kept lines plus your changes), not just the delta. Preserve original_line_index on every existing line even if you rename, reorder or change it. Omit original_line_index for genuinely new lines. Never invent an index or copy one index to multiple lines. Supplier and safety provenance belongs to the stored line; do not invent or alter it.`
 }
 
 export function buildUserPrompt(

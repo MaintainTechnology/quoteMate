@@ -6,8 +6,8 @@
 // tier structure (spec specs/quote-pdf-branding.md D2/R4). Pure — unit-tested.
 //
 // Money convention: tiers store subtotal_ex_gst; the customer-facing PDF
-// shows inc-GST headline prices using the SAME rounding as the quote SMS
-// (Math.round(ex * 1.10) — lib/sms/templates.ts incGst).
+// shows headline prices from the canonical cents calculation, with the
+// verified tax flag supplied by the saved quote reader.
 
 import {
   renderReportDocument,
@@ -19,7 +19,8 @@ import {
 } from '../pdf/report-chrome'
 import { renderRoofLayoutSectionHtml, type RoofLayoutOverlay } from '@/lib/roofing/report-html'
 import { clampDiscountPct } from './early-bird'
-import { INSPECTION_FEE_AUD, clampDepositPct, displayIncGst } from './money'
+import { INSPECTION_FEE_AUD, clampDepositPct, displayIncGst, totalIncGstCents } from './money'
+import type { ReportStyle } from './report-doc/style'
 
 /**
  * Bump whenever buildQuoteReportHtml's output changes in a way that should
@@ -54,8 +55,10 @@ import { INSPECTION_FEE_AUD, clampDepositPct, displayIncGst } from './money'
  *   disclaimer is replaced: on a document produced AFTER the visit that
  *   sentence told the customer the price they are paying a deposit against
  *   might still move.
+ *   v10 (2026-09-09): saved tax authority, correct non-GST copy and cent prices.
+ *   v11 (2026-09-09): saved quote fonts, accents and heading appearance.
  */
-export const REPORT_TEMPLATE_VERSION = 9
+export const REPORT_TEMPLATE_VERSION = 11
 
 export type QuoteReportLineItem = {
   description: string
@@ -92,6 +95,7 @@ export type QuoteReportTradie = {
 }
 
 export type QuoteReportInput = {
+  reportStyle?: ReportStyle | null
   businessName: string
   /** Full white-label branding; when omitted, derived from businessName. */
   branding?: TenantBranding
@@ -125,7 +129,7 @@ export type QuoteReportInput = {
    *  When > 0 headline tier prices render DISCOUNTED, matching the page,
    *  the SMS and the Stripe charge (P7). Absent/0 → full price. */
   appliedDiscountPct?: number | null
-  /** v7 — pricing_book.gst_registered (P1). Absent → treated as registered. */
+  /** Verified saved quote tax. Legacy pure callers retain the registered default. */
   gstRegistered?: boolean | null
   quoteViewUrl?: string | null
   /** Deprecated: licence now flows via `branding.licenceLine`. Kept for back-compat. */
@@ -156,11 +160,12 @@ function tierSection(
   if (!tier) return ''
   const isFinal = quoteKind === 'final'
   const discountPct = clampDiscountPct(money?.discountPct)
-  const price = displayIncGst(tier.subtotal_ex_gst, {
+  const price = totalIncGstCents(tier.subtotal_ex_gst, {
     discountPct,
     gstRegistered: money?.gstRegistered,
-  })
-  const priceNote = discountPct > 0 ? `inc GST · ${discountPct}% off applied` : 'inc GST'
+  }) / 100
+  const taxNote = money?.gstRegistered === false ? 'No GST' : 'inc GST'
+  const priceNote = discountPct > 0 ? `${taxNote} · ${discountPct}% off applied` : taxNote
   const rows = (tier.line_items ?? [])
     .map(
       (li) => `
@@ -178,9 +183,7 @@ function tierSection(
       <span class="marker" style="padding:4px 10px;font-size:11px;letter-spacing:0.12em;">${
         isFinal ? 'FINAL QUOTE' : key.toUpperCase()
       }${selected && !isFinal ? ' · RECOMMENDED' : ''}</span>
-      <span class="tier-price" style="font-size:20px;font-weight:800;">$${price.toLocaleString(
-        'en-AU',
-      )} <small style="font-size:10px;font-weight:400;color:var(--dim);">${esc(priceNote)}</small></span>
+      <span class="tier-price" style="font-size:20px;font-weight:800;">${aud2(price)} <small style="font-size:10px;font-weight:400;color:var(--dim);">${esc(priceNote)}</small></span>
     </div>
     <div class="tier-label" style="margin-top:6px;color:var(--sec);font-weight:600;">${esc(
       tier.label ?? '',
@@ -237,10 +240,11 @@ const QUOTE_PLEASE_NOTE = [
  * visit: this price IS the confirmed one. Leaving it would tell the customer
  * the number they are about to pay a deposit against might still move.
  */
-function pleaseNoteFor(quoteKind: string | null | undefined, depositPct: number): string[] {
-  if (quoteKind !== 'final') return QUOTE_PLEASE_NOTE
+function pleaseNoteFor(quoteKind: string | null | undefined, depositPct: number, gstRegistered?: boolean | null): string[] {
+  const taxNote = gstRegistered === false ? 'No GST is charged on this quote.' : QUOTE_PLEASE_NOTE[0]
+  if (quoteKind !== 'final') return [taxNote, ...QUOTE_PLEASE_NOTE.slice(1)]
   return [
-    QUOTE_PLEASE_NOTE[0],
+    taxNote,
     `Price confirmed at your site visit. Deposit ${depositPct}% less $${INSPECTION_FEE_AUD} credit; balance on completion.`,
     QUOTE_PLEASE_NOTE[2],
   ]
@@ -346,6 +350,7 @@ export function buildQuoteReportHtmlFromBody(input: QuoteReportInput, bodyHtml: 
     : null
 
   return renderReportDocument(branding, {
+    appearance: input.reportStyle,
     docTitle: `Quote — ${branding.businessName}`,
     eyebrow: multiTier ? 'Customer quote · Good / Better / Best' : 'Customer quote',
     dateLabel: date,
@@ -357,7 +362,8 @@ export function buildQuoteReportHtmlFromBody(input: QuoteReportInput, bodyHtml: 
       multiTier ? 'Your Good / Better / Best options are' : 'Your quote is'
     } set out below.`,
     bodyHtml,
-    pleaseNote: pleaseNoteFor(input.quoteKind, clampDepositPct(input.depositPct)),
+    pleaseNote: pleaseNoteFor(input.quoteKind, clampDepositPct(input.depositPct), input.gstRegistered),
+    footerPriceNote: input.gstRegistered === false ? 'No GST is charged.' : 'Prices include GST.',
     closingLine,
   })
 }

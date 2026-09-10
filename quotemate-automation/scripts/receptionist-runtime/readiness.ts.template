@@ -1,0 +1,73 @@
+import { createClient } from '@supabase/supabase-js'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { verifyPublicQuoteSchema, JOB_QUOTE_OPERATION_SCHEMA } from '../lib/quote/public-schema'
+import { publicWebOrigin } from '../lib/sms/public-origin'
+import { tenantPricingReadiness } from '../lib/sms/pricing-readiness'
+
+type Check = { name: string; ok: boolean }
+export function releaseFingerprint(): { sourceHash: string; originCommit: string; trade: string; contractVersion: number } | null {
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'release-manifest.json'), 'utf8'))
+    const attestation = JSON.parse(readFileSync(resolve(process.cwd(), 'build-attestation.json'), 'utf8'))
+    if (attestation.version !== 1 || attestation.sourceHash !== manifest.sourceHash) return null
+    return { sourceHash: manifest.sourceHash, originCommit: manifest.originCommit, trade: manifest.trade, contractVersion: manifest.contractVersion }
+  } catch { return null }
+}
+
+/** Read-only capability probe. It never calls a model, prices a job or sends. */
+export async function receptionistReadiness(trade: string) {
+  const checks: Check[] = []
+  const release = releaseFingerprint()
+  checks.push({ name: 'release_manifest', ok: release?.contractVersion === 2 && release.trade === trade })
+  try { publicWebOrigin(); checks.push({ name: 'public_web_origin', ok: true }) }
+  catch { checks.push({ name: 'public_web_origin', ok: false }) }
+  checks.push({ name: 'engine_auth', ok: Boolean(process.env.CRON_SECRET && process.env.SIM_API_KEY && process.env.SMS_SIMULATE_ENABLED === '1') })
+  const tenant = process.env.SMS_READINESS_TENANT_ID
+  checks.push({ name: 'controlled_tenant', ok: Boolean(tenant) })
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { ok: false, trade, release, checks: [...checks, { name: 'database', ok: false }] }
+  }
+  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { persistSession: false } })
+  const schema: Record<string,string> = {
+    sms_work_jobs: 'id,service_key,owner_token,turn_id,status',
+    sms_outbox: 'id,turn_id,status,provider_sid',
+    job_quote_operations: JOB_QUOTE_OPERATION_SCHEMA,
+  }
+  await Promise.all(Object.entries(schema).map(async ([table, columns]) => {
+    try {
+      const result = await db.from(table).select(columns).limit(0).abortSignal(AbortSignal.timeout(3000))
+      checks.push({ name: `schema:${table}`, ok: !result.error })
+    } catch { checks.push({ name: `schema:${table}`, ok: false }) }
+  }))
+  await Promise.all([
+    ['commercial_quote_guard','sms_commercial_quote_guard_ready'],
+    ['plan_quote_guard','sms_plan_quote_guard_ready'],
+    ['quote_chain','sms_quote_chain_ready'],
+  ].map(async ([name,rpc]) => {
+    try {
+      const result = await db.rpc(rpc).abortSignal(AbortSignal.timeout(3000))
+      checks.push({ name: `schema:${name}`, ok: !result.error && result.data === true })
+    } catch { checks.push({ name: `schema:${name}`, ok: false }) }
+  }))
+  const publicSchema = await verifyPublicQuoteSchema(db)
+  checks.push(...publicSchema.families.map((family) => ({ name: `public_schema:${family.family}`, ok: family.ready })))
+  if (tenant) {
+    try {
+      const setup = await db.from('tenants').select('trades,trade,status').eq('id', tenant).abortSignal(AbortSignal.timeout(3000)).maybeSingle()
+      checks.push({ name: 'enabled_trade', ok: !setup.error && setup.data?.trades?.includes(trade) === true && !['suspended','closed'].includes(String(setup.data?.status).toLowerCase()) })
+      checks.push({ name: 'tenant_pricing', ok: await tenantPricingReadiness(db,tenant,trade,setup.data?.trade ?? null) })
+      const proof = await db.from('sms_readiness_evidence').select('passed,verified_at')
+        .eq('release_hash',release?.sourceHash ?? '').eq('tenant_id',tenant).eq('trade',trade).eq('tool','sms_quote')
+        .abortSignal(AbortSignal.timeout(3000)).maybeSingle()
+      const verifiedAt = typeof proof.data?.verified_at === 'string' ? Date.parse(proof.data.verified_at) : NaN
+      const proofAge = Date.now() - verifiedAt
+      checks.push({ name: 'synthetic_workflow', ok: !proof.error && proof.data?.passed === true &&
+        Number.isFinite(proofAge) && proofAge >= 0 && proofAge < 24 * 60 * 60 * 1000 })
+    } catch { checks.push({ name: 'tenant_dependency', ok: false }) }
+  }
+  return { ok: checks.every((c) => c.ok), trade, release, checks,
+    capabilities: { conversation: checks.filter((c) => ['engine_auth','schema:sms_work_jobs','enabled_trade'].includes(c.name)).every((c) => c.ok),
+      quote: checks.every((c) => c.ok), delivery: checks.find((c) => c.name === 'schema:sms_outbox')?.ok === true } }
+}

@@ -103,14 +103,15 @@ export async function POST(
   const supabase = getSupabase()
   const { data: row, error } = await supabase
     .from('solar_estimates')
-    .select(
-      'id, tenant_id, public_token, address, state, postcode, confirmed_at, buildings, selected_building_id, estimate, quote_variant',
-    )
+    .select('*')
     .eq('public_token', token)
     .maybeSingle()
-  if (error || !row) {
+  if (error) return Response.json({ ok: false, error: 'quote_unavailable' }, { status: 503 })
+  if (!row) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+
+  if (row.paid_at) return Response.json({ ok: false, error: 'paid_quote_locked' }, { status: 409 })
 
   const persistedBuildings = normalisePersistedBuildingCentroids(
     (row.buildings as DetectedBuilding[] | null) ?? [],
@@ -306,10 +307,12 @@ export async function POST(
   //    422. The customer keeps seeing the previously-selected building.
   if (computed.coverage_source !== 'google') {
     const noCoverage = updateBuildingStatus(buildings, buildingId, 'no_coverage')
-    await supabase
-      .from('solar_estimates')
-      .update({ buildings: noCoverage })
-      .eq('id', row.id)
+    const { error: updateError } = await supabase.rpc('sms_redraft_solar_owned', {
+      p_tenant_id: row.tenant_id, p_id: row.id, p_expected: row,
+      p_changes: { buildings: noCoverage }, p_quote_changes: {},
+    })
+    if (updateError) return Response.json({ ok: false, error: 'quote_changed',
+      detail: 'This quote changed. Reload it before choosing another building.' }, { status: 409 })
     return Response.json(
       {
         ok: false,
@@ -349,40 +352,17 @@ export async function POST(
     'postcode',
   ] as const)
 
-  const { error: updErr } = await supabase
-    .from('solar_estimates')
-    .update({
-      ...estimateUpdate,
-      // estimateUpdate already carries buildings + selected_building_id from
-      // the payload builder; pdf/panels artefacts must regenerate against the
-      // newly-selected building's numbers (same as redraft).
-      pdf_path: null,
-      panels_image_status: 'idle',
-      panels_image_path: null,
-    })
-    .eq('id', row.id)
-  if (updErr) {
-    return Response.json(
-      { ok: false, error: 'update_failed', detail: updErr.message },
-      { status: 500 },
-    )
-  }
-
-  // Refresh the linked quotes row (same share_token) so the dashboard
-  // pipeline shows the new totals. Best-effort — solar_estimates is the
-  // source of truth for the customer page (mirrors redraft).
-  const quoteUpdate = omitKeys(payloads.quote, [
-    'tenant_id',
-    'status',
-    'share_token',
-  ] as const)
-  const { error: quoteErr } = await supabase
-    .from('quotes')
-    .update(quoteUpdate)
-    .eq('share_token', row.public_token)
-  if (quoteErr) {
-    console.warn('[solar/select-building] quotes row refresh failed (non-fatal)', quoteErr.message)
-  }
+  const quoteUpdate = omitKeys(payloads.quote, ['tenant_id', 'status', 'share_token'] as const)
+  // The customer may choose a building while the quote is held. Commit only
+  // if the exact saved snapshot is still unapproved and unpaid; the same row
+  // lock is used by owner approval, with both pricing records saved together.
+  const { data: saved, error: updErr } = await supabase.rpc('sms_redraft_solar_owned', {
+    p_tenant_id: row.tenant_id, p_id: row.id, p_expected: row,
+    p_changes: { ...estimateUpdate, pdf_path: null, panels_image_status: 'idle', panels_image_path: null },
+    p_quote_changes: quoteUpdate,
+  })
+  if (updErr || !saved) return Response.json({ ok: false, error: 'quote_changed_or_unavailable',
+    detail: 'This quote changed. Reload it before choosing another building.' }, { status: 409 })
 
   // Regenerate the sun & shade assets against the newly-selected building's
   // estimate (the repoint replaced context.sun). Namespaced per building so

@@ -10,8 +10,9 @@ const h = vi.hoisted(() => {
   }
   const resultBuilder = (table: string) => {
     const builder = {
-      select() { return this }, eq() { return this }, order() { return this },
-      update() { return this }, insert() { return this }, maybeSingle() { return this.single() },
+      select() { return this }, eq() { return this }, order() { return this }, or() { return this },
+      update() { return this }, insert() { return this }, upsert() { return this },
+      async maybeSingle() { return table === 'intakes' ? { data: null, error: null } : this.single() },
       async single() {
         if (table === 'calls') return { data: state.call, error: null }
         if (table === 'sms_conversations') return { data: state.conversation, error: null }
@@ -30,7 +31,19 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.supabase }))
-vi.mock('next/server', () => ({ after: (callback: () => Promise<unknown>) => h.deferred.push(callback) }))
+// This suite isolates the existing push hook INSIDE a claimed worker. Durable
+// receipt/claim/restart/after-drain are exercised against Postgres separately.
+vi.mock('@/lib/sms/durable-work', () => ({
+  currentSmsWork: () => ({ jobId: 'work-1', ownerToken: 'owner-1', turnId: 'turn-1' }),
+  withFencedSmsClient: (db: unknown) => db,
+  smsWorkFetch: (...args: Parameters<typeof fetch>) => fetch(...args),
+  attributeSmsWorkTenant: async () => undefined,
+  assertSmsWorkOwnership: async () => undefined,
+  smsWorkCheckpoint: (_key: string, operation: () => Promise<unknown>) => operation(),
+  durableAfter: (callback: () => Promise<unknown>) => h.deferred.push(callback),
+  enqueueEstimateWork: vi.fn(async () => ({ id: 'estimate-job-1' })),
+  enqueueSmsWork: vi.fn(), internalWorkPayload: vi.fn(), runSmsWorkNow: vi.fn(),
+}))
 vi.mock('@/lib/push/events', () => ({ enqueuePushEvent: h.enqueue }))
 vi.mock('@/lib/agents/cron', () => ({ isCronAuthorised: () => true }))
 vi.mock('@/lib/intake/structure', () => ({ structureIntake: vi.fn(async () => ({

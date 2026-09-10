@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Welcome.md",
+                "file": "09 - API Reference/API Overview.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Welcome"
+              "title": "API Overview"
             }
           }
         ]
@@ -182,8 +182,15 @@
       "bases:Create new base": false
     }
   },
-  "active": "196689b335f8c01b",
+  "active": "8cf81cb52c8eae7e",
   "lastOpenFiles": [
+    "09 - API Reference/API - SMS and Voice.md",
+    "09 - API Reference/API - Intake and Estimate.md",
+    "01 - Platform/Tech Stack.md",
+    "01 - Platform/The Four Pipelines.md",
+    "01 - Platform/System Architecture.md",
+    "01 - Platform/Platform Overview.md",
+    "01 - Platform/Environment Variables and Feature Flags.md",
     "Welcome.md"
   ]
 }

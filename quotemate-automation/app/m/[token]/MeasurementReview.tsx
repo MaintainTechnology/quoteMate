@@ -105,6 +105,7 @@ function combine(
 }
 
 export function MeasurementReview({
+  measurementVersion,
   measureToken,
   publicToken,
   routing,
@@ -116,6 +117,7 @@ export function MeasurementReview({
   quoteShareToken,
   saveAsQuoteBody,
 }: {
+  measurementVersion: string
   measureToken: string
   publicToken: string
   routing: string | null
@@ -207,11 +209,13 @@ export function MeasurementReview({
       const encoded = await Promise.all(photos.slice(0, 6).map(fileToBase64))
       const res = await fetch(`/api/roofing/measurement/${measureToken}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photos: encoded }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAuthToken() ?? ''}` },
+        body: JSON.stringify({ expected_revision: measurementVersion, photos: encoded }),
       })
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean
+        successor?: boolean
+        measureToken?: string
         solar?: unknown
         detail?: string
         error?: string
@@ -221,6 +225,7 @@ export function MeasurementReview({
         setRescanMsg(json.detail ?? json.error ?? 'Re-scan failed.')
         return
       }
+      if (json.successor && json.measureToken) { router.push(`/m/${json.measureToken}`); return }
       setRescanState('done')
       setRescanMsg(json.solar ? 'Updated from your photos.' : json.detail ?? 'No solar or skylights found.')
       setPhotos([])
@@ -229,7 +234,7 @@ export function MeasurementReview({
       setRescanState('error')
       setRescanMsg(e instanceof Error ? e.message : String(e))
     }
-  }, [photos, measureToken, router])
+  }, [photos, measureToken, router, measurementVersion])
 
   // Tradie edge override (R3.1) — PATCH the confirmed hip/valley/box-gutter
   // counts for one structure; the server re-prices in place and we refresh to
@@ -241,14 +246,15 @@ export function MeasurementReview({
       try {
         const res = await fetch(`/api/roofing/measurement/${measureToken}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ edges: [{ index: index1, ...edges }] }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAuthToken() ?? ''}` },
+          body: JSON.stringify({ expected_revision: measurementVersion, edges: [{ index: index1, ...edges }] }),
         })
-        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string }
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string; successor?: boolean; measureToken?: string }
         if (!res.ok || !json.ok) {
           setErr(json.detail ?? json.error ?? 'Could not update the counts.')
           return
         }
+        if (json.successor && json.measureToken) { router.push(`/m/${json.measureToken}`); return }
         router.refresh()
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e))
@@ -256,7 +262,7 @@ export function MeasurementReview({
         setEdgeSaving(null)
       }
     },
-    [measureToken, router],
+    [measureToken, router, measurementVersion],
   )
 
   const combined = useMemo(() => combine(structures, included, solar), [structures, included, solar])
@@ -304,11 +310,13 @@ export function MeasurementReview({
       try {
         const res = await fetch(`/api/roofing/measurement/${measureToken}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ included_indices: next }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAuthToken() ?? ''}` },
+          body: JSON.stringify({ expected_revision: measurementVersion, included_indices: next }),
         })
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean
+          successor?: boolean
+          measureToken?: string
           error?: string
           detail?: string
         }
@@ -316,6 +324,7 @@ export function MeasurementReview({
           setErr(json.detail ?? json.error ?? `Couldn't save (HTTP ${res.status})`)
           return false
         }
+        if (json.successor && json.measureToken) router.push(`/m/${json.measureToken}`)
         return true
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e))
@@ -324,7 +333,7 @@ export function MeasurementReview({
         setSaving(false)
       }
     },
-    [measureToken],
+    [measureToken, measurementVersion, router],
   )
 
   const onToggle = useCallback(

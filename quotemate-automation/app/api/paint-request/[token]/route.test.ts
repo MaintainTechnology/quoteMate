@@ -1,184 +1,82 @@
-// Spec painting-auto-send R2/R3 — the self-serve form POST is the SECOND
-// auto-send origin and was shipping untested. It must text the full quote (not
-// the holding message), route through the shared autoSendPaintingQuote helper
-// so stamp-vs-revert cannot drift from the SMS twin, and never report a send
-// that a carrier refused — including the no-customer_phone case.
-
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
 const h = vi.hoisted(() => {
   type Result = { data: unknown; error: unknown }
-  const results: Result[] = []
-  const inserts: { table: string; row: Record<string, unknown> }[] = []
+  const results = new Map<string, Result[]>()
   const updates: { table: string; patch: Record<string, unknown> }[] = []
-
   function from(table: string) {
     const builder: Record<string, unknown> = {}
-    for (const op of ['select', 'eq', 'maybeSingle']) {
-      builder[op] = () => builder
-    }
-    builder.update = (patch: Record<string, unknown>) => {
-      updates.push({ table, patch })
-      return builder
-    }
-    builder.insert = (row: Record<string, unknown>) => {
-      inserts.push({ table, row })
-      return builder
-    }
-    builder.then = (resolve: (r: Result) => unknown, reject?: (e: unknown) => unknown) => {
-      const r = results.shift() ?? { data: null, error: null }
-      return Promise.resolve(r).then(resolve, reject)
-    }
+    for (const op of ['select', 'eq', 'maybeSingle']) builder[op] = () => builder
+    builder.update = (patch: Record<string, unknown>) => { updates.push({ table, patch }); return builder }
+    builder.then = (resolve: (r: Result) => unknown) => Promise.resolve(results.get(table)?.shift() ?? {data:null,error:null}).then(resolve)
     return builder
   }
-
-  return {
-    results,
-    inserts,
-    updates,
-    client: { from },
-    runAndSavePaintingQuote: vi.fn(),
-    composePaintingQuoteDelivery: vi.fn(async () => ({ text: 'Better $12,000 — https://x.test/q/paint/pub-1', mmsUrl: 'https://pdf' })),
-    autoSendPaintingQuote: vi.fn(),
-    notifyPaintingTradie: vi.fn(async () => ({ notified: true })),
-    sendSms: vi.fn(async () => ({ ok: true, sid: 'SM1' })),
-    dispatchQuoteMessage: vi.fn(async () => ({ ok: true })),
-  }
+  return { results, updates, client: { from }, estimate: vi.fn(), send: vi.fn() }
 })
-
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.client }))
-vi.mock('@/lib/painting/quote-dispatch', () => ({
-  runAndSavePaintingQuote: h.runAndSavePaintingQuote,
-  composePaintingQuoteDelivery: h.composePaintingQuoteDelivery,
-}))
-vi.mock('@/lib/painting/release', () => ({
-  notifyPaintingTradie: h.notifyPaintingTradie,
-  autoSendPaintingQuote: h.autoSendPaintingQuote,
-}))
-vi.mock('@/lib/sms/twilio', () => ({ sendSms: h.sendSms }))
-vi.mock('@/lib/sms/dispatch', () => ({ dispatchQuoteMessage: h.dispatchQuoteMessage }))
-
-import { POST } from './route'
-
-const lead = {
-  token: 'lead-tok',
-  tenant_id: 't1',
-  conversation_id: null,
-  customer_phone: '+61400000000',
-  status: 'new',
+vi.mock('@/lib/sms/painting-estimate-dispatch', () => ({ estimateAndDispatchPainting: h.estimate }))
+vi.mock('@/lib/sms/dispatch', () => ({ dispatchQuoteMessage: h.send }))
+import { GET, POST } from './route'
+const lead = { token:'lead-tok',tenant_id:'t1',conversation_id:'c1',customer_phone:'+61400000000',status:'new' }
+const body = { address:{address:'5 Smith St',postcode:'2000',state:'NSW'},
+  inputs:{scopes:['walls'],coats:2,condition:'sound',ceiling_height:'standard',colour_change:false,storeys:1} }
+const state = { slots:{address:'5 Smith St'},last_step:'closed',workflow_stage:'awaiting_review',pending_quote_token:'saved-token' }
+const req=(data:unknown=body)=>new Request('https://quotemax.com.au/api/paint-request/lead-tok',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)})
+const ctx={params:Promise.resolve({token:'lead-tok'})}
+function queueHappy(row:Record<string,unknown>=lead) {
+  h.results.set('painting_lead_requests',[{data:row,error:null}])
+  h.results.set('tenants',[{data:{twilio_sms_number:'+61488888888'},error:null}])
 }
-
-const pricedDisp = {
-  ok: true as const,
-  token: 'pub-1',
-  estimateToken: 'est-1',
-  inspection: false,
-  estimate: { price: { routing: { decision: 'auto_quote', reason: '' }, tiers: [{ tier: 'better', inc_gst: 12000 }] } },
-}
-
-const body = {
-  address: { address: '5 Smith St', postcode: '2000', state: 'NSW' },
-  inputs: {
-    scopes: ['walls'],
-    coats: 2,
-    condition: 'sound',
-    ceiling_height: 'standard',
-    colour_change: false,
-    storeys: 1,
-  },
-}
-
-function req() {
-  return new Request('http://localhost/api/paint-request/lead-tok', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+beforeEach(()=>{
+  h.results.clear();h.updates.length=0
+  h.send.mockReset().mockResolvedValue({ok:true,outboxId:'out-1'})
+  h.estimate.mockReset().mockImplementation(async (args:{sendReply:(text:string)=>Promise<{ok:boolean}>})=>{
+    const sent=await args.sendReply('Your painting draft is saved and awaiting review. It has not been released as a quote yet.')
+    return sent.ok ? {ok:true,token:'saved-token',inspection:false,state} : {ok:false,reason:'Status not accepted'}
   })
-}
-const ctx = { params: Promise.resolve({ token: 'lead-tok' }) }
-
-/** Queue: lead lookup → (lead update) → tenant lookup. */
-function queueHappyPath(leadRow: Record<string, unknown> = lead) {
-  h.results.push(
-    { data: leadRow, error: null },
-    { data: null, error: null },
-    { data: { owner_mobile: '+61411111111', owner_first_name: 'Jo', twilio_sms_number: '+61480000000', business_name: 'Acme' }, error: null },
-  )
-}
-
-beforeEach(() => {
-  h.results.length = 0
-  h.inserts.length = 0
-  h.updates.length = 0
-  h.runAndSavePaintingQuote.mockReset().mockResolvedValue(pricedDisp)
-  h.notifyPaintingTradie.mockClear()
-  h.sendSms.mockReset().mockResolvedValue({ ok: true, sid: 'SM1' })
-  // Default: the shared helper delivers, exercising the route's injected send.
-  h.autoSendPaintingQuote.mockReset().mockImplementation(async (a: {
-    send: (text: string, mmsUrl?: string) => Promise<boolean>
-  }) => ({ sent: await a.send('Better $12,000 — https://x.test/q/paint/pub-1', 'https://pdf') }))
 })
-
-describe('POST /api/paint-request/[token] — priced auto-send', () => {
-  it('texts the full quote with the PDF, never the holding message (R2)', async () => {
-    queueHappyPath()
-    const res = await POST(req(), ctx)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ ok: true, inspection: false })
-
-    expect(h.sendSms).toHaveBeenCalledTimes(1)
-    expect(h.sendSms).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: '+61400000000',
-        text: expect.stringContaining('/q/paint/pub-1'),
-        mediaUrl: 'https://pdf',
-      }),
-    )
-    expect(h.notifyPaintingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({ customerTexted: true }),
-    )
+describe('painting form uses the same saved draft and review gate as SMS',()=>{
+  it('uses stable request ownership, records the draft and sends only an honest status',async()=>{
+    queueHappy()
+    const response=await POST(req(),ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ok:true,stage:'awaiting_review',texted:false})
+    expect(h.estimate).toHaveBeenCalledWith(expect.objectContaining({tenantId:'t1',customerPhone:lead.customer_phone,conversationId:'c1',requestKey:'paint-form:lead-tok',slots:expect.objectContaining({address:'5 Smith St',address_confirmed:true})}))
+    expect(h.send).toHaveBeenCalledWith(expect.objectContaining({tenantId:'t1',deliveryKey:'paint-form:lead-tok:status',text:expect.stringMatching(/awaiting review/)}))
+    expect(h.send.mock.calls[0][0].text).not.toMatch(/https?:|\$|on its way/)
+    expect(h.updates).toEqual([{table:'sms_conversations',patch:expect.objectContaining({painting_state:state})},{table:'painting_lead_requests',patch:expect.objectContaining({status:'submitted',quote_token:'saved-token'})}])
   })
-
-  it('routes through the shared helper so stamp-vs-revert matches the SMS origin', async () => {
-    queueHappyPath()
-    await POST(req(), ctx)
-    expect(h.autoSendPaintingQuote).toHaveBeenCalledWith(
-      expect.objectContaining({ disp: pricedDisp, tenantId: 't1' }),
-    )
+  it('keeps the form retryable if status delivery fails',async()=>{
+    queueHappy();h.send.mockResolvedValue({ok:false})
+    const response=await POST(req(),ctx)
+    expect(response.status).toBe(502);expect(h.updates).toHaveLength(0)
   })
-
-  it('reports the send as failed and warns the tradie when Twilio refuses (R3)', async () => {
-    h.sendSms.mockResolvedValueOnce({ ok: false, code: '21610', reason: 'unsubscribed' } as never)
-    queueHappyPath()
-    await POST(req(), ctx)
-
-    expect(h.notifyPaintingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({ customerTexted: false }),
-    )
-    // Second call is the holding-message fallback — no price leaked.
-    expect(h.sendSms).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ text: expect.stringMatching(/is preparing your painting quote/i) }),
-    )
+  it('does not consume the form when conversation persistence fails',async()=>{
+    queueHappy();h.results.set('sms_conversations',[{data:null,error:{message:'database unavailable'}}])
+    expect((await POST(req(),ctx)).status).toBe(503)
+    expect(h.updates.some((u)=>u.table==='painting_lead_requests')).toBe(false)
   })
-
-  it('never claims a send when the lead has no customer_phone', async () => {
-    queueHappyPath({ ...lead, customer_phone: null })
-    await POST(req(), ctx)
-
-    expect(h.sendSms).not.toHaveBeenCalled()
-    expect(h.notifyPaintingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({ customerTexted: false }),
-    )
+  it('reports a failed final submission write instead of claiming completion',async()=>{
+    queueHappy();h.results.get('painting_lead_requests')!.push({data:null,error:{message:'database unavailable'}})
+    expect((await POST(req(),ctx)).status).toBe(503)
   })
-
-  it('leaves an inspection-routed request on its own message, with no auto-send', async () => {
-    h.runAndSavePaintingQuote.mockResolvedValue({ ...pricedDisp, inspection: true })
-    queueHappyPath()
-    const res = await POST(req(), ctx)
-
-    expect(await res.json()).toMatchObject({ ok: true, inspection: true })
-    expect(h.autoSendPaintingQuote).not.toHaveBeenCalled()
-    expect(h.notifyPaintingTradie).not.toHaveBeenCalled()
+  it('reports lookup outages distinctly from unknown tokens for both handlers',async()=>{
+    for (const handler of [GET,POST]) {
+      h.results.set('painting_lead_requests',[{data:null,error:{message:'PGRST204'}}])
+      expect((await handler(req(),ctx)).status).toBe(503)
+      h.results.set('painting_lead_requests',[{data:null,error:null}])
+      expect((await handler(req(),ctx)).status).toBe(404)
+    }
+    expect(h.estimate).not.toHaveBeenCalled()
+  })
+  it('requires a customer binding and valid inputs before estimating',async()=>{
+    queueHappy({...lead,customer_phone:null});expect((await POST(req(),ctx)).status).toBe(422)
+    queueHappy();expect((await POST(req({}),ctx)).status).toBe(400)
+    expect(h.estimate).not.toHaveBeenCalled()
+  })
+  it('does not mark a failed estimate or inspection task as a released quote',async()=>{
+    queueHappy();h.estimate.mockResolvedValueOnce({ok:false,reason:'Rates missing'})
+    expect((await POST(req(),ctx)).status).toBe(502);expect(h.updates).toHaveLength(0)
+    queueHappy();h.estimate.mockResolvedValueOnce({ok:true,token:'saved-token',inspection:true,state})
+    expect(await (await POST(req(),ctx)).json()).toMatchObject({inspection:true,stage:'awaiting_review',texted:false})
   })
 })

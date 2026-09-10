@@ -65,13 +65,12 @@ export function confirmEligibility(
  * the forced-confirm gate without a deploy by setting SOLAR_AUTO_RELEASE
  * to 'false' or '0' (mirrors sunAssetsEnabled's kill-switch shape).
  */
-export function solarAutoReleaseEnabled(env: {
+export function solarAutoReleaseEnabled(_env: {
   SOLAR_AUTO_RELEASE?: string
   [key: string]: string | undefined
 }): boolean {
-  const v = env.SOLAR_AUTO_RELEASE
-  if (v === 'false' || v === '0') return false
-  return true
+  // Human approval is a policy gate, not an environment-variable override.
+  return false
 }
 
 export type SolarReleaseRow = {
@@ -304,6 +303,7 @@ export async function autoReleaseSolarEstimate(
   supabase: SupabaseClient,
   args: { token: string },
 ): Promise<{ released: boolean }> {
+  if (!solarAutoReleaseEnabled(process.env)) return { released: false }
   try {
     const { data: row } = await supabase
       .from('solar_estimates')

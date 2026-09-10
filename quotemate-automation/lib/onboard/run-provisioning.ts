@@ -6,14 +6,10 @@
 // Pure function over its supabase + provisioning dependencies so the
 // tests can mock each piece without touching network or DB.
 //
-// Idempotence contract:
-//   • If the tenant already has twilio_sms_number AND vapi_assistant_id,
-//     do nothing and return ok with the existing values. This means the
-//     retry endpoint is safe to hammer.
-//   • If only one of the two is set, finish the other half. The Vapi
-//     register-number call uses whichever phone number is now on file.
-//   • On success, tenant row ends with status='active', activated_at
-//     populated, and both provisioned IDs stamped.
+// Durable attempt contract (migration216): claim before any provider action.
+// Completed attempts are read-only; processing, unknown and historical
+// artifacts require reconciliation. None of those states reclaims a purchase.
+// The account's active flag is separate from verified phone setup readiness.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -34,6 +30,9 @@ import { smsWebhookUrl } from '@/lib/twilio/provision'
 import { provisionTenantStore } from '@/lib/filestore/tenant-provision'
 import { isStubTwilioNumber, isStubVapiId } from './stub-detect'
 import { after } from 'next/server'
+import { computePreflight } from './preflight-logic'
+import { ProvisioningAttemptSchema, PROVISIONING_TENANT_FIELDS, readProvisioningStatus, type PhoneReadiness, type ProvisioningTenant } from './provisioning-status'
+import { z } from 'zod'
 
 export type ProvisioningInput = {
   tenantId: string
@@ -58,6 +57,10 @@ export type ProvisioningInput = {
 }
 
 export type ProvisioningOutput = {
+  phoneReadiness?: PhoneReadiness
+  twilioNumberSid?: string | null
+  smsRoutingConfirmed?: boolean
+  voiceRoutingConfirmed?: boolean
   ok: boolean
   /** Final number that lives on the tenant row (real, stub, or pre-existing). */
   phoneNumber: string | null
@@ -90,6 +93,60 @@ export type Provisioners = {
  * - `provisioners` lets tests inject mocks; defaults call the live libs.
  */
 export async function runProvisioning(
+  supabase: Pick<SupabaseClient, 'from'|'rpc'>,
+  input: ProvisioningInput,
+  provisioners: Provisioners = {},
+): Promise<ProvisioningOutput> {
+  const fallback: ProvisioningOutput = { ok:false, phoneNumber:null, vapiAssistantId:null,
+    activated:false, stubbedTwilio:false, stubbedVapi:false }
+  let operationId: string | null = null
+  try {
+    const { data:tenant,error:tenantError } = await supabase.from('tenants').select(PROVISIONING_TENANT_FIELDS).eq('id',input.tenantId).single()
+    if (tenantError || !tenant) throw new Error('Account could not be read before phone setup')
+    const before = await readProvisioningStatus(supabase,tenant as ProvisioningTenant)
+    if (!before.retryable) return { ...fallback,ok:before.state==='ready'||before.state==='stub',
+      phoneNumber:before.phoneNumber, phoneReadiness:before, error:before.setupComplete ? undefined:before.message }
+    // This check performs no provider I/O. A failure here is the only retryable
+    // no-dispatch disposition. Once claimed, a crash or false provider result
+    // cannot establish that no number/assistant was created.
+    const preflight = computePreflight(process.env)
+    if (!preflight.ok) return { ...fallback,phoneReadiness:before,error:'Phone setup configuration is incomplete. Contact support, then check status.' }
+    const {data,error} = await supabase.rpc('claim_tenant_provisioning',{ p_tenant_id:input.tenantId })
+    if (error) throw new Error('Phone setup attempt could not be recorded')
+    const claim = z.object({ claimed:z.boolean(), operation:ProvisioningAttemptSchema.nullable() }).parse(data)
+    if (!claim.claimed) {
+      const {data:current,error:readError} = await supabase.from('tenants').select(PROVISIONING_TENANT_FIELDS).eq('id',input.tenantId).single()
+      if (readError || !current) throw new Error('Phone setup status could not be read')
+      const status=await readProvisioningStatus(supabase,current as ProvisioningTenant)
+      return {...fallback, phoneNumber:status.phoneNumber, phoneReadiness:status,error:status.message}
+    }
+    if (!claim.operation || claim.operation.tenant_id !== input.tenantId || claim.operation.state !== 'processing') throw new Error('Phone setup claim identity mismatch')
+    operationId=claim.operation.operation_id
+    const result=await performProvisioning(supabase,{...input,existing:undefined},provisioners)
+    const proof={version:1,mode:before.provisioningMode, phoneNumber:result.phoneNumber,
+      twilioNumberSid:result.twilioNumberSid??null,vapiAssistantId:result.vapiAssistantId,
+      stubbedTwilio:result.stubbedTwilio,stubbedVapi:result.stubbedVapi,
+      smsRoutingConfirmed:result.smsRoutingConfirmed===true,voiceRoutingConfirmed:result.voiceRoutingConfirmed===true,
+      tenantPersisted:result.activated}
+    const {data:saved,error:saveError}=await supabase.from('tenant_provisioning_attempts')
+      .update({state:result.ok?'completed':'unknown',result:proof,completed_at:new Date().toISOString()})
+      .eq('tenant_id',input.tenantId).eq('operation_id',operationId).eq('state','processing').select('operation_id').single()
+    if(saveError||!saved) throw new Error('Phone setup outcome could not be recorded')
+    const {data:current,error:readError}=await supabase.from('tenants').select(PROVISIONING_TENANT_FIELDS).eq('id',input.tenantId).single()
+    if(readError||!current) throw new Error('Phone setup outcome could not be read')
+    return {...result,phoneReadiness:await readProvisioningStatus(supabase,current as ProvisioningTenant)}
+  } catch {
+    // Never clear/reclaim a started attempt, even when this best-effort stamp
+    // fails. Its persisted processing state blocks further provider dispatch.
+    if(operationId) {
+      try { await supabase.from('tenant_provisioning_attempts').update({state:'unknown'})
+        .eq('tenant_id',input.tenantId).eq('operation_id',operationId).eq('state','processing') } catch { /* retain processing */ }
+    }
+    return {...fallback,error:'Phone setup could not be confirmed. Check status before taking further action.'}
+  }
+}
+
+async function performProvisioning(
   supabase: Pick<SupabaseClient, 'from'>,
   input: ProvisioningInput,
   provisioners: Provisioners = {},
@@ -104,6 +161,9 @@ export async function runProvisioning(
   let stubbedTwilio = isStubTwilioNumber(phoneNumber)
   let stubbedVapi = isStubVapiId(vapiAssistantId)
   let warning: string | undefined
+  let smsRoutingConfirmed = false
+  let smsCapable = false
+  let voiceCapable = false
 
   // Twilio Phone Number SID — the authoritative real-vs-stub signal we persist
   // so the Tenant Health monitor never has to guess from the number's digits
@@ -134,7 +194,11 @@ export async function runProvisioning(
     stubbedTwilio = 'stubbed' in twilio ? twilio.stubbed : false
     freshTwilio = true
     // Real provision → capture the SID; stub provision → leave it null.
-    if ('stubbed' in twilio && !twilio.stubbed) twilioNumberSid = twilio.twilioSid
+    if ('stubbed' in twilio && !twilio.stubbed) {
+      twilioNumberSid = twilio.twilioSid
+      smsCapable = twilio.capabilities?.sms === true
+      voiceCapable = twilio.capabilities?.voice === true
+    }
   }
 
   // ── 2. Provision Vapi assistant (skip if already on file) ────────
@@ -147,8 +211,8 @@ export async function runProvisioning(
       phoneNumber,
     })
     if (!vapi.ok) {
-      // Half-provisioned: we keep the Twilio number on the tenant so the
-      // retry endpoint can finish the Vapi half later.
+      // Keep known provider artifacts for reconciliation. The durable attempt
+      // remains unknown; a partial result never authorizes another purchase.
       await supabase
         .from('tenants')
         .update({
@@ -207,7 +271,7 @@ export async function runProvisioning(
     if (!smsHook.ok) {
       const note = `SMS webhook reclaim failed: ${smsHook.reason}`
       warning = warning ? `${warning} · ${note}` : note
-    }
+    } else smsRoutingConfirmed = smsCapable && !smsHook.stubbed && smsHook.twilioSid === twilioNumberSid
   }
 
   // ── 4. Stamp the tenant row → active ─────────────────────────────
@@ -261,7 +325,7 @@ export async function runProvisioning(
   // ── 5. Welcome SMS (non-fatal) ───────────────────────────────────
   // Skipped entirely when the tenant onboarded without a mobile —
   // `welcome` stays undefined, the declared "didn't try" state.
-  const welcome = input.ownerMobile
+  const welcome = input.ownerMobile && !stubbedTwilio && !stubbedVapi && !warning && smsRoutingConfirmed
     ? await welcomeSms({
         fromNumber: phoneNumber,
         toMobile: input.ownerMobile,
@@ -279,5 +343,8 @@ export async function runProvisioning(
     stubbedVapi,
     welcome,
     warning,
+    twilioNumberSid,
+    smsRoutingConfirmed,
+    voiceRoutingConfirmed: voiceCapable && register.ok && !register.stubbed,
   }
 }

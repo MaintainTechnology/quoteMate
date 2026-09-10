@@ -77,6 +77,7 @@ const h = vi.hoisted(() => {
     runAndSavePaintingQuote: vi.fn(),
     autoSendPaintingQuote: vi.fn(),
     notifyPaintingTradie: vi.fn(async () => ({ notified: true })),
+    persistHumanHandoff: vi.fn(),
     measureAndDispatchRoofing: vi.fn(),
     notifyRoofingTradie: vi.fn(async () => ({ notified: true })),
     dispatchQuoteMessage: vi.fn(async () => ({ ok: true, sid: 'SM9' })),
@@ -110,6 +111,7 @@ vi.mock('@/lib/sms/roofing-measure-dispatch', () => ({
 }))
 vi.mock('@/lib/sms/roofing-notify', () => ({ notifyRoofingTradie: h.notifyRoofingTradie }))
 vi.mock('@/lib/sms/dispatch', () => ({ dispatchQuoteMessage: h.dispatchQuoteMessage }))
+vi.mock('@/lib/sms/human-handoff', () => ({ persistHumanHandoff: h.persistHumanHandoff }))
 vi.mock('@/lib/sms/twilio', () => ({ sendSms: h.sendSms }))
 
 import { POST } from './route'
@@ -201,6 +203,7 @@ const ctx = { params: Promise.resolve({ token: TOKEN }) }
 function queueHappy(lead: Record<string, unknown> = LEAD) {
   h.queue('trade_lead_requests', { data: lead, error: null }, { data: [{ token: TOKEN }], error: null })
   h.queue('sms_conversations', { data: { to_number: '+61480000000', conversation_state: { slots: {} } }, error: null })
+  h.queue('painting_measurements', { data: { id: 'painting-row' }, error: null })
 }
 
 const writesTo = (table: string) => h.writes.filter((w) => w.table === table)
@@ -220,17 +223,19 @@ beforeEach(() => {
       sent: await a.send(QUOTE_SMS),
     }))
   h.notifyPaintingTradie.mockClear()
+  h.persistHumanHandoff.mockReset().mockResolvedValue({ id: 'task-1', notified: true })
   // The real dispatcher texts the customer through the injected sendReply —
   // mock it the same way, or the route's delivery tracking is never exercised
   // and a hardcoded `texted: true` would sail through this file.
   h.measureAndDispatchRoofing
     .mockReset()
     .mockImplementation(async (a: { sendReply: (t: string) => Promise<{ ok: boolean }> }) => {
-      await a.sendReply('Your roof quote is ready')
-      return { ok: true, token: 'roof-1', quote: {}, state: { slots: {}, last_step: 'confirm_roof' } }
+      const sent = await a.sendReply('Your roof draft is saved and awaiting review')
+      if (!sent.ok) return { ok: false, reason: 'Status send failed' }
+      return { ok: true, token: 'roof-1', quote: {}, state: { slots: {}, last_step: 'closed', workflow_stage: 'awaiting_review' } }
     })
   h.notifyRoofingTradie.mockClear()
-  h.dispatchQuoteMessage.mockClear()
+  h.dispatchQuoteMessage.mockReset().mockResolvedValue({ ok: true, sid: 'SM9' })
   h.sendSms.mockReset().mockResolvedValue({ ok: true, sid: 'SM1' })
 })
 
@@ -316,11 +321,11 @@ describe('POST /api/quote-request/[token] — per-trade validation', () => {
 })
 
 describe('POST /api/quote-request/[token] — painting hand-off', () => {
-  it('estimates, texts the quote and records the quote token', async () => {
+  it('saves the draft, texts its review status and records the same token', async () => {
     queueHappy()
     const res = await POST(req(PAINT_BODY), ctx)
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ ok: true, inspection: false, texted: true })
+    expect(await res.json()).toMatchObject({ ok: true, inspection: false, texted: false })
 
     expect(h.runAndSavePaintingQuote).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -329,16 +334,16 @@ describe('POST /api/quote-request/[token] — painting hand-off', () => {
         request: expect.objectContaining({ address: ADDRESS }),
       }),
     )
-    expect(h.autoSendPaintingQuote).toHaveBeenCalled()
-    expect(h.sendSms).toHaveBeenCalledWith(expect.objectContaining({ to: '+61400000000', text: QUOTE_SMS }))
+    expect(h.autoSendPaintingQuote).not.toHaveBeenCalled()
+    expect(h.dispatchQuoteMessage).toHaveBeenCalledWith(expect.objectContaining({ to: '+61400000000', text: expect.stringMatching(/saved and awaiting review/i), deliveryKey: `quote-form:${TOKEN}:status` }))
     expect(leadUpdates().at(-1)?.row).toMatchObject({ quote_token: 'pub-1' })
   })
 
   it('tells the painter about the lead — a form quote nobody hears about is a dead lead', async () => {
     queueHappy()
     await POST(req(PAINT_BODY), ctx)
-    expect(h.notifyPaintingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({ address: ADDRESS.address, customerTexted: true }),
+    expect(h.persistHumanHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 't1', customerPhone: '+61400000000', resourceType: 'paint', resourceId: 'painting-row' }),
     )
   })
 
@@ -349,7 +354,7 @@ describe('POST /api/quote-request/[token] — painting hand-off', () => {
     // customer message restarts the whole painting Q&A on a quoted job.
     const stateUpdate = writesTo('sms_conversations').at(-1)
     expect(stateUpdate?.row).toMatchObject({
-      painting_state: expect.objectContaining({ last_step: 'quoted', pending_quote_token: 'pub-1' }),
+      painting_state: expect.objectContaining({ last_step: 'closed', workflow_stage: 'awaiting_review', pending_quote_token: 'pub-1' }),
     })
   })
 
@@ -371,20 +376,18 @@ describe('POST /api/quote-request/[token] — painting hand-off', () => {
     expect(leadUpdates().at(-1)?.row).toMatchObject({ status: 'pending', submitted_at: null })
   })
 
-  it('never reports a send Twilio refused, texts the holding message and says so to the painter', async () => {
+  it('retains the review task and allows retry when the status SMS is refused', async () => {
     queueHappy()
-    h.sendSms.mockResolvedValue({ ok: false, code: '21610', reason: 'unsubscribed' })
+    h.dispatchQuoteMessage.mockResolvedValue({ ok: false } as never)
     const res = await POST(req(PAINT_BODY), ctx)
     // `texted:false` is what stops the thank-you page saying "your quote is on
     // its way". The release revert itself lives in autoSendPaintingQuote (its
     // own tests cover it) and fires off this same false.
-    expect(await res.json()).toMatchObject({ ok: true, texted: false })
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ ok: false, error: 'estimate_failed' })
     // The customer hears SOMETHING rather than silence.
-    const bodies = h.sendSms.mock.calls.map((c) => c[0].text)
-    expect(bodies.some((t) => /preparing your painting quote/i.test(t))).toBe(true)
-    expect(h.notifyPaintingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({ customerTexted: false }),
-    )
+    expect(h.persistHumanHandoff).toHaveBeenCalled()
+    expect(leadUpdates().at(-1)?.row).toMatchObject({ status: 'pending' })
   })
 
   it('502s a failed thread write rather than quoting off an unrecorded brief', async () => {
@@ -423,21 +426,15 @@ describe('POST /api/quote-request/[token] — roofing hand-off', () => {
       }),
     )
     const stateUpdate = writesTo('sms_conversations').at(-1)
-    expect(stateUpdate?.row).toMatchObject({ roofing_state: { slots: {}, last_step: 'confirm_roof' } })
-    expect(await res.json()).toMatchObject({ texted: true })
+    expect(stateUpdate?.row).toMatchObject({ roofing_state: { slots: {}, last_step: 'closed', workflow_stage: 'awaiting_review' } })
+    expect(await res.json()).toMatchObject({ texted: false })
   })
 
-  it('tells the roofer about the lead — the dispatcher carries no alert of its own', async () => {
+  it('passes stable ownership to the dispatcher that persists the roofer review task', async () => {
     queueHappy(roofLead)
     await POST(req(ROOF_BODY), ctx)
-    expect(h.notifyRoofingTradie).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'quote_sent',
-        customerPhone: '+61400000000',
-        address: ADDRESS.address,
-        quoteUrl: 'https://quotemax.com.au/q/roof/roof-1',
-      }),
-    )
+    expect(h.measureAndDispatchRoofing).toHaveBeenCalledWith(expect.objectContaining({tenantId:'t1',conversationId:'c1',requestKey:`quote-form:${TOKEN}`}))
+    expect(h.notifyRoofingTradie).not.toHaveBeenCalled()
   })
 
   it('never claims a delivery Twilio refused', async () => {
@@ -445,10 +442,10 @@ describe('POST /api/quote-request/[token] — roofing hand-off', () => {
     // The roofing link is only ever delivered by this SMS, so a hardcoded
     // `texted: true` told the customer their quote was on its way when the
     // carrier had just refused it and they were getting nothing.
-    h.sendSms.mockResolvedValue({ ok: false, code: '21614', reason: 'not a mobile' })
+    h.dispatchQuoteMessage.mockResolvedValue({ ok: false } as never)
     const res = await POST(req(ROOF_BODY), ctx)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ ok: true, texted: false })
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ ok: false, error: 'estimate_failed' })
   })
 
   it('502s a failed measure and releases the link back to pending', async () => {

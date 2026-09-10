@@ -15,25 +15,23 @@
 // tested); this module is the thin side-effectful layer, mirroring the
 // tradie-registration branch in the inbound route.
 
-import { randomBytes } from 'node:crypto'
-import { after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { sendSms } from './twilio'
+import { dispatchQuoteMessage } from './dispatch'
+import { publicWebUrl } from './public-origin'
+import { smsDeliveryContext } from './delivery-context'
 import { wantsPlanEstimation, buildPlanUploadSms } from '@/lib/estimation/plan-request'
 import type { TenantRow } from '@/lib/tenant/lookup'
 
-const APP_URL = (process.env.APP_URL ?? 'https://www.quotemax.com.au').replace(/\/$/, '')
-
 export function planUploadUrl(token: string): string {
-  return `${APP_URL}/upload/plan/${token}`
+  return publicWebUrl(`/upload/plan/${encodeURIComponent(token)}`)
 }
 
 export function planResultsUrl(shareToken: string): string {
-  return `${APP_URL}/q/plan/${shareToken}`
+  return publicWebUrl(`/q/plan/${encodeURIComponent(shareToken)}`)
 }
 
 export function planReportPdfUrl(shareToken: string): string {
-  return `${APP_URL}/api/q/plan/${shareToken}/pdf`
+  return publicWebUrl(`/api/q/plan/${encodeURIComponent(shareToken)}/pdf`)
 }
 
 /**
@@ -51,123 +49,26 @@ export async function maybeHandlePlanEstimation(args: {
   customerFirstName?: string | null
 }): Promise<boolean> {
   const { supabase, tenant } = args
-  if (!tenant.sms_estimator_enabled) return false
-  if (!wantsPlanEstimation(args.inboundBody)) return false
-
-  console.log('[sms/plan-estimation] intent matched', {
-    tenantId: tenant.id,
-    fromNumber: args.fromNumber,
+  if (!tenant.sms_estimator_enabled || !wantsPlanEstimation(args.inboundBody)) return false
+  const context = smsDeliveryContext()
+  await context?.assertOwnership?.()
+  const { data: request, error } = await supabase.rpc('sms_plan_request', {
+    p_tenant: tenant.id, p_from: args.fromNumber, p_to: args.toNumber,
+    p_body: args.inboundBody, p_sid: args.messageSid,
+    p_work: context?.workId ?? null, p_owner: context?.workOwner ?? null,
   })
-
-  // 1. Reuse a live request for this customer+tenant so a repeat text
-  //    resends the same link instead of minting a new token.
-  const { data: existing } = await supabase
-    .from('plan_upload_requests')
-    .select('id, token, status, sms_conversation_id')
-    .eq('tenant_id', tenant.id)
-    .eq('customer_phone', args.fromNumber)
-    .in('status', ['awaiting_upload', 'analysing', 'failed'])
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  // 2. Get-or-create the conversation row (its own conversation_type so the
-  //    quote-dialog reuse logic never tries to continue a dialog on it).
-  let conversationId = (existing?.sms_conversation_id as string | null) ?? null
-  if (!conversationId) {
-    const { data: created, error: createErr } = await supabase
-      .from('sms_conversations')
-      .insert({
-        from_number: args.fromNumber,
-        to_number: args.toNumber,
-        status: 'done',
-        conversation_type: 'plan_estimation',
-        tenant_id: tenant.id,
-      })
-      .select('id')
-      .single()
-    if (createErr || !created) {
-      console.error('[sms/plan-estimation] conversation create failed', createErr)
-      return false // fall through to the normal pipeline rather than dropping the text
-    }
-    conversationId = created.id as string
-  }
-
-  // 3. Persist the inbound message on the thread.
-  await supabase.from('sms_messages').insert({
-    conversation_id: conversationId,
-    direction: 'inbound',
-    body: args.inboundBody,
-    twilio_message_sid: args.messageSid,
+  if (error || !request) throw new Error(`Plan request persistence failed: ${error?.code ?? 'missing row'}`)
+  const body = request.status === 'analysing'
+    ? "Your plan is being reviewed. We'll update this conversation when the results are ready."
+    : buildPlanUploadSms({ firstName: args.customerFirstName ?? null,
+      businessName: tenant.business_name, uploadUrl: planUploadUrl(request.token) })
+  const result = await dispatchQuoteMessage({
+    to: args.fromNumber, from: args.toNumber, text: body,
+    tenantId: tenant.id, conversationId: request.sms_conversation_id,
+    deliveryKey: args.messageSid ? `plan-upload:${args.messageSid}` : undefined,
   })
-
-  // 4. Resolve the token: reuse the live one, else mint a fresh request.
-  let token: string
-  let analysing = false
-  if (existing) {
-    token = existing.token as string
-    analysing = existing.status === 'analysing'
-    if (!existing.sms_conversation_id) {
-      await supabase
-        .from('plan_upload_requests')
-        .update({ sms_conversation_id: conversationId, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-    }
-  } else {
-    token = randomBytes(16).toString('hex')
-    const { error: reqErr } = await supabase.from('plan_upload_requests').insert({
-      token,
-      tenant_id: tenant.id,
-      sms_conversation_id: conversationId,
-      customer_phone: args.fromNumber,
-      twilio_number: args.toNumber,
-      status: 'awaiting_upload',
-    })
-    if (reqErr) {
-      console.error('[sms/plan-estimation] request insert failed', reqErr)
-      return false
-    }
-  }
-
-  const body = analysing
-    ? `${args.customerFirstName ? `Hi ${args.customerFirstName}!` : 'Hi!'} We're still reading your plan — results land here in a couple of minutes.`
-    : buildPlanUploadSms({
-        firstName: args.customerFirstName ?? null,
-        businessName: tenant.business_name,
-        uploadUrl: planUploadUrl(token),
-      })
-
-  // 5. Reply in after() so Twilio gets its fast ack.
-  const convId = conversationId
-  after(async () => {
-    try {
-      const result = await sendSms({ to: args.fromNumber, from: args.toNumber, text: body })
-      if (result.ok) {
-        await supabase.from('sms_messages').insert({
-          conversation_id: convId,
-          direction: 'outbound',
-          body,
-          twilio_message_sid: result.sid,
-        })
-        await supabase
-          .from('sms_conversations')
-          .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('id', convId)
-      } else {
-        console.error('[sms/plan-estimation] outbound SMS failed', {
-          conversationId: convId,
-          code: result.code,
-          reason: result.reason,
-        })
-      }
-    } catch (e) {
-      console.error('[sms/plan-estimation] outbound SMS threw', {
-        conversationId: convId,
-        message: e instanceof Error ? e.message : String(e),
-      })
-    }
-  })
-
+  // A saved failure is visible and recoverable in the outbox. A failure to
+  // save the intent must retry the incoming job, never silently acknowledge it.
+  if (!result.ok && !result.outboxId) throw new Error('Plan upload notification could not be queued')
   return true
 }

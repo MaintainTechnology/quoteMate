@@ -20,25 +20,29 @@
 // Copied lib/ files are BYTE-IDENTICAL to source. The `@/*` path alias is
 // preserved (tsconfig paths + tsc-alias at build), so re-running this after
 // a monorepo change produces a clean diff instead of a merge conflict.
-// ponytail: a copier, not a package registry — the isolation is the point,
-// so drift between repos is expected and deliberate. Re-run to re-sync.
+// Every candidate records its canonical source and website contract hashes.
+// Rebuild and verify the candidate when either side of that contract changes.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { collectPlatformContractFiles } from './receptionist-platform-contract.mjs'
+import { receptionistSourceHash } from './receptionist-release-fingerprint.mjs'
+import { REQUIRED_RECEPTIONIST_MIGRATIONS, RECEPTIONIST_SCHEMA_FILES } from './receptionist-schema-contract.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC_ROOT = resolve(HERE, '..')
-const OUT_ROOT = 'C:/Users/dalig/Desktop/MaintainTech/MaintainOrg/QuoteMax/Receptionists'
+const OUT_ROOT = resolve(process.argv.find((a) => a.startsWith('--out-root='))?.slice('--out-root='.length) ?? 'C:/Users/dalig/Desktop/MaintainTech/MaintainOrg/QuoteMax/Receptionists')
 
 const SRC_PKG = JSON.parse(readFileSync(join(SRC_ROOT, 'package.json'), 'utf8'))
 
 // ── trade config ─────────────────────────────────────────────────────────
 // `handlers` = which of the two dedicated SMS receptionists this service
-// keeps. electrical/plumbing/solar keep neither: they run the general
-// Sonnet dialog (lib/sms/dialog.ts), which is the spine of the route and
-// is never removed.
+// keeps. Electrical/plumbing use the shared dialog; solar uses the dedicated
+// solar hook in the shared route before the general dialog.
 // `dialog` is the TRADE-ISOLATION control, added 2026-08-05 after the audit
 // found every service running the shared electrical/plumbing dialog scoped by
 // tenants.trades[] rather than by the service's own trade.
@@ -47,17 +51,9 @@ const SRC_PKG = JSON.parse(readFileSync(join(SRC_ROOT, 'package.json'), 'utf8'))
 //                         trade — tradeScopeDirective's existing
 //                         "ELECTRICAL jobs ONLY. They do NOT do plumbing"
 //                         branch fires instead of the permissive "BOTH" one.
-//   dialog: null          the general dialog does NOT run. The service's own
-//                         handler owns every turn; anything it declines gets a
-//                         trade-scoped holding reply (see `holding`) and NO
-//                         intake is minted, because a holding decision is
-//                         action:'ask' and sideEffectsAllowed requires 'finish'.
-//
-// Why a holding reply rather than handing the turn back to the Front Desk:
-// the Front Desk would re-decide from identical inputs and could route
-// straight back (a loop needing new "already tried" state), and single-trade
-// tenants are deployed pointing DIRECTLY at their receptionist with no Front
-// Desk in the path at all.
+//   dialog: null          the dedicated handler owns intake and pricing.
+//                         Unclaimed questions use the scoped conversational
+//                         fallback, which can answer and clarify but never price.
 const TRADES = {
   electrical: {
     handlers: [],
@@ -74,49 +70,26 @@ const TRADES = {
   roofing: {
     handlers: ['roofing'],
     dialog: null,
-    // Claims only what is TRUE at this point in the turn: the message is
-    // persisted (sms_messages) and visible on the tradie's dashboard. It does
-    // NOT promise an SMS notification — a holding decision is action:'ask',
-    // so no tradie-notify fires. Wiring an out-of-trade notification is a
-    // follow-up, and the copy must not run ahead of it.
-    holding:
-      "Thanks for getting in touch. This number handles roofing quotes — if you'd like a roof done, send me the property address and I'll get started on it. I've saved your message for the team either way.",
     port: 3103,
-    blurb: 'Roofing SMS AI receptionist — address → measure → deterministic price → /q/roof quote.',
+    blurb: 'Roofing SMS AI receptionist — form or SMS details → measure → saved draft → tradie review and release.',
   },
   painting: {
     handlers: ['painting'],
     dialog: null,
-    holding:
-      "Thanks for getting in touch. This number handles painting quotes — if you'd like something painted, tell me what needs doing and the address and I'll get started on it. I've saved your message for the team either way.",
     port: 3104,
     blurb: 'Painting SMS AI receptionist — gather → deterministic estimate → tradie-released quote.',
   },
   solar: {
     handlers: [],
-    // Solar has NO SMS gather — not here and not in the monolith, where
-    // "solar quote please" is a documented dead lead. Its intake is the
-    // /solar/[tenantSlug] web form, which collects the address and roof
-    // facts the deterministic engine needs. So the receptionist captures the
-    // lead and hands over the form rather than pretending to quote, and
-    // rather than falling through to the electrical dialog as it does today.
     dialog: null,
-    // No URL: the solar estimator lives at /solar/<tenant id>, and the dialog
-    // call carries no tenant identity, so a link cannot be built here without
-    // widening the shared signature. Texting an unbuildable or guessed link is
-    // exactly what the grounding validator exists to stop. Threading tenant.id
-    // through and adding the estimator link is the documented follow-up.
-    holding:
-      "Thanks for getting in touch about solar. I've saved your details for the team and they'll sort out a quote for you. If you can tell me the property address, that speeds things up.",
     port: 3105,
-    blurb: 'Solar SMS AI receptionist — captures the enquiry; quoting is handled by the solar estimator, not by SMS.',
+    blurb: 'Solar SMS AI receptionist — address, phase and panel preferences → deterministic saved draft → installer review and release.',
   },
 }
 
 // Trades whose engine code must be force-included even when the trimmed
-// route no longer references it. Solar has no SMS receptionist upstream,
-// so nothing in the route pulls lib/solar — include it explicitly so the
-// service actually contains the solar engine it is named after.
+// route no longer references it. Keep the solar publication dependencies in
+// the artefact alongside its dedicated SMS intake and deterministic engine.
 const FORCE_INCLUDE = {
   solar: ['lib/solar/estimate.ts', 'lib/solar/publish.ts', 'lib/solar/release.ts', 'lib/solar/notify.ts'],
   electrical: ['lib/estimate/electrical-prompt.ts'],
@@ -333,7 +306,7 @@ const WEB_CONTENT = {
       { title: 'Production modelling', body: 'Annual AC output cross-checked against CEC reference data.' },
       { title: 'STC rebate maths', body: 'Gross price minus the certificate rebate by postcode zone — shown, not hidden.' },
       { title: 'Payback economics', body: 'Bill offset, savings and payback period per tier.' },
-      { title: 'Guardrailed release', body: 'Clean estimates auto-release; flagged or inspection cases hold for review.' },
+      { title: 'Installer review', body: 'The SMS draft stays saved for installer review. A customer quote link is available after approval.' },
     ],
     flowTitle: 'From enquiry to sized, priced system',
     flow: `sequenceDiagram
@@ -346,10 +319,11 @@ const WEB_CONTENT = {
   R->>C: address + energy goals
   R->>S: geocode, roof facts
   S->>S: sizing - production - STC rebate - payback
-  S-->>C: G/B/B systems + quote link
+  S-->>R: saved draft awaiting installer review
+  R-->>C: saved status; quote link after approval
   Note over S: fully deterministic — no LLM in the numbers`,
     pipelineLabel: 'solar engine\\nsizing - rebate - payback',
-    sandboxNote: 'Solar answers gather details conversationally; the sizing and pricing chain is deterministic and quick.',
+    sandboxNote: 'Solar gathers details through SMS and saves a deterministic draft for installer review. A customer quote requires approval.',
   },
 }
 
@@ -429,8 +403,8 @@ function redirectEngineCalls(src) {
 // THE FIX. Route the single `decideNextTurn` import through a generated,
 // per-service wrapper. One import specifier changes; the 3,900-line route is
 // untouched. The wrapper either hard-scopes the dialog to this service's trade
-// (electrical/plumbing) or refuses to run it at all and returns a holding
-// decision (roofing/painting/solar).
+// (electrical/plumbing) or uses a scoped conversational fallback that cannot
+// mint an intake or price (roofing/painting/solar).
 //
 // Why a wrapper and not surgery on the call site: the call passes 14 args
 // across 40 lines, and a text transform inside that block is exactly the kind
@@ -502,7 +476,8 @@ function stripRetirementGuard(src) {
   const start = banner - 1 // the ─── rule above the banner
   const postIdx = lines.findIndex((l, i) => i > banner && l.startsWith('export async function POST(req: Request) {'))
   if (postIdx === -1) throw new Error('stripRetirementGuard: POST not found after the banner')
-  const guardIdx = lines.findIndex((l, i) => i > postIdx && l.trim() === 'if (!RECEPTIONIST_ENABLED) {')
+  const guardIdx = lines.findIndex((l, i) => i > postIdx &&
+    (l.trim() === 'if (!RECEPTIONIST_ENABLED) {' || l.trim() === 'if (!RECEPTIONIST_ENABLED) return flagRetiredSmsWebhook(req)'))
   if (guardIdx === -1) throw new Error('stripRetirementGuard: guard opener not found')
   // Walk to the guard's matching close by brace depth.
   let depth = 0
@@ -517,6 +492,7 @@ function stripRetirementGuard(src) {
   if (closeIdx === -1) throw new Error('stripRetirementGuard: guard close not found')
   return [
     ...lines.slice(0, start),
+    ...lines.slice(start, postIdx).filter((line) => line.startsWith('const RETIRED_ACK =')),
     'export async function POST(req: Request) {',
     ...lines.slice(closeIdx + 1),
   ].join('\n')
@@ -548,99 +524,18 @@ function gatePlanEstimation(src, trade) {
 }
 
 /** The generated per-service dialog wrapper. */
-function serviceDialogModule(trade, cfg) {
-  const scoped = cfg.dialog
-    ? `[${JSON.stringify(cfg.dialog)}]`
-    : 'null'
-  const holding = JSON.stringify(cfg.holding ?? '')
-  return `// GENERATED by scripts/export-receptionist.mjs — do not hand-edit.
-//
-// TRADE ISOLATION for the ${trade} service. The route's ONE call to
-// decideNextTurn is routed through here instead of straight to
-// lib/sms/dialog.ts, so the shared electrical/plumbing dialog can never run
-// outside the trade this deployment owns.
-
+function serviceDialogModule(trade) {
+  const fallback = ['roofing','painting','solar'].includes(trade)
+  return `// GENERATED: trade-scoped fallback never claims a nonexistent quote.
 import { decideNextTurn as generalDialog, type ConversationTurn } from './dialog'
-
+${fallback ? "import { decideScopedFallback } from './scoped-fallback'" : ''}
 export type { ConversationTurn }
-
-/** The one trade this deployment owns. Cosmetic elsewhere; load-bearing here. */
 export const SERVICE_TRADE = ${JSON.stringify(trade)} as const
-
-/**
- * Trades the shared electrical/plumbing dialog may quote in this service.
- *
- * A one-element list replaces the route's \`tenant?.trades\`, so
- * tradeScopeDirective picks its "<TRADE> jobs ONLY" branch instead of the
- * permissive "BOTH electrical AND plumbing" one — and instead of whatever
- * eight-trade list the tenant row happens to carry.
- *
- * \`null\` means the general dialog does not belong in this service at all.
- */
-const DIALOG_TRADES: readonly string[] | null = ${scoped}
-
-/** Sent when a turn reaches here in a service whose own handler declined it. */
-const HOLDING_REPLY = ${holding}
-
-/**
- * Scope the trade list handed to the dialog AND to the slot extractor.
- *
- * Returns this service's single trade when the general dialog belongs here.
- * When it does not (DIALOG_TRADES === null) the tenant list PASSES THROUGH
- * unchanged: the extractor's trade hint has no branch for roofing/painting/
- * solar and would fall through to its plumbing default, so narrowing it would
- * trade one wrong hint for another. The dialog is already neutralised by
- * decideNextTurn below, which is where the customer-facing risk actually was.
- */
-// Generic so the caller's element type survives: both call sites are typed
-// \`readonly ('electrical'|'plumbing')[] | undefined\`, and returning a bare
-// string[] would not assign.
-export function scopeTenantTrades<T extends string>(
-  tenantTrades: readonly T[] | undefined,
-): readonly T[] | undefined {
-  return (DIALOG_TRADES as readonly T[] | null) ?? tenantTrades
+export function scopeTenantTrades<T extends string>(tenantTrades: readonly T[] | undefined): readonly T[] | undefined {
+  return ${fallback ? 'tenantTrades' : `[SERVICE_TRADE] as unknown as readonly T[]`}
 }
-
-/**
- * Same signature and return shape as the underlying dialog, so the route is
- * unchanged.
- *
- * When DIALOG_TRADES is null we never call the model.
- *
- * The action is \`end_conversation\`, and that choice is load-bearing rather
- * than cosmetic. \`action: 'ask'\` was the obvious first attempt and it FAILED
- * a live test: the holding text was generated correctly and then overwritten
- * downstream by the Rule 5 guard, which rewrites any steering reply that has
- * not yet collected a first name — so the painting service still answered a
- * downlights enquiry with "quick one, what's your first name?".
- *
- * \`end_conversation\` is the one action the route treats as terminal, and its
- * own comment states the contract: "Status='done', NO intake handoff, NO
- * recovery SMS, NO photo SMS". It also clears \`isDialogSteering\`, so the
- * Rule 5/6 name and suburb guards do not fire, and the readiness gate is
- * already limited to \`action === 'finish'\`. The reply is dispatched and
- * recorded; nothing is quoted, in any trade.
- */
-export async function decideNextTurn(
-  args: Parameters<typeof generalDialog>[0],
-): Promise<Awaited<ReturnType<typeof generalDialog>>> {
-  if (!DIALOG_TRADES) {
-    console.log('[service-dialog] general dialog is disabled in this service — holding reply', {
-      service_trade: SERVICE_TRADE,
-    })
-    return {
-      action: 'end_conversation',
-      job_type_guess: 'unknown',
-      reply_to_send: HOLDING_REPLY,
-      assumptions_made: [],
-      ready_for_intake: false,
-      request_photo_link: false,
-      offer_product_choice: false,
-      reason_for_escalation: null,
-    } as Awaited<ReturnType<typeof generalDialog>>
-  }
-  // Hard-scope: the tenant's trade list never reaches the dialog prompt.
-  return generalDialog({ ...args, tenantTrades: DIALOG_TRADES })
+export async function decideNextTurn(args: Parameters<typeof generalDialog>[0]): Promise<Awaited<ReturnType<typeof generalDialog>>> {
+  ${fallback ? 'return decideScopedFallback(args, SERVICE_TRADE)' : 'return generalDialog({ ...args, tenantTrades: [SERVICE_TRADE] })'}
 }
 `
 }
@@ -903,7 +798,8 @@ function pkgName(spec) {
 // ── file templates ───────────────────────────────────────────────────────
 
 const tpl = {
-  after: () => `// Next's \`after()\` runs work once the response is flushed. Nest has no
+  after: () => `import { currentSmsWork, durableAfter } from '../lib/sms/durable-work'
+// Next's \`after()\` runs work once the response is flushed. Nest has no
 // equivalent, and the receptionist relies on it for every heavy turn
 // (measure, estimate, dispatch) — so the shim runs the callback on the
 // next tick and keeps the process alive until it settles.
@@ -912,6 +808,7 @@ const tpl = {
 const inflight = new Set<Promise<unknown>>()
 
 export function after(fn: () => unknown | Promise<unknown>): void {
+  if (currentSmsWork()) { durableAfter(fn); return }
   const p = Promise.resolve()
     .then(fn)
     .catch((e) => {
@@ -985,6 +882,7 @@ import { missingEnv } from './config/required-env'
 // importing second turns that into one clear log line.
 
 const TRADE = '${trade}'
+process.env.SMS_WORKER_SERVICE = TRADE
 
 // Load .env / .env.local into process.env BEFORE anything reads it. Nest's
 // ConfigModule would do this, but it only runs once AppModule is imported —
@@ -1014,15 +912,25 @@ const TRADE = '${trade}'
 //
 // 127.0.0.1, not localhost: the app binds 0.0.0.0 (IPv4); in some containers
 // Node resolves localhost to ::1 and the self-call would refuse.
-if (!process.env.APP_URL && process.env.RAILWAY_PUBLIC_DOMAIN) {
-  process.env.APP_URL = \`https://\${process.env.RAILWAY_PUBLIC_DOMAIN}\`
-}
+
 if (!process.env.ENGINE_BASE_URL) {
   process.env.ENGINE_BASE_URL = \`http://127.0.0.1:\${process.env.PORT ?? ${cfg.port}}\`
 }
 
 async function bootstrap() {
+  const configuredPublicOrigin = process.env.PUBLIC_WEB_ORIGIN?.trim() || process.env.APP_URL?.trim()
+  const { publicWebOrigin } = await import('./lib/sms/public-origin')
+  let invalidPublicOrigin = false
+  try {
+    const origin = publicWebOrigin()
+    // Normalise legacy readers before module-scope URL constants are loaded.
+    process.env.PUBLIC_WEB_ORIGIN = origin
+    process.env.APP_URL = origin
+    process.env.NEXT_PUBLIC_APP_URL = origin
+  } catch { invalidPublicOrigin = true }
   const missing = missingEnv()
+  if (!configuredPublicOrigin) missing.push('PUBLIC_WEB_ORIGIN')
+  if (invalidPublicOrigin) missing.push('VALID_PUBLIC_WEB_ORIGIN')
   if (missing.length) {
     // Exit before importing the app graph, with something an operator can act
     // on. Railway shows this verbatim in deploy logs.
@@ -1071,6 +979,8 @@ async function bootstrap() {
   // unreachable from Railway's proxy and the deploy healthcheck fails.
   const port = Number(process.env.PORT ?? ${cfg.port})
   const server = await app.listen(port, '0.0.0.0')
+  const { startWorkers } = await import('./runtime/workers')
+  const stopWorkers = startWorkers()
   // A roofing measure turn can run ~200-300s; don't let the HTTP layer
   // cut the request out from under it.
   server.setTimeout(Number(process.env.HTTP_TIMEOUT_MS ?? 310_000))
@@ -1078,6 +988,7 @@ async function bootstrap() {
   // Railway sends SIGTERM on redeploy. Drain in-flight background work
   // (an after() turn mid-measure) before the process goes away.
   process.on('SIGTERM', async () => {
+    stopWorkers()
     await drainAfter()
     await app.close()
   })
@@ -1180,7 +1091,7 @@ export class ReceptionistController {
     })
     dto.mediaUrls?.forEach((url, i) => {
       form.set(\`MediaUrl\${i}\`, url)
-      form.set(\`MediaContentType\${i}\`, 'image/jpeg')
+      form.set(\`MediaContentType\${i}\`, dto.mediaContentTypes?.[i] ?? 'application/octet-stream')
     })
 
     // Chained proxies can comma-join x-forwarded-proto; undici lowercases
@@ -1206,6 +1117,7 @@ export class ReceptionistController {
         'content-type': 'application/x-www-form-urlencoded',
         'x-twilio-signature': signature,
         'x-quotemax-simulated': '1',
+        ...(dto.turnId ? { 'x-quotemax-turn-id': dto.turnId } : {}),
       },
       body: form.toString(),
     })
@@ -1226,7 +1138,7 @@ export class ReceptionistController {
 `,
 
   simulateDto: (trade) => `import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsArray, IsOptional, IsString, Matches, MaxLength } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator'
 
 export class SimulateTurnDto {
   @ApiProperty({ example: '+61400000001', description: "Customer's mobile, E.164." })
@@ -1262,6 +1174,18 @@ export class SimulateTurnDto {
   @IsArray()
   @IsString({ each: true })
   mediaUrls?: string[]
+
+  @ApiPropertyOptional({ type: [String], description: 'Provider MIME types aligned with mediaUrls.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  mediaContentTypes?: string[]
+
+  @ApiPropertyOptional({ description: 'Durable front-desk turn ID.' })
+  @IsOptional()
+  @IsUUID()
+  turnId?: string
 }
 `,
 
@@ -1341,57 +1265,32 @@ export class EstimateController {
 }
 `,
 
-  healthController: (trade, required) => `import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common'
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+  healthController: (trade) => `import { Controller, ForbiddenException, Get, Headers, Res } from '@nestjs/common'
+import { timingSafeEqual } from 'node:crypto'
 import type { Response } from 'express'
-
 import { missingEnv } from '../config/required-env'
+import { receptionistReadiness, releaseFingerprint } from '../runtime/readiness'
 
-@ApiTags('health')
 @Controller('api/health')
 export class HealthController {
-  /** LIVENESS — Railway's healthcheckPath points here. Always 200 while the
-   *  process is serving, so a deploy is not blocked by config that the
-   *  operator is about to add. Config problems surface on /deep below. */
   @Get()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Liveness — is the process serving?',
-    description: 'Always 200 while the app is up. This is the Railway healthcheck target.',
-  })
-  live(): { ok: true; trade: string; uptimeSeconds: number } {
-    return { ok: true, trade: '${trade}', uptimeSeconds: Math.round(process.uptime()) }
+  live() { return { ok: true, trade: '${trade}', uptimeSeconds: Math.round(process.uptime()), release: releaseFingerprint() } }
+
+  @Get('deep')
+  config(@Res({ passthrough: true }) res: Response) {
+    const missing = missingEnv()
+    if (missing.length) res.status(503)
+    return { ok: missing.length === 0, level: 'configuration', trade: '${trade}', missing, release: releaseFingerprint() }
   }
 
-  /** READINESS — 503 when a required env var is missing, so a misconfigured
-   *  deploy is caught by a curl instead of by a customer's first SMS.
-   *  Reports names only; never values. */
-  @Get('deep')
-  @ApiOperation({
-    summary: 'Readiness — is it configured well enough to quote?',
-    description:
-      'Returns 503 with the list of missing env var NAMES when the service cannot run a turn. ' +
-      'Check this once after the first deploy. Values are never returned.',
-  })
-  @ApiResponse({ status: 200, description: 'All required configuration present.' })
-  @ApiResponse({ status: 503, description: 'Missing required configuration — see "missing".' })
-  ready(@Res({ passthrough: true }) res: Response): {
-    ok: boolean
-    trade: string
-    uptimeSeconds: number
-    appUrl: string | null
-    missing: string[]
-  } {
-    const missing = missingEnv()
-    if (missing.length) res.status(HttpStatus.SERVICE_UNAVAILABLE)
-    return {
-      ok: missing.length === 0,
-      trade: '${trade}',
-      uptimeSeconds: Math.round(process.uptime()),
-      // Surfaced because a wrong APP_URL breaks the intake self-call silently.
-      appUrl: process.env.APP_URL ?? null,
-      missing,
-    }
+  @Get('ready')
+  async ready(@Headers('x-sim-key') key: string | undefined, @Res({ passthrough: true }) res: Response) {
+    const expected = process.env.SIM_API_KEY
+    const a = Buffer.from(expected ?? ''), b = Buffer.from(key ?? '')
+    if (!expected || !key || a.length !== b.length || !timingSafeEqual(a,b)) throw new ForbiddenException('Readiness authentication required')
+    const result = await receptionistReadiness('${trade}')
+    if (!result.ok) res.status(503)
+    return result
   }
 }
 `,
@@ -1481,8 +1380,9 @@ WORKDIR /app
 ENV NODE_ENV=development
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY tsconfig.json nest-cli.json ./
+COPY tsconfig.json nest-cli.json Dockerfile .dockerignore railway.json .nvmrc release-manifest.json ./
 COPY src ./src
+COPY scripts ./scripts
 RUN npm run build
 # Drop devDependencies in place so the runtime stage copies a lean tree
 # and we never pay for a second install.
@@ -1495,7 +1395,7 @@ WORKDIR /app
 # Non-root. node:*-slim ships a \`node\` user (uid 1000) already.
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --chown=node:node package.json ./
+COPY --from=builder --chown=node:node /app/package.json /app/release-manifest.json /app/build-attestation.json ./
 
 USER node
 
@@ -1518,8 +1418,6 @@ dist
 *.tsbuildinfo
 *.md
 .DS_Store
-Dockerfile
-.dockerignore
 `,
 
   railwayJson: () => JSON.stringify({
@@ -1595,9 +1493,9 @@ const ENV_GROUPS = [
     note: 'Injected by the platform at runtime. Setting them by hand usually breaks something.',
     vars: {
       PORT: 'Injected by Railway. main.ts binds 0.0.0.0 on this port.',
-      RAILWAY_PUBLIC_DOMAIN: 'Injected by Railway. APP_URL defaults to https://$RAILWAY_PUBLIC_DOMAIN when APP_URL is unset.',
-      APP_URL: 'Only set this for a custom domain. The receptionist self-calls it, so a WRONG value silently produces no quotes.',
-      NEXT_PUBLIC_APP_URL: 'Public base URL used when building customer-facing quote links. Defaults to APP_URL behaviour if unset.',
+      RAILWAY_PUBLIC_DOMAIN: 'Injected API origin. Never used as the public quote origin.',
+      APP_URL: 'Required public WEBSITE origin serving all /q pages. Must differ from the API/service origin.',
+      NEXT_PUBLIC_APP_URL: 'Legacy alias; must match APP_URL when configured.',
       HTTP_TIMEOUT_MS: 'Server socket timeout. Default 310000 — a roofing measure turn can run 200-300s.',
       NODE_ENV: 'Set to production by the Dockerfile.',
     },
@@ -1873,8 +1771,9 @@ function readme(trade, cfg, stats) {
 ${cfg.blurb}
 
 This service owns **${trade} only**. It is a standalone NestJS API — no
-runtime dependency on the QuoteMax monorepo or on the other four
-receptionists. Changing anything here cannot affect them.
+runtime import dependency on the QuoteMax monorepo or on the other four
+receptionists. It shares the database and public website contracts with them;
+the release verifier checks that the candidate matches the canonical source.
 
 ## What's inside
 
@@ -1903,10 +1802,12 @@ Swagger UI: <http://localhost:${cfg.port}/api/docs>
 | POST | \`/api/receptionist/simulate\` | Same pipeline, JSON body. Needs \`SMS_SIMULATE_ENABLED=1\` + \`x-sim-key\`. |
 | POST | \`/api/intake/structure\` | Intake engine. Internal — \`Authorization: Bearer $CRON_SECRET\`. |
 | POST | \`/api/estimate/draft\` | Estimation engine. Internal — \`Authorization: Bearer $CRON_SECRET\`. |
-| GET | \`/api/health\` | Liveness + which env vars are present. |
+| GET | \`/api/health\` | Liveness and release fingerprint. |
+| GET | \`/api/health/deep\` | Configuration presence; this is not a capability test. |
+| GET | \`/api/health/ready\` | Authenticated capability readiness, using \`x-sim-key\`. |
 
-Two base URLs, deliberately separate: \`APP_URL\` is the **public website**
-(\`https://www.quotemax.com.au\`) — every customer link this service texts is
+Two base URLs, deliberately separate: \`PUBLIC_WEB_ORIGIN\` (or \`APP_URL\`)
+is the **public website** (\`https://quotemax.com.au\`) — customer links are
 built on it. \`ENGINE_BASE_URL\` is where the intake/estimate engines run,
 defaulting to this service itself over loopback — leave it unset unless you
 are deliberately pointing the engines somewhere else.
@@ -1934,20 +1835,25 @@ paste them in the dashboard. The minimum to run a turn:
 | \`CRON_SECRET\` | Guards the internal intake/estimate self-calls. **Absent in production ⇒ the pipeline fails closed and no quotes are produced.** |
 
 You do **not** need to set \`PORT\` (Railway injects it) or \`ENGINE_BASE_URL\`
-(defaults to this service over loopback). **Do** set \`APP_URL\` to the public
-website (\`https://www.quotemax.com.au\`) so the quote links customers receive
-land on the real \`/q/*\` pages — when unset it falls back to
-\`https://$RAILWAY_PUBLIC_DOMAIN\`, which serves no customer pages.
+(defaults to this service over loopback). Set \`PUBLIC_WEB_ORIGIN\` or
+\`APP_URL\` to the public website (\`https://quotemax.com.au\`). Startup rejects
+a missing website origin, an API-only Railway hostname or a public/internal
+origin collision, so broken customer links cannot become a default.
 
-After the first deploy, confirm configuration:
+Before promotion, run the release verifier from the matching monorepo source:
 
 \`\`\`bash
-curl https://<your-service>.up.railway.app/api/health/deep
+# After the candidate's package-lock generation and npm ci, before building:
+node scripts/seal-receptionist-release.mjs /path/to/candidate
+# Build the candidate, then verify the exact source and locked dependencies:
+node scripts/verify-receptionist-release.mjs /path/to/built-candidate
 \`\`\`
 
-\`200\` means ready. \`503\` lists the missing variable names — Railway's own
-healthcheck targets \`/api/health\` (liveness) so missing config never wedges a
-deploy, it just shows up here.
+Then query \`/api/health/ready\` with \`x-sim-key\`. It requires migrations
+${REQUIRED_RECEPTIONIST_MIGRATIONS.join(', ')}, matching website schemas, an enabled controlled tenant with pricing,
+and recent synthetic evidence for this exact release hash. A configuration-only
+\`/api/health/deep\` response does not establish quote capability. Railway's
+liveness check is separate from the promotion decision.
 
 Last, point the tenant's Twilio number's inbound SMS webhook at
 \`https://<your-service>.up.railway.app/api/sms/inbound\`.
@@ -1972,13 +1878,13 @@ Last, point the tenant's Twilio number's inbound SMS webhook at
 upstream fixes:
 
 \`\`\`bash
-node scripts/export-receptionist.mjs ${trade}
+node scripts/export-receptionist.mjs --out-root=/path/to/new-candidates ${trade}
 \`\`\`
 
-(run from the monorepo). It rewrites \`src/lib/\` and the three route files
-and leaves everything else alone, so local customisation belongs in
-\`src/receptionist/\`, \`src/intake/\`, \`src/estimate/\` controllers — not in
-\`src/lib/\`, which is overwritten.
+(run from the monorepo). Export refuses to overwrite an existing service
+checkout. Review service-specific differences, port required behaviour into
+canonical source, and build the new candidate with its locked dependencies.
+Run the release contract and controlled behaviour tests before promotion.
 `
 }
 
@@ -1987,7 +1893,33 @@ and leaves everything else alone, so local customisation belongs in
 function buildTrade(trade, opts) {
   const cfg = TRADES[trade]
   const outDir = join(OUT_ROOT, `qm-${trade}-receptionist`)
-  if (!existsSync(outDir)) throw new Error(`target repo missing: ${outDir}`)
+  // Existing service customisations are inputs for a reviewed overlay, never
+  // disposable generated output. Export candidates to a new directory.
+  if (!opts.dry && existsSync(join(outDir, 'src'))) {
+    const manifestFile = join(outDir,'release-manifest.json')
+    if (!process.argv.includes('--refresh-candidate') || existsSync(join(outDir,'.git')) || !existsSync(manifestFile)) {
+      throw new Error(`Refusing to overwrite existing sources: ${outDir}. Use --out-root=<new-candidate-directory>, then review the overlay.`)
+    }
+    const prior = JSON.parse(readFileSync(manifestFile,'utf8'))
+    const actual = []
+    const walk = (dir) => { for (const entry of readdirSync(dir,{withFileTypes:true})) {
+      const path=join(dir,entry.name)
+      if (entry.isDirectory()) walk(path); else actual.push(relative(outDir,path).split(sep).join('/'))
+    } }
+    walk(join(outDir,'src'))
+    if (actual.length !== Object.keys(prior.generatedHashes ?? {}).length) throw new Error('Candidate has unreviewed added/deleted sources')
+    for (const file of actual) {
+      if (createHash('sha256').update(readFileSync(join(outDir,file))).digest('hex') !== prior.generatedHashes[file]) {
+        throw new Error(`Candidate has an unreviewed edit: ${file}`)
+      }
+    }
+    for (const [file, hash] of Object.entries(prior.buildInputHashes ?? {})) {
+      if (createHash('sha256').update(readFileSync(join(outDir,file))).digest('hex') !== hash) {
+        throw new Error(`Candidate has an unreviewed build input: ${file}`)
+      }
+    }
+  }
+  if (relative(OUT_ROOT, outDir).startsWith('..') || !outDir.startsWith(OUT_ROOT + sep)) throw new Error('Unsafe export target')
 
   // 1. Trim the three routes.
   const generated = []
@@ -2023,7 +1955,7 @@ function buildTrade(trade, opts) {
   }
 
   // 2. Closure over the trimmed routes + forced trade engines.
-  const forced = (FORCE_INCLUDE[trade] ?? [])
+  const forced = [...(FORCE_INCLUDE[trade] ?? []), 'lib/sms/durable-work.ts', 'lib/sms/work-delivery-context.ts', 'lib/sms/public-origin.ts', 'lib/sms/scoped-fallback.ts', 'lib/sms/pricing-readiness.ts', 'lib/quote/public-schema.ts']
     .map((p) => join(SRC_ROOT, p))
     .filter((p) => existsSync(p))
   const { files, bare, missing } = collectClosure(
@@ -2060,9 +1992,19 @@ function buildTrade(trade, opts) {
   const stats = { libFiles: libFiles.length, libLoc, deps: [...deps].sort(), strays, missing, stubbornNext, envVars: 0, envCreated: false }
 
   if (opts.dry) return stats
+  if (missing.length || stubbornNext.length) throw new Error(`Export dependency contract failed: ${missing.join(', ')} ${stubbornNext.join(', ')}`)
 
   // 3. Wipe only what we own, then write.
-  rmSync(join(outDir, 'src'), { recursive: true, force: true })
+  mkdirSync(outDir, { recursive: true })
+
+  if (process.argv.includes('--refresh-candidate') && existsSync(join(outDir,'release-manifest.json'))) {
+    const prior = JSON.parse(readFileSync(join(outDir,'release-manifest.json'),'utf8'))
+    for (const file of Object.keys(prior.generatedHashes)) {
+      const absolute = resolve(outDir,file)
+      if (!absolute.startsWith(resolve(outDir,'src') + sep)) throw new Error('Unsafe generated file path')
+      unlinkSync(absolute)
+    }
+  }
 
   const write = (rel, text) => {
     const p = join(outDir, rel)
@@ -2089,9 +2031,12 @@ function buildTrade(trade, opts) {
   for (const g of generated) write(g.out, g.text)
 
   // Trade isolation: the per-service dialog wrapper the route now imports.
-  write('src/lib/sms/service-dialog.ts', serviceDialogModule(trade, cfg))
+  write('src/lib/sms/service-dialog.ts', serviceDialogModule(trade))
 
   write('src/runtime/after.ts', tpl.after())
+  write('src/runtime/readiness.ts', readFileSync(join(HERE, 'receptionist-runtime/readiness.ts.template'), 'utf8'))
+  write('src/runtime/workers.ts', readFileSync(join(HERE, 'receptionist-runtime/workers.ts.template'), 'utf8'))
+  write('src/runtime/scheduler.ts', readFileSync(join(HERE, 'receptionist-runtime/scheduler.ts.template'), 'utf8'))
   write('src/runtime/web-request.ts', tpl.webRequest())
   write('src/main.ts', tpl.main(trade, cfg))
   write('src/app.module.ts', tpl.appModule())
@@ -2137,7 +2082,8 @@ function buildTrade(trade, opts) {
       continue
     }
     const v = SRC_PKG.dependencies?.[d] ?? SRC_PKG.devDependencies?.[d]
-    runtimeDeps[d] = v ?? 'latest'
+    if (!v || !/^\d+\.\d+\.\d+(?:-|$)/.test(v)) throw new Error(`Dependency ${d} has no exact installed version; install platform dependencies before exporting`)
+    runtimeDeps[d] = v
   }
 
   write('package.json', JSON.stringify({
@@ -2146,7 +2092,7 @@ function buildTrade(trade, opts) {
     private: true,
     description: cfg.blurb,
     scripts: {
-      build: 'nest build && tsc-alias -p tsconfig.json',
+      build: 'node scripts/receptionist-build.mjs',
       start: 'node dist/main.js',
       'start:dev': 'nest start --watch',
       typecheck: 'tsc --noEmit',
@@ -2165,6 +2111,9 @@ function buildTrade(trade, opts) {
   }, null, 2) + '\n')
 
   write('tsconfig.json', tpl.tsconfig())
+  for (const file of ['receptionist-build.mjs', 'receptionist-release-fingerprint.mjs']) {
+    write(`scripts/${file}`, readFileSync(join(HERE, file), 'utf8'))
+  }
   write('nest-cli.json', tpl.nestCli())
   write('.gitignore', tpl.gitignore())
   write('Dockerfile', tpl.dockerfile(trade))
@@ -2178,6 +2127,43 @@ function buildTrade(trade, opts) {
   const envCreated = writeIfAbsent('.env', body)
   write('README.md', readme(trade, cfg, stats))
   write('ISOLATION.md', isolationDoc(trade, cfg, libFiles))
+
+  // The manifest is independent of deployed environment and contains no secrets.
+  const generatedHashes = {}
+  const hashTree = (directory) => {
+    for (const ent of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, ent.name)
+      if (ent.isDirectory()) hashTree(path)
+      else generatedHashes[relative(outDir, path).split(sep).join('/')] = createHash('sha256').update(readFileSync(path)).digest('hex')
+    }
+  }
+  hashTree(join(outDir, 'src'))
+  const buildInputHashes = Object.fromEntries([
+    'package.json','tsconfig.json','nest-cli.json','Dockerfile','.dockerignore','railway.json','.nvmrc',
+    'scripts/receptionist-build.mjs','scripts/receptionist-release-fingerprint.mjs',
+    ...(existsSync(join(outDir,'package-lock.json')) ? ['package-lock.json'] : []),
+  ].map((file) => [file,createHash('sha256').update(readFileSync(join(outDir,file))).digest('hex')]))
+  const originCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: SRC_ROOT, encoding: 'utf8' }).trim()
+  const manifest = {
+    contractVersion: 2, trade, originCommit,
+    requiredMigrations: REQUIRED_RECEPTIONIST_MIGRATIONS,
+    platformContractHashes: Object.fromEntries([
+      ...collectPlatformContractFiles(collectClosure, SRC_ROOT),
+      ...RECEPTIONIST_SCHEMA_FILES,'app/api/health/sms-contract/route.ts',
+      ...libFiles.map((f) => relative(SRC_ROOT,f).split(sep).join('/')),
+      ...generated.map((g) => relative(SRC_ROOT,g.path).split(sep).join('/')),
+      ...readdirSync(join(HERE,'receptionist-runtime')).filter((file) => file.endsWith('.template'))
+        .map((file) => `scripts/receptionist-runtime/${file}`),
+      'scripts/export-receptionist.mjs','scripts/receptionist-platform-contract.mjs',
+      'scripts/receptionist-release-fingerprint.mjs',
+      'scripts/receptionist-schema-contract.mjs',
+      'scripts/receptionist-build.mjs',
+      'scripts/verify-receptionist-release.mjs','scripts/seal-receptionist-release.mjs','pnpm-lock.yaml',
+    ].map((file) => [file,createHash('sha256').update(readFileSync(join(SRC_ROOT,file))).digest('hex')])),
+    dependencies: runtimeDeps, generatedHashes, buildInputHashes,
+    approvalRequired: true, capabilities: { conversation: true, durableJobs: true, quoteLookup: true, deliveryReceipts: true },
+  }
+  write('release-manifest.json', JSON.stringify({ ...manifest, sourceHash: receptionistSourceHash(manifest) }, null, 2) + '\n')
 
   stats.envVars = usedEnv.length
   stats.envCreated = envCreated

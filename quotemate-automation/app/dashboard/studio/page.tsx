@@ -4,11 +4,13 @@
 // output is brand-register (the command-centre look).
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BrandMark } from '@/app/_components/BrandMark'
 import { FORMATS, type Format, type Slide } from '@/lib/studio/types'
 import { DEFAULT_CAROUSEL, STUDIO_PHOTOS } from '@/lib/studio/presets'
+import { fetchStudioPng, renderStudioCarousel, studioBlobDataUrl, type StudioToken } from '@/lib/studio/client-render'
+import { StudioAccess } from './StudioAccess'
 
 // Pin the studio chrome to the command-centre DARK palette regardless of the
 // app's light-first default, by declaring the DS dark tokens on the root (the
@@ -25,26 +27,22 @@ const INPUT = 'w-full bg-ink-card border border-ink-line px-3 py-2 text-sm text-
 const BTN = 'inline-flex items-center gap-2 border border-ink-line hover:border-accent text-text-pri px-4 py-2.5 text-xs uppercase tracking-[0.08em] transition-colors disabled:opacity-40 disabled:pointer-events-none'
 const BTNFILL = 'inline-flex items-center gap-2 bg-accent text-accent-ink hover:bg-accent-press px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] transition-colors disabled:opacity-40 disabled:pointer-events-none'
 
-function enc(slide: Slide): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(slide))
-  let bin = ''
-  bytes.forEach((b) => (bin += String.fromCharCode(b)))
-  return btoa(bin)
-}
-const renderUrl = (slide: Slide, format: Format) => `/api/studio/render?format=${format}&d=${enc(slide)}`
-
-const blobToDataURL = (blob: Blob) =>
-  new Promise<string>((res) => {
-    const r = new FileReader()
-    r.onload = () => res(r.result as string)
-    r.readAsDataURL(blob)
-  })
-
 export default function StudioPage() {
+  return <StudioAccess>{(identity, getToken) => <StudioEditor key={identity} getToken={getToken} />}</StudioAccess>
+}
+
+export function StudioEditor({ getToken }: { getToken: StudioToken }) {
   const [slides, setSlides] = useState<Slide[]>(DEFAULT_CAROUSEL)
   const [sel, setSel] = useState(0)
   const [format] = useState<Format>('li-carousel')
   const [busy, setBusy] = useState<null | 'png' | 'pdf'>(null)
+  const [notice, setNotice] = useState('')
+  const operation = useRef<AbortController | null>(null)
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => { active.current = false; operation.current?.abort() }
+  }, [])
   const cur = slides[sel]
   const size = FORMATS[format]
 
@@ -54,17 +52,30 @@ export default function StudioPage() {
     const t = setTimeout(() => setPreview(cur), 280)
     return () => clearTimeout(t)
   }, [cur])
-  useEffect(() => setPreview(slides[sel]), [sel]) // switch slides immediately
-
-  const previewUrl = useMemo(() => renderUrl(preview, format), [preview, format])
-  const [loadedUrl, setLoadedUrl] = useState('')
-  const rendering = previewUrl !== loadedUrl
+  const [retryPreview, setRetryPreview] = useState(0)
+  const previewRequest = useMemo(() => ({ slide: preview, format, getToken, retryPreview }), [preview, format, getToken, retryPreview])
+  const [rendered, setRendered] = useState<{ request: typeof previewRequest; url: string; error: string } | null>(null)
+  const currentResult = rendered?.request === previewRequest ? rendered : null
+  const previewUrl = currentResult?.url ?? ''
+  const previewError = currentResult?.error ?? ''
+  const rendering = !currentResult
+  useEffect(() => {
+    const controller = new AbortController()
+    let objectUrl = ''
+    void fetchStudioPng(previewRequest.slide, previewRequest.format, previewRequest.getToken, controller.signal).then((blob) => {
+      if (controller.signal.aborted) return
+      objectUrl = URL.createObjectURL(blob)
+      setRendered({ request: previewRequest, url: objectUrl, error: '' })
+    }).catch((cause) => {
+      if (!controller.signal.aborted) setRendered({ request: previewRequest, url: '', error: cause instanceof Error ? cause.message : 'Preview unavailable. Your edits are still here.' })
+    })
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [previewRequest])
 
   const setCur = (next: Slide) => setSlides((s) => s.map((sl, i) => (i === sel ? next : sl)))
   const patch = (p: Partial<Slide>) => setCur({ ...cur, ...p } as Slide)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const setArr = (key: string, text: string) => patch({ [key]: text.split('\n') } as any)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const setTuple = (key: string, i: number, j: number, val: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const arr = ((cur as any)[key] as string[][]).map((row, ri) => (ri === i ? row.map((c, ci) => (ci === j ? val : c)) : row))
@@ -73,35 +84,52 @@ export default function StudioPage() {
   }
 
   async function downloadPNG() {
-    setBusy('png')
+    if (operation.current) return
+    const controller = new AbortController()
+    operation.current = controller
+    setBusy('png'); setNotice('')
     try {
-      const blob = await (await fetch(renderUrl(cur, format))).blob()
+      const blob = await fetchStudioPng(cur, format, getToken, controller.signal)
+      controller.signal.throwIfAborted()
+      if (!active.current) return
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
       a.download = `quotemax-${format}-slide-${sel + 1}.png`
       a.click()
       URL.revokeObjectURL(a.href)
+    } catch (cause) {
+      if (active.current) setNotice(controller.signal.aborted ? 'Export cancelled. Your edits are still here.' : cause instanceof Error ? cause.message : 'Export unavailable. Your edits are still here.')
     } finally {
-      setBusy(null)
+      operation.current = null
+      if (active.current) setBusy(null)
     }
   }
 
   async function downloadPDF() {
-    setBusy('pdf')
+    if (operation.current) return
+    const controller = new AbortController()
+    operation.current = controller
+    setBusy('pdf'); setNotice('')
     try {
+      // Snapshot in rail order; never publish a partial PDF after a failed page.
+      const images = await renderStudioCarousel(slides, format, getToken, controller.signal)
       const { jsPDF } = await import('jspdf')
+      controller.signal.throwIfAborted()
       const { w, h } = size
       const orient = w > h ? 'l' : 'p'
       const pdf = new jsPDF({ orientation: orient, unit: 'px', format: [w, h] })
-      for (let i = 0; i < slides.length; i++) {
-        const blob = await (await fetch(renderUrl(slides[i], format))).blob()
-        const dataUrl = await blobToDataURL(blob)
+      for (let i = 0; i < images.length; i++) {
+        const dataUrl = await studioBlobDataUrl(images[i])
+        controller.signal.throwIfAborted()
         if (i > 0) pdf.addPage([w, h], orient)
         pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
       }
-      pdf.save('quotemax-carousel.pdf')
+      if (active.current) pdf.save('quotemax-carousel.pdf')
+    } catch (cause) {
+      if (active.current) setNotice(controller.signal.aborted ? 'Export cancelled. Your edits are still here.' : cause instanceof Error ? cause.message : 'Export unavailable. Your edits are still here.')
     } finally {
-      setBusy(null)
+      operation.current = null
+      if (active.current) setBusy(null)
     }
   }
 
@@ -119,12 +147,14 @@ export default function StudioPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className={BTN} onClick={() => setSlides(DEFAULT_CAROUSEL)}>Reset</button>
+          <button className={BTN} disabled={!!busy} onClick={() => { if (window.confirm('Reset all slides? Your unsaved copy will be discarded.')) setSlides(DEFAULT_CAROUSEL) }}>Reset</button>
           <button className={BTN} onClick={downloadPNG} disabled={!!busy} aria-busy={!!busy}>{busy === 'png' ? 'Saving…' : 'Slide PNG'}</button>
           <button className={BTNFILL} onClick={downloadPDF} disabled={!!busy} aria-busy={!!busy}>{busy === 'pdf' ? 'Building…' : 'Carousel PDF'}</button>
+          {busy && <button className={BTN} onClick={() => operation.current?.abort()}>Cancel export</button>}
           <Link href="/dashboard" className={BTN}>Dashboard</Link>
         </div>
       </header>
+      {notice && <p role="status" className="px-5 py-3 text-sm">{notice}</p>}
 
       {/* Body */}
       <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[210px_1fr_360px]">
@@ -133,7 +163,7 @@ export default function StudioPage() {
           {slides.map((sl, i) => (
             <button
               key={i}
-              onClick={() => setSel(i)}
+              onClick={() => { setSel(i); setPreview(slides[i]) }}
               className={`flex shrink-0 items-center gap-3 border px-3 py-2.5 text-left transition-colors ${i === sel ? 'border-accent bg-ink-card' : 'border-ink-line hover:border-ink-line/80 hover:bg-ink-card/50'}`}
             >
               <span className="font-mono text-lg font-bold leading-none text-accent">{String(i + 1).padStart(2, '0')}</span>
@@ -146,12 +176,13 @@ export default function StudioPage() {
         <main className="relative flex items-center justify-center bg-black/30 p-6">
           <div className="relative shadow-2xl" style={{ width: 'auto', height: '100%', maxHeight: 760, aspectRatio: `${size.w} / ${size.h}` }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            {previewUrl && <img
               src={previewUrl}
               alt={`Slide ${sel + 1} preview`}
-              onLoad={() => setLoadedUrl(previewUrl)}
+              onError={() => setRendered({ request: previewRequest, url: '', error: 'Preview could not be displayed. Your edits are still here.' })}
               className="h-full w-full border border-ink-line object-contain"
-            />
+            />}
+            {previewError && <div className="p-5"><p role="alert">{previewError}</p><button className={`${BTN} mt-3`} onClick={() => setRetryPreview((value) => value + 1)}>Retry preview</button></div>}
             {rendering && (
               <div className="absolute right-3 top-3 flex items-center gap-2 bg-ink-deep/80 px-3 py-1.5 text-[0.6rem] uppercase tracking-[0.08em] text-text-dim">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> Rendering

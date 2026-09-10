@@ -33,6 +33,7 @@ import { RepaintPreviewFigure } from '../../q/_chrome/RepaintPreviewFigure'
 import { PaintResultView } from '@/app/dashboard/painting/_components/PaintResultView'
 import { SendToCustomerButton } from './SendToCustomerButton'
 import { EditQuotePanel, type EditableTier } from './EditQuotePanel'
+import { paintingEditVersion } from '@/lib/painting/edit-version'
 
 export const dynamic = 'force-dynamic'
 
@@ -292,7 +293,7 @@ export default async function PaintEstimateResultsPage({
                 R4): the on-site inspection flow edits an already-sent quote,
                 then resends via the button below. */}
             {!inspection && editableTiers.length > 0 && (
-              <EditQuotePanel estimateToken={row.estimate_token} tiers={editableTiers} />
+              <EditQuotePanel estimateToken={row.estimate_token} tiers={editableTiers} expectedVersion={paintingEditVersion(estimate)} released={!!row.released_at} />
             )}
             {!inspection && (
               <SendToCustomerButton estimateToken={row.estimate_token} sent={quoteSent} />

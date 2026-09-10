@@ -32,7 +32,7 @@ import { ensureClerkUser } from '@/lib/clerk/ensure-user'
 import { autoGenerateTrustVideos } from '@/lib/videos/trust-video'
 import { resolveIdentityRequest } from '@/lib/tenant/from-request'
 import { deriveActivationOwnership } from '@/lib/onboard/activation-identity'
-import { isStubTwilioNumber, isStubVapiId } from '@/lib/onboard/health'
+import { readProvisioningStatus } from '@/lib/onboard/provisioning-status'
 
 // Deferred trust-video generation polls Veo after the response; a platform
 // cut-off mid-poll is harmless (resumable) but headroom lets most finish here.
@@ -478,8 +478,9 @@ export async function POST(req: Request) {
           steps,
           phoneNumber: result.phoneNumber,
           vapiAssistantId: result.vapiAssistantId,
-          warning: `${result.error}. Retry from the dashboard.`,
-          retryable: true,
+          phoneReadiness: result.phoneReadiness,
+          warning: result.error ?? result.phoneReadiness?.message,
+          retryable: result.phoneReadiness?.retryable === true,
         },
         { status: 200 },
       )
@@ -493,7 +494,7 @@ export async function POST(req: Request) {
     // required for the line to actually work. The /admin tenant-health view
     // + banner make any such gap visible so no stub tenant looks ready.
     const stubbed = result.stubbedTwilio || result.stubbedVapi
-    const setupComplete = result.ok && !stubbed && !result.warning
+    const setupComplete = result.phoneReadiness?.setupComplete === true
     steps.push({
       step: 'provisioning',
       ok: setupComplete,
@@ -507,6 +508,8 @@ export async function POST(req: Request) {
       provisioningMode,
       steps,
       phoneNumber: result.phoneNumber,
+      phoneReadiness: result.phoneReadiness,
+      vapiAssistantId: result.vapiAssistantId,
       stubbed: result.stubbedTwilio,
       stubbedVapi: result.stubbedVapi,
       welcomeSent:
@@ -553,13 +556,15 @@ type ExistingActivation = {
   status: string | null
   twilio_sms_number: string | null
   vapi_assistant_id: string | null
+  twilio_voice_number: string | null
+  twilio_number_sid: string | null
 }
 
 async function findExistingActivation(provider: 'clerk' | 'supabase', userId: string) {
   const column = provider === 'clerk' ? 'clerk_user_id' : 'owner_user_id'
   const { data, error } = await supabase
     .from('tenants')
-    .select('id, status, twilio_sms_number, vapi_assistant_id')
+    .select('id, status, twilio_sms_number, twilio_voice_number, twilio_number_sid, vapi_assistant_id')
     .eq(column, userId)
     .maybeSingle()
   return {
@@ -568,25 +573,23 @@ async function findExistingActivation(provider: 'clerk' | 'supabase', userId: st
   }
 }
 
-function existingActivationResponse(tenant: ExistingActivation) {
-  const hasRealLine =
-    !!tenant.twilio_sms_number &&
-    !!tenant.vapi_assistant_id &&
-    !isStubTwilioNumber(tenant.twilio_sms_number) &&
-    !isStubVapiId(tenant.vapi_assistant_id)
-  const setupComplete = tenant.status === 'active' && hasRealLine
+async function existingActivationResponse(tenant: ExistingActivation) {
+  const phoneReadiness = await readProvisioningStatus(supabase,tenant).catch(()=>undefined)
+  const setupComplete = phoneReadiness?.setupComplete === true
   return Response.json({
     ok: true,
     tenantId: tenant.id,
     setupComplete,
+    phoneReadiness,
+    provisioningMode: phoneReadiness?.provisioningMode,
     phoneNumber: tenant.twilio_sms_number,
     vapiAssistantId: tenant.vapi_assistant_id,
     alreadyActivated: true,
     idempotent: true,
-    retryable: !setupComplete,
+    retryable: phoneReadiness?.retryable === true,
     warning: setupComplete
       ? undefined
-      : 'This account is already activated but setup is incomplete. Retry provisioning from the dashboard.',
+      : phoneReadiness?.message ?? 'Account created. Phone setup status is unavailable; check status before retrying.',
   })
 }
 

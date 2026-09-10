@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js'
 import { ensureRoofQuotePdf, downloadQuotePdf } from '@/lib/quote/pdf'
 import { archiveQuoteOnDownload } from '@/lib/filestore/archive-on-download'
 import { partitionRoofQuote, resolveEffectiveIndices } from '@/lib/roofing/selection'
-import { servesPromotedQuote } from '@/lib/roofing/promotion'
+import { approvedRoofPromotion } from '@/lib/roofing/approved-promotion'
 import type { MultiRoofQuote } from '@/lib/roofing/types'
 
 export const dynamic = 'force-dynamic'
@@ -23,37 +23,23 @@ const supabase = createClient(
 export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
 
-  const { data: row } = await supabase
+  const { data: row, error } = await supabase
     .from('roofing_measurements')
     .select(
-      'public_token, pdf_path, routing, quote, included_indices, confirmed_structure, quote_share_token, paid_at',
+      'tenant_id, public_token, pdf_path, routing, quote, included_indices, confirmed_structure, quote_share_token, paid_at, released_at',
     )
     .eq('public_token', token)
     .maybeSingle()
 
+  if (error) return Response.json({ ok: false, error: 'Quote temporarily unavailable' }, { status: 503 })
   if (!row) {
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
   }
-
-  // RC-6 — one document per job. Once this measurement has been promoted to a
-  // real quote, that quote owns the job: its good/better/best tiers are what the
-  // tradie edits and what /q/[token] renders, so continuing to serve THIS native
-  // document would hand the customer a second PDF that silently ignores every
-  // later edit. The customer page already redirects on exactly this rule
-  // (app/q/roof/[token]/page.tsx) — mirror it here via the shared helper so the
-  // SMS'd PDF link converges on the same document the page does.
-  const full = new URL(req.url).searchParams.get('full') === '1'
-  if (
-    servesPromotedQuote(
-      {
-        quote_share_token: row.quote_share_token as string | null,
-        paid_at: row.paid_at as string | null,
-      },
-      full,
-    )
-  ) {
-    return Response.redirect(new URL(`/api/q/${row.quote_share_token}/pdf`, req.url), 302)
-  }
+  try {
+    const promoted = await approvedRoofPromotion(supabase,row,new URL(req.url).searchParams.get('full') === '1')
+    if (promoted) return Response.redirect(new URL(`/api/q/${promoted}/pdf`,req.url),302)
+  } catch { return Response.json({ok:false,error:'Promoted quote temporarily unavailable'},{status:503}) }
+  if (!row.released_at) return Response.json({ok:false,error:'Awaiting roofer approval'},{status:409})
   if (row.routing === 'inspection_required') {
     return Response.json(
       { ok: false, error: 'This roof needs a site visit first — no PDF until the price is confirmed' },

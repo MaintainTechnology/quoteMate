@@ -157,7 +157,7 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
       // Purchase call after the third search succeeds
       if (url.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
         return makeFetchResponse(201, {
-          sid: 'PN-test-sid',
+          sid: 'PN' + 'a'.repeat(32),
           phone_number: purchasedNumber,
           capabilities: { voice: true, sms: true, mms: true, fax: false },
         })
@@ -176,7 +176,7 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
     expect('stubbed' in result && result.stubbed).toBe(false)
     if ('stubbed' in result && result.stubbed === false) {
       expect(result.phoneNumber).toBe(purchasedNumber)
-      expect(result.twilioSid).toBe('PN-test-sid')
+      expect(result.twilioSid).toBe('PN' + 'a'.repeat(32))
       expect(result.numberType).toBe('Mobile')
       expect(result.capabilities.fax).toBe(false)
       expect(result.faxAvailable).toBe(false)
@@ -191,6 +191,26 @@ describe('provisionTwilioNumber — real-API mode end-to-end (mocked fetch)', ()
     expect(purchase!.body).toContain('api.vapi.ai%2Ftwilio%2Finbound_call')
     expect(purchase!.body).toContain('%2Fapi%2Fsms%2Finbound')
     expect(purchase!.body).toContain('FriendlyName=Acme')
+  })
+
+  it.each([{ sms:'false',voice:'false' }, { sms:1,voice:1 }, { sms:'false',voice:'false',SMS:true,VOICE:true }])('never coerces malformed capabilities into readiness: %j', async capabilities => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => makeFetchResponse(init?.method==='POST'?201:200,
+      init?.method==='POST' ? { sid:'PN'+'a'.repeat(32), phone_number:'+61412345678',capabilities }
+        : { available_phone_numbers:[{phone_number:'+61412345678'}] })))
+    expect(await provisionTwilioNumber({tenantId:SAMPLE_TENANT,friendlyName:'X'})).toMatchObject({ok:true,capabilities:{sms:false,voice:false}})
+  })
+
+  it.each(['lost', 'malformed'])('does not purchase a second candidate after an ambiguous %s response', async outcome => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        if (outcome === 'lost') throw new Error('Network response lost')
+        return makeFetchResponse(201, { phone_number: '+61412345678' })
+      }
+      return makeFetchResponse(200, { available_phone_numbers: [{ phone_number: '+61412345678' }] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await provisionTwilioNumber({ tenantId: SAMPLE_TENANT, friendlyName: 'X' })).toMatchObject({ ok: false, code: 'purchase_unconfirmed' })
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
   })
 
   it('returns ok=false with diagnostic when no AU number is available across all fallbacks', async () => {

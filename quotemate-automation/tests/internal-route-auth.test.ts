@@ -35,9 +35,7 @@ const GUARDED_ROUTES = [
  *  working without a secret. */
 const CALLERS = [
   'app/api/vapi/webhook/route.ts',
-  'app/api/sms/inbound/route.ts',
   'app/api/q/choose/[token]/route.ts',
-  'app/api/intake/structure/route.ts', // both a guarded route AND a caller of draft
   'app/api/t/[slug]/lead/route.ts',
   'app/api/tenant/job-quote/route.ts',
   // The self-serve quote-request form behind /quote-request/<token> — it hands
@@ -94,6 +92,7 @@ describe('guarded internal routes', () => {
 // the 401 are the real code paths.
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
+    rpc: async (name: string) => ({ data: name === 'enqueue_sms_work' ? { id: '11111111-1111-4111-8111-111111111111', status: 'pending', kind: 'intake', turn_id: '11111111-1111-4111-8111-111111111111' } : [], error: null }),
     from: () => ({
       select: () => ({ eq: () => ({ single: async () => ({ data: null }), maybeSingle: async () => ({ data: null }) }) }),
     }),

@@ -29,6 +29,7 @@ import {
   buildEditDiff,
   ungroundedKeys,
   reconcileLineSource,
+  reconcileTierSources,
   proposeQuoteEdit,
   type ChatEditTiers,
 } from './chat-edit'
@@ -38,8 +39,43 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe('proposal provenance follows persisted identity', () => {
+  const current = { label: 'Better', line_items: [
+    { original_line_index: 0, description: 'Same fitting', quantity: 1, unit_price_ex_gst: 20,
+      source: 'material:first', supplied_by: 'customer' as const, safety_note: 'Existing safety note.' },
+    { original_line_index: 1, description: 'Same fitting', quantity: 1, unit_price_ex_gst: 40,
+      source: 'material:second', supplied_by: 'tradie' as const },
+  ] }
+  it('preserves original indices and provenance through rename and reordering', () => {
+    const result = reconcileTierSources({ label: 'Better', line_items: [
+      { original_line_index: 1, description: 'Renamed second', quantity: 2, unit_price_ex_gst: 40, source: 'material:forged' },
+      { original_line_index: 0, description: 'Renamed first', quantity: 1, unit_price_ex_gst: 20, safety_note: 'Model-invented note.' },
+    ] }, current)
+    expect(result?.line_items[0]).toMatchObject({ original_line_index: 1, source: 'material:second', supplied_by: 'tradie' })
+    expect(result?.line_items[1]).toMatchObject({ original_line_index: 0, source: 'material:first', supplied_by: 'customer', safety_note: 'Existing safety note.' })
+  })
+  it('rejects duplicate descriptions without stable identity', () => {
+    expect(() => reconcileTierSources({ label: 'Better', line_items: [
+      { description: 'Same fitting', quantity: 1, unit_price_ex_gst: 20 },
+    ] }, current)).toThrow('ambiguous_line_provenance')
+  })
+  it('rejects duplicate or nonexistent claimed indices', () => {
+    expect(() => reconcileTierSources({ label: 'Better', line_items: [current.line_items[0], current.line_items[0]] }, current)).toThrow('duplicate_line_identity')
+    expect(() => reconcileTierSources({ label: 'Better', line_items: [{ ...current.line_items[0], original_line_index: 4 }] }, current)).toThrow('ambiguous_line_provenance')
+  })
+  it('keeps a new catalogue source for actual grounding without adding supplier authority', () => {
+    const line = reconcileTierSources({ label: 'Better', line_items: [
+      { description: 'New fitting', quantity: 1, unit_price_ex_gst: 70, source: 'assembly:new', supplied_by: 'customer', safety_note: 'Invented' },
+    ] }, current)?.line_items[0]
+    expect(line).toMatchObject({ source: 'assembly:new' })
+    expect(line).not.toHaveProperty('original_line_index')
+    expect(line).not.toHaveProperty('supplied_by')
+    expect(line).not.toHaveProperty('safety_note')
+  })
+})
+
 describe('parseProposal', () => {
-  it('extracts message + tiers from prose-wrapped JSON and drops invalid line items', () => {
+  it('extracts message + tiers from a valid prose-wrapped JSON proposal', () => {
     const text =
       'Sure! Here is the change:\n' +
       JSON.stringify({
@@ -49,8 +85,6 @@ describe('parseProposal', () => {
             label: 'Better',
             line_items: [
               { description: 'Downlight install', quantity: 1, unit: 'ea', unit_price_ex_gst: 120 },
-              { description: '', quantity: 1, unit_price_ex_gst: 5 }, // dropped: empty description
-              { description: 'Bad price', quantity: 1, unit_price_ex_gst: 'abc' }, // dropped: NaN price
             ],
           },
         },
@@ -60,6 +94,22 @@ describe('parseProposal', () => {
     expect(tiers.better?.label).toBe('Better')
     expect(tiers.better?.line_items).toHaveLength(1)
     expect(tiers.better?.line_items[0].description).toBe('Downlight install')
+  })
+
+  it.each([null, '', '   ', 'abc'])('rejects the full model proposal for missing/invalid numeric value %j', (value) => {
+    for (const field of ['quantity', 'unit_price_ex_gst']) {
+      expect(parseProposal(JSON.stringify({ tiers: { better: { label: 'Better', line_items: [
+        { description: 'Valid work', quantity: 1, unit_price_ex_gst: 100 },
+        { description: 'Invalid work', quantity: 1, unit_price_ex_gst: 100, [field]: value },
+      ] } } })).found).toBe(false)
+    }
+  })
+  it.each([0, '0', '12.25'])('retains valid explicit numeric value %j', (value) => {
+    const result = parseProposal(JSON.stringify({ tiers: { better: { label: 'Better', line_items: [
+      { description: 'Explicitly priced work', quantity: 1, unit_price_ex_gst: value },
+    ] } } }))
+    expect(result.found).toBe(true)
+    expect(result.tiers.better?.line_items[0].unit_price_ex_gst).toBe(Number(value))
   })
 
   it('reports found:false when there is no JSON object', () => {

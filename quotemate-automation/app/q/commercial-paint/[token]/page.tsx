@@ -10,6 +10,10 @@
 // renders in the spec's "no deposit link → clear state" mode (contact to book).
 
 import { createClient } from '@supabase/supabase-js'
+import { notFound } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import type { PricedPaintBom } from '@/lib/commercial-painting/types'
 import { loadTenantIdentity, contactDisplayName } from '@/lib/quote/tenant-identity'
 import { QuoteChrome } from '../../_chrome/QuoteChrome'
@@ -39,11 +43,13 @@ export default async function CommercialPaintQuotePage(props: {
 
   const { data: run, error } = await supabase
     .from('paint_runs')
-    .select('id, job_name, site_address, status, created_at, public_token, tenant_id, tenants:tenant_id(business_name)')
+    .select('id, job_name, site_address, status, created_at, public_token, tenant_id, released_at, tenants:tenant_id(business_name)')
     .eq('public_token', token)
     .maybeSingle()
 
-  if (error || !run) return <NotFound />
+  if (error) return <QuoteUnavailable correlationId={quoteReadFailure('commercial-paint', error)} />
+  if (!run) notFound()
+  if (!run.released_at) return <QuoteAwaitingReview />
 
   // Tradie identity for the letterhead (logo + Contact / Phone / Email),
   // matching the reference quote surface. Best-effort: degrades to the joined
@@ -277,22 +283,5 @@ function BreakCell({ label, value, sub }: { label: string; value: string; sub?: 
       <div style={{ marginTop: 7, ...MONO, fontWeight: 800, fontSize: 17, color: 'var(--text-pri)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       {sub ? <div style={{ marginTop: 4, ...MONO, fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-sec)' }}>{sub}</div> : null}
     </div>
-  )
-}
-
-function NotFound() {
-  return (
-    <QuoteChrome trade={{ label: 'Commercial paint', icon: tradeIcon('commercial-paint') }} sticky={null}>
-      <QuoteSheet label="Tender not found">
-        <SheetSection eyebrow="Invalid link" eyebrowAccent first>
-          <h1 style={{ margin: '14px 0 0', fontFamily: 'var(--font-sans)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '-0.02em', fontSize: 30, lineHeight: 1, color: 'var(--text-pri)' }}>
-            Tender not found
-          </h1>
-          <p style={{ margin: '16px 0 0', fontSize: 15, lineHeight: 1.55, color: 'var(--text-sec)' }}>
-            This tender link is invalid or has expired. Get in touch if you need it re-sent.
-          </p>
-        </SheetSection>
-      </QuoteSheet>
-    </QuoteChrome>
   )
 }

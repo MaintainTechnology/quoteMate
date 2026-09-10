@@ -66,7 +66,7 @@ const PAINT_TIER_LABEL_BY_KEY: Record<'good' | 'better' | 'best', string> = {
 export function buildPaintingFormOffer(ctx: { firstName?: string | null; formUrl: string }): string {
   return [
     `${greeting(ctx.firstName)}happy to sort a painting quote for you.`,
-    `Quickest way is this short form — fill it in and I'll text your quote straight back: ${ctx.formUrl}`,
+    `Quickest way is this short form. We'll prepare a draft for the painter to review before sending your quote: ${ctx.formUrl}`,
     `Or just reply here and I'll ask you a few quick questions instead.`,
   ].join('\n')
 }
@@ -150,7 +150,7 @@ export function composePaintingCancel(firstName?: string | null): string {
 
 /** PURE — the thank-you shown on the form page + texted after a submit. */
 export function buildPaintingFormThankYou(ctx: { firstName?: string | null }): string {
-  return `Thanks${nameSuffix(ctx.firstName)} — got your painting details. Your quote is on its way and I'll text it over shortly.`
+  return `Thanks${nameSuffix(ctx.firstName)} — got your painting details. A painter needs to review the draft before a quote can be shared.`
 }
 
 /**
@@ -164,7 +164,7 @@ export function buildPaintingHoldingSms(ctx: {
   businessName?: string | null
 }): string {
   const who = ctx.businessName?.trim() || 'your painter'
-  return `${greeting(ctx.firstName)}thanks — ${who} is preparing your painting quote and will text it through shortly.`
+  return `${greeting(ctx.firstName)}your painting draft is saved and awaiting review by ${who}. It has not been released as a quote yet.`
 }
 
 /**

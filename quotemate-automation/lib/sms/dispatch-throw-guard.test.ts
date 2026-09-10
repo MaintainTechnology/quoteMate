@@ -1,12 +1,6 @@
-// R46-sends — dispatch.ts must NEVER throw out of dispatchQuoteMessage, even
-// when the underlying sendSms / sendWhatsApp reject (a Vercel teardown /
-// undici headers-timeout surfaces as a thrown AbortError, not a Twilio result
-// code). Before the throw-guard, that thrown error escaped the retry loop,
-// skipped the WhatsApp fallback, and bubbled out of the caller's after()
-// block. Here we stub global fetch to THROW and assert the function still
-// returns a structured DispatchResult and retried the transient.
-
+// Ambiguous transport acceptance must resolve as a structured failure without duplicate sends.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('./durable-outbox', () => ({ dispatchDurably: (opts: object, send: (opts: object) => unknown) => send(opts) }))
 import { dispatchQuoteMessage } from './dispatch'
 
 const ENV = { ...process.env }
@@ -31,7 +25,7 @@ function okResponse() {
 }
 
 describe('dispatchQuoteMessage — throw guard (never throws)', () => {
-  it('treats a thrown AbortError from the SMS send as transient, retries, then succeeds', async () => {
+  it('treats a thrown AbortError as ambiguous and does not duplicate the send', async () => {
     const abort = () => {
       const e = new Error('The operation was aborted')
       e.name = 'AbortError'
@@ -45,11 +39,8 @@ describe('dispatchQuoteMessage — throw guard (never throws)', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const r = await dispatchQuoteMessage({ to: '+61400000000', text: 'quote https://q/abc' })
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.channel).toBe('sms')
-      expect(r.smsAttempts).toBeGreaterThan(1) // it retried the thrown abort
-    }
+    expect(r).toMatchObject({ ok:false, smsAttempt:{code:'AMBIGUOUS'}, smsAttempts:1 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   }, 15000)
 
   it('returns a DispatchFail (does not throw) when SMS throws every attempt and WhatsApp also throws', async () => {
@@ -66,8 +57,8 @@ describe('dispatchQuoteMessage — throw guard (never throws)', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) {
       // SMS retried (AbortError is retryable) and WhatsApp was attempted.
-      expect(r.smsAttempts).toBeGreaterThan(1)
-      expect(r.waAttempt).toBeDefined()
+      expect(r.smsAttempts).toBe(1)
+      expect(r.waAttempt).toBeUndefined()
     }
   }, 15000)
 })

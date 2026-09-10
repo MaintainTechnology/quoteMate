@@ -1,8 +1,7 @@
 'use client'
 
 // Plan-PDF upload client form (SMS estimator). One PDF, posted to
-// /api/upload/plan/[token]; the analysis runs server-side after the
-// response, so success here just tells the customer to watch their SMS.
+// /api/upload/plan/[token]; success confirms the durable analysis receipt.
 
 import { useState } from 'react'
 
@@ -52,11 +51,12 @@ export function PlanUploadForm({ token }: { token: string }) {
     return (
       <div className="border border-success/40 bg-success/10 p-5">
         <div className="font-mono text-[0.65rem] uppercase tracking-[0.15em] text-[#34d399] mb-2">
-          ✓ Plan received — analysing now
+          ✓ Plan received — saved for analysis
         </div>
         <p className="text-sm leading-relaxed text-text-pri">
-          Our AI is reading your drawing. Your results link arrives by SMS in a couple of
-          minutes — you can close this page.
+          Your drawing is saved for analysis and your tradie’s review. We’ll send an SMS
+          update as it progresses. Your tradie needs to approve the quote before prices
+          are shared. You can close this page.
         </p>
       </div>
     )

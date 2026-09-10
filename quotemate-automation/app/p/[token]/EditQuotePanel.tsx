@@ -9,6 +9,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getAuthToken } from '@/lib/auth/client-token'
 
 export type EditableTier = {
   tier: 'good' | 'better' | 'best'
@@ -25,14 +26,19 @@ const money = (n: number) =>
 export function EditQuotePanel({
   estimateToken,
   tiers,
+  expectedVersion,
+  released,
 }: {
   estimateToken: string
   tiers: EditableTier[]
+  expectedVersion: string
+  released: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [err, setErr] = useState<string | null>(null)
+  const [approved,setApproved] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
     Object.fromEntries(
       tiers.map((t) => [t.tier, { label: t.label, scope: t.scope, inc_gst: String(Math.round(t.inc_gst)) }]),
@@ -46,16 +52,20 @@ export function EditQuotePanel({
       ),
     )
     setErr(null)
+    setApproved(false)
     setState('idle')
   }
 
-  const setField = (tier: string, field: keyof Draft, value: string) =>
+  const setField = (tier: string, field: keyof Draft, value: string) => {
+    setApproved(false)
     setDrafts((d) => ({ ...d, [tier]: { ...d[tier], [field]: value } }))
+  }
 
   const save = async () => {
     setState('saving')
     setErr(null)
     const payload = {
+      expectedVersion, approveChanges: approved,
       tiers: tiers.map((t) => {
         const d = drafts[t.tier]
         const cleaned = d.inc_gst.replace(/[^0-9.]/g, '')
@@ -73,9 +83,12 @@ export function EditQuotePanel({
       }),
     }
     try {
+      const token = await getAuthToken()
+      if (!token) throw new Error('Sign in to edit this quote.')
+      if (released && !approved) throw new Error('Review and approve the revised prices and scope before saving.')
       const res = await fetch(`/api/painting/edit/${estimateToken}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       })
       const j = await res.json()
@@ -163,7 +176,7 @@ export function EditQuotePanel({
                 htmlFor={`${t.tier}-scope`}
                 className="mt-3 block font-mono text-[0.65rem] uppercase tracking-[0.14em] text-text-dim"
               >
-                {t.tier} · what's included
+                {t.tier} · what&apos;s included
               </label>
               <textarea
                 id={`${t.tier}-scope`}
@@ -177,16 +190,17 @@ export function EditQuotePanel({
         })}
       </div>
 
+      {released && <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" checked={approved} onChange={event=>setApproved(event.target.checked)} />I have reviewed and approve these revised prices and scope for the customer.</label>}
       {err && <p className="mt-4 text-sm text-warning">{err}</p>}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={save}
-          disabled={state === 'saving'}
+          disabled={state === 'saving' || (released && !approved)}
           className="inline-flex items-center gap-2 bg-accent px-6 py-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {state === 'saving' ? 'Saving…' : 'Save changes'}
+          {state === 'saving' ? 'Saving…' : released ? 'Apply approved changes' : 'Save draft changes'}
         </button>
         <button
           type="button"

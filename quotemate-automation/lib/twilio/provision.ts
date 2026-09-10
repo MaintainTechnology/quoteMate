@@ -222,8 +222,9 @@ export async function provisionTwilioNumber(opts: {
       )
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      attempts.push(`${label}: purchase threw — ${msg}`)
-      continue
+      // The purchase may have succeeded. Trying another candidate here can
+      // charge the tenant twice before the outer durable attempt sees failure.
+      return { ok:false, reason:`Purchase outcome unknown — ${msg}`, code:'purchase_unconfirmed' }
     }
 
     const text = await purchaseResp.text()
@@ -252,12 +253,17 @@ export async function provisionTwilioNumber(opts: {
     }
 
     // ── 3. Purchase succeeded — return the result ──────────────────
+    if (!parsed || typeof parsed.phone_number !== 'string' || !/^PN[a-f0-9]{32}$/i.test(parsed.sid ?? '')) {
+      return { ok:false, reason:'Purchase response was incomplete; reconcile the provider before retrying.', code:'purchase_unconfirmed' }
+    }
     const caps = parsed.capabilities ?? {}
+    const capability = (name: string) => Object.hasOwn(caps, name)
+      ? caps[name] === true : caps[name.toUpperCase()] === true
     const capabilities: NumberCapabilities = {
-      voice: !!(caps.voice ?? caps.VOICE),
-      sms:   !!(caps.sms   ?? caps.SMS),
-      mms:   !!(caps.mms   ?? caps.MMS),
-      fax:   !!(caps.fax   ?? caps.FAX),
+      voice: capability('voice'),
+      sms: capability('sms'),
+      mms: capability('mms'),
+      fax: capability('fax'),
     }
     return {
       ok: true,

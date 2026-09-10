@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
     async (): Promise<{ text: string; mmsUrl?: string }> => ({ text: 'quote' }),
   ),
 }))
-vi.mock('@/lib/sms/twilio', () => ({ sendSms: h.sendSms }))
+vi.mock('@/lib/sms/dispatch', () => ({ dispatchQuoteMessage: h.sendSms }))
 vi.mock('./quote-dispatch', () => ({ composePaintingQuoteDelivery: h.composePaintingQuoteDelivery }))
 
 import {
@@ -19,6 +19,7 @@ import {
 } from './release'
 
 afterEach(() => vi.unstubAllEnvs())
+beforeEach(()=>vi.stubEnv('PUBLIC_WEB_ORIGIN','https://quotemax.com.au'))
 
 describe('notifyPaintingTradie', () => {
   it('texts the tradie owner_mobile from the tenant number with the /p review link', async () => {
@@ -99,10 +100,11 @@ describe('sendPaintingQuoteToCustomer', () => {
     tenant_id: 't1',
     routing: 'auto_quote',
     address: '5 Smith St',
+    released_at: '2026-09-08T00:00:00Z',
   }
 
   it('reports sent:false when Twilio REJECTS the message', async () => {
-    h.sendSms.mockResolvedValueOnce({ ok: false, code: '21610', reason: 'unsubscribed' } as never)
+    h.sendSms.mockResolvedValueOnce({ ok: false, smsAttempt:{code: '21610', reason: 'unsubscribed'},smsAttempts:1 } as never)
     const r = await sendPaintingQuoteToCustomer(client([row, { twilio_sms_number: '+61480000000' }]), {
       estimateToken: 'est-1',
       appUrl: 'https://x.test',
@@ -121,12 +123,42 @@ describe('sendPaintingQuoteToCustomer', () => {
   })
 
   it('reports sent:true only when Twilio accepted it', async () => {
-    h.sendSms.mockResolvedValueOnce({ ok: true, sid: 'SM1' } as never)
+    h.sendSms.mockResolvedValueOnce({ ok: true, sid: 'SM1', outboxId: 'outbox-1', status: 'queued' } as never)
     const r = await sendPaintingQuoteToCustomer(client([row, { twilio_sms_number: '+61480000000' }]), {
       estimateToken: 'est-1',
       appUrl: 'https://x.test',
     })
     expect(r.sent).toBe(true)
+    expect(r).toMatchObject({outboxId:'outbox-1',status:'accepted'})
+  })
+  it.each([
+    ['AMBIGUOUS', 'unknown'], ['429', 'retry'], ['OUTBOX_PENDING', 'recovery_pending'], ['21610', 'failed'],
+  ])('retains the durable receipt for %s recovery', async(code,status)=>{
+    h.sendSms.mockResolvedValueOnce({ok:false,outboxId:'outbox-1',smsAttempt:{code,reason:'boundary failure'},smsAttempts:1} as never)
+    const result=await sendPaintingQuoteToCustomer(client([row,{twilio_sms_number:'+61480000000'}]),{publicToken:'pub-1',appUrl:'https://x.test'})
+    expect(result).toEqual({sent:false,outboxId:'outbox-1',status})
+  })
+  it('holds an unreleased draft and never uses a platform sender when tenant configuration is absent',async()=>{
+    vi.stubEnv('TWILIO_SMS_NUMBER','+61499999999')
+    h.sendSms.mockClear()
+    expect((await sendPaintingQuoteToCustomer(client([{...row,released_at:null}]),{publicToken:'pub-1',appUrl:'https://x.test'})).sent).toBe(false)
+    expect((await sendPaintingQuoteToCustomer(client([row,{twilio_sms_number:null}]),{publicToken:'pub-1',appUrl:'https://x.test'})).sent).toBe(false)
+    expect(h.sendSms).not.toHaveBeenCalled()
+  })
+  it('uses the tenant number, tenant scope and stable explicit delivery request',async()=>{
+    h.sendSms.mockClear()
+    h.sendSms.mockResolvedValueOnce({ok:true,sid:'SM1'} as never)
+    await sendPaintingQuoteToCustomer(client([row,{twilio_sms_number:'+61480000000'}]),{
+      publicToken:'pub-1',appUrl:'https://x.test',tenantId:'t1',requestId:'resend-1',
+    })
+    expect(h.sendSms).toHaveBeenCalledWith(expect.objectContaining({
+      to:row.customer_phone,from:'+61480000000',tenantId:'t1',deliveryKey:'painting:pub-1:resend:resend-1',
+    }))
+  })
+  it('rejects another tenant before dispatch',async()=>{
+    h.sendSms.mockClear()
+    expect((await sendPaintingQuoteToCustomer(client([row]),{publicToken:'pub-1',appUrl:'https://x.test',tenantId:'another'})).sent).toBe(false)
+    expect(h.sendSms).not.toHaveBeenCalled()
   })
 })
 
@@ -138,6 +170,7 @@ function updateClient(error: unknown, seen: Record<string, unknown>[] = []) {
   return {
     client: {
       from: () => ({
+        select: () => { const q = { eq: () => q, maybeSingle: async () => ({ data: { released_at: 'approved' }, error: null }) }; return q },
         update: (patch: Record<string, unknown>) => {
           seen.push(patch)
           return { eq: async () => ({ error }) }
@@ -199,7 +232,7 @@ describe('autoSendPaintingQuote', () => {
   function args(send: (t: string, m?: string) => Promise<boolean>, error: unknown = null) {
     const { client, seen } = updateClient(error)
     return {
-      call: { supabase: client, disp, address: '5 Smith St', appUrl: 'https://x.test', tenantId: null, send },
+      call: { supabase: client, disp, address: '5 Smith St', appUrl: 'https://x.test', tenantId: 'tenant-1', send },
       seen,
     }
   }
@@ -216,18 +249,26 @@ describe('autoSendPaintingQuote', () => {
     expect(seen[0]).toHaveProperty('quote_sent_at')
   })
 
-  it('reverts the release — never stamps sent — when the carrier refuses', async () => {
+  it('preserves existing approval without stamping sent when the carrier refuses', async () => {
     const { call, seen } = args(async () => false)
     expect((await autoSendPaintingQuote(call)).sent).toBe(false)
-    expect(seen[0]).toEqual({ released_at: null })
+    expect(seen).toEqual([])
   })
 
-  it('reverts the release when composing throws, and never reports sent', async () => {
+  it('preserves existing approval when composing throws, and never reports sent', async () => {
     h.composePaintingQuoteDelivery.mockRejectedValue(new Error('gotenberg down'))
     const send = vi.fn(async () => true)
     const { call, seen } = args(send)
     expect((await autoSendPaintingQuote(call)).sent).toBe(false)
     expect(send).not.toHaveBeenCalled()
-    expect(seen[0]).toEqual({ released_at: null })
+    expect(seen).toEqual([])
   })
+})
+
+it('legacy draft-time auto-send cannot bypass the persisted human approval', async () => {
+  const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { released_at: null }, error: null }) }
+  const send = vi.fn(async () => true)
+  const result = await autoSendPaintingQuote({ supabase: { from: () => q } as never, disp: { token: 'held' } as never, address: 'Street', appUrl: 'https://x.test', tenantId: 'tenant-1', send })
+  expect(result.sent).toBe(false)
+  expect(send).not.toHaveBeenCalled()
 })

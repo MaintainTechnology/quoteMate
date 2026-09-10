@@ -1,362 +1,223 @@
-// POST /api/quote/[id]/request-final-payment — the last step of the chain
-// (spec post-visit-money-sequence R10).
-//
-// The tradie is standing on the finished job with their phone. This creates
-// the 'balance' row for what is still owed — total, less the $99 site visit,
-// less the deposit already taken — mints nothing itself, and texts the
-// customer a /r short-link they can pay there and then.
-//
-// Why a THIRD row rather than a second payment on the final row: the whole
-// chain rests on "one payment per quotes row", which is what makes the
-// webhook's conditional `paid_at` claim, the /r never-re-charge redirect and
-// the Connect payout release work unchanged. A balance_paid_at column would
-// have duplicated that entire payment column set and the release path — the
-// exact money code where this repo has grown silent-failure bugs.
-//
-// Contract, per the house rule: this route NEVER reports ok without sent.
-// The row is created first, then the SMS; a dispatch failure returns 502 with
-// the row in place so the tradie can retry without creating a second one (the
-// partial unique index hands the same row back).
-
+// Explicit balance request: prepare213 serializes the paid chain; release205
+// atomically approves/enqueues. Only outbox acceptance stamps sent_at.
 import { createClient } from '@supabase/supabase-js'
 import { generateShareToken } from '@/lib/stripe/checkout'
 import { connectDestinationForTenant, type TenantConnectState } from '@/lib/stripe/connect'
-import {
-  MIN_STRIPE_CHARGE_CENTS,
-  asMoneyNumber,
-  chargedCents,
-  clampDepositPct,
-  finalBalanceBaseCents,
-} from '@/lib/quote/money'
-import { asQuoteKind } from '@/lib/quote/mint-tier'
+import { MIN_STRIPE_CHARGE_CENTS, chargedCents } from '@/lib/quote/money'
+import { quoteChainMoney } from '@/lib/quote/chain-money'
+import { assertExpectedQuoteRecipient, resolveOwnedQuoteCustomerContact, QuoteDeliveryRecipientError } from '@/lib/quote/delivery-recipient'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { genericQuoteReleased, genericQuoteSendKey, persistGenericQuoteRelease, quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
 import { buildBalanceRequestSms } from '@/lib/sms/templates'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
-import { pipelineLog } from '@/lib/log/pipeline'
+import { publicWebUrl } from '@/lib/sms/public-origin'
+import { resolveQuoteOriginConversation } from '@/lib/sms/quote-origin-conversation'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
-
-const PG_UNIQUE_VIOLATION = '23505'
-
-/** The deposit has been settled — either really paid, or covered outright by
- *  the $99 credit on a small job (the R8 'credit' stamp). */
-const DEPOSIT_SETTLED_TIERS = new Set(['deposit', 'credit'])
-
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const log = pipelineLog('dispatch')
-  const { id: finalId } = await ctx.params
-
-  const resolved = await resolveTenantRequest(
-    supabase,
-    req,
-    'id, twilio_sms_number, business_name, stripe_connect_account_id, stripe_connect_charges_enabled, stripe_connect_payouts_enabled',
-  )
-  if (!resolved) return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
-  const tenant = resolved.tenant as
-    | (TenantConnectState & {
-        id: string
-        twilio_sms_number: string | null
-        business_name: string | null
-      })
-    | null
-
-  const { data: finalRow } = await supabase
-    .from('quotes')
-    .select(
-      'id, tenant_id, intake_id, quote_kind, paid_at, paid_tier, sent_at, status, total_inc_gst, deposit_pct, scope_of_works, scope_short, assumptions, estimated_timeframe, gst_note, display_mode',
-    )
-    .eq('id', finalId)
-    .maybeSingle()
-
-  if (!finalRow) return Response.json({ ok: false, error: 'no_quote' }, { status: 404 })
-  if (!finalRow.tenant_id) {
-    return Response.json({ ok: false, error: 'parent_unscoped' }, { status: 409 })
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+type Row = Record<string, unknown>
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const OUTBOX_FIELDS = 'id,status,provider_sid,provider_status,provider_error,requires_attention,attempts,created_at,updated_at'
+class RequestError extends Error { constructor(public status: number, message: string) { super(message) } }
+const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : null
+function phoneIdentity(value: unknown) {
+  const phone = text(value)
+  if (!phone || !/^[+\d\s().-]+$/.test(phone)) return null
+  const digits = phone.replace(/\D/g, '')
+  return /^0\d{9}$/.test(digits) ? '61' + digits.slice(1) : /^[1-9]\d{7,14}$/.test(digits) ? digits : null
+}
+function failure(error: unknown) {
+  if (error instanceof QuoteDeliveryRecipientError) return Response.json({ ok: false, error: error.code, message: error.message }, { status: error.status })
+  return Response.json({ ok: false, error: error instanceof RequestError ? error.message : 'balance_request_unavailable' },
+    { status: error instanceof RequestError ? error.status : 503, headers: { 'Cache-Control': 'private, no-store' } })
+}
+async function read<T>(query: PromiseLike<{ data: T | null; error: unknown }>): Promise<T | null> {
+  const { data, error } = await query
+  if (error) throw new RequestError(503, 'quote_chain_unavailable')
+  return data
+}
+async function owned(req: Request, id: string) {
+  if (!UUID.test(id)) throw new RequestError(400, 'invalid_quote_id')
+  const auth = await resolveTenantRequest(supabase, req,
+    'id,twilio_sms_number,business_name,stripe_connect_account_id,stripe_connect_charges_enabled,stripe_connect_payouts_enabled')
+  if (!auth?.tenant) throw new RequestError(401, 'unauthorized')
+  const tenant = auth.tenant as Row & TenantConnectState & { id: string }
+  const final = await read<Row>(supabase.from('quotes').select('*').eq('id', id.toLowerCase()).eq('tenant_id', tenant.id).maybeSingle())
+  if (!final || final.tenant_id !== tenant.id || final.id !== id.toLowerCase()) throw new RequestError(404, 'no_quote')
+  if (final.quote_kind !== 'final') throw new RequestError(409, 'not_final_quote')
+  return { final, tenant, ownerId: auth.identity.userId }
+}
+async function children(final: Row, tenantId: string) {
+  const rows = await read<Row[]>(supabase.from('quotes').select('*').eq('parent_quote_id', final.id)
+    .eq('quote_kind', 'balance').limit(2)) ?? []
+  if (rows.length > 1 || rows.some(row => row.tenant_id !== tenantId || row.intake_id !== final.intake_id)) {
+    throw new RequestError(409, 'balance_history_review_required')
   }
-  if (!tenant || finalRow.tenant_id !== tenant.id) {
-    return Response.json({ ok: false, error: 'not_owner' }, { status: 403 })
+  return rows[0] ?? null
+}
+async function deliveryReadback(balance: Row, tenantId: string, requestId?: string) {
+  const message = await read<Row>(supabase.from('sms_outbox').select(OUTBOX_FIELDS).eq('tenant_id', tenantId)
+    .eq('delivery_key', genericQuoteSendKey(String(balance.id), requestId)).maybeSingle())
+  return { ok: true, quoteId: balance.id, requestId: requestId ?? null,
+    status: message?.status ?? 'not_found', outboxId: message?.id ?? null,
+    approved: genericQuoteReleased(balance), quoteReleasedAt: balance.customer_released_at ?? null,
+    quoteStatus: balance.status, message }
+}
+function validBalance(balance: Row, final: Row, root: Row, intake: Row) {
+  return balance.pricing_book_version_id === final.pricing_book_version_id &&
+    quoteChainMoney(balance, 'balance', final, root, text(intake.trade)).available
+}
+/** A retained operation recovers its saved recipient, never today's contact.
+ * This is readback only: pending and uncertain sends remain outbox-owned. */
+async function retainedBalanceDelivery(balance: Row, tenantId: string, requestId: string | undefined, expectedRecipient: unknown) {
+  const key = genericQuoteSendKey(String(balance.id), requestId)
+  const saved = await read<Row>(supabase.from('sms_outbox').select('*').eq('tenant_id', tenantId)
+    .eq('delivery_key', key).maybeSingle())
+  if (!saved) return null
+  const payload = saved.payload && typeof saved.payload === 'object' && !Array.isArray(saved.payload) ? saved.payload as Row : null
+  const states = ['pending', 'retry', 'sending', 'accepted', 'delivered', 'failed', 'undelivered', 'unknown']
+  if (!UUID.test(String(saved.id)) || saved.tenant_id !== tenantId || saved.delivery_key !== key ||
+    !genericQuoteReleased(balance) || !payload || payload.tenantId !== tenantId || payload.quoteReleaseId !== balance.id ||
+    payload.deliveryKey !== key || saved.audience !== 'customer' || payload.audience !== 'customer' ||
+    !phoneIdentity(payload.to) || !phoneIdentity(payload.from) || saved.to_number !== payload.to ||
+    !text(payload.text) || saved.body !== payload.text || !/^[a-f0-9]{64}$/.test(String(payload.quoteReleaseRevision)) ||
+    (saved.conversation_id ?? null) !== (payload.conversationId ?? null) || !states.includes(String(saved.status))) {
+    throw new RequestError(409, 'balance_delivery_review_required')
   }
-  if (asQuoteKind(finalRow.quote_kind as string | null) !== 'final') {
-    return Response.json({ ok: false, error: 'not_final_quote' }, { status: 409 })
-  }
-  if (!finalRow.sent_at) {
-    return Response.json({ ok: false, error: 'final_not_sent' }, { status: 409 })
-  }
-  if (!finalRow.paid_at || !DEPOSIT_SETTLED_TIERS.has((finalRow.paid_tier as string) ?? '')) {
-    return Response.json({ ok: false, error: 'deposit_not_paid' }, { status: 409 })
-  }
-  if (!connectDestinationForTenant(tenant)) {
-    return Response.json({ ok: false, error: 'connect_required' }, { status: 409 })
-  }
-
-  // ─── What is still owed ──────────────────────────────────────────
-  // From the final row's STORED total and deposit % — the same numbers the
-  // deposit was charged from — so $99 + deposit + balance reconciles exactly
-  // to the total the customer accepted.
-  const totalCents = Math.round(asMoneyNumber(finalRow.total_inc_gst) * 100)
-  const depositPct = clampDepositPct(finalRow.deposit_pct as number | null)
-  const balanceBase = finalBalanceBaseCents(totalCents, depositPct)
-  if (balanceBase < MIN_STRIPE_CHARGE_CENTS) {
-    // A job at or under $99 is already paid in full by the site visit.
-    return Response.json({ ok: false, error: 'nothing_to_charge' }, { status: 409 })
-  }
-  const charged = chargedCents(balanceBase)
-
-  // An existing PAID balance child means the job is settled.
-  // `.limit(1)` rather than a bare `.maybeSingle()`: the partial unique index
-  // constrains only UNPAID children, so this query is not guaranteed unique.
-  // maybeSingle() ERRORS on multiple rows, and a swallowed error here would
-  // read as "no prior payment" and open a second balance charge.
-  {
-    const { data: priorPaid, error: priorPaidErr } = await supabase
-      .from('quotes')
-      .select('id')
-      .eq('parent_quote_id', finalRow.id)
-      .eq('quote_kind', 'balance')
-      .not('paid_at', 'is', null)
-      .limit(1)
-    if (priorPaidErr) {
-      log.err('paid-balance probe failed', priorPaidErr.message, { final_id: finalRow.id })
-      return Response.json({ ok: false, error: 'lookup_failed' }, { status: 500 })
-    }
-    if (priorPaid && priorPaid.length > 0) {
-      return Response.json({ ok: false, error: 'balance_already_paid' }, { status: 409 })
+  assertExpectedQuoteRecipient('sms', expectedRecipient, String(payload.to))
+  if (saved.conversation_id) {
+    const conversation = await read<Row>(supabase.from('sms_conversations').select('id,tenant_id,from_number,to_number')
+      .eq('id', saved.conversation_id).eq('tenant_id', tenantId).maybeSingle())
+    if (!conversation || conversation.id !== saved.conversation_id || conversation.tenant_id !== tenantId ||
+      phoneIdentity(conversation.from_number) !== phoneIdentity(payload.to) ||
+      phoneIdentity(conversation.to_number) !== phoneIdentity(payload.from)) {
+      throw new RequestError(409, 'balance_delivery_review_required')
     }
   }
-
-  // ─── Create (or recover) the balance row ─────────────────────────
-  const shareToken = generateShareToken()
-  const nowIso = new Date().toISOString()
-  let balanceId: string | null = null
-  let balanceToken: string | null = null
-  let already = false
-  /** sent_at of a row recovered through the 23505 path — how we tell a
-   *  double-tap from a deliberate re-send minutes later. */
-  let recoveredSentAt: string | null = null
-
-  const { data: created, error: insertErr } = await supabase
-    .from('quotes')
-    .insert({
-      intake_id: finalRow.intake_id,
-      tenant_id: finalRow.tenant_id,
-      quote_kind: 'balance',
-      parent_quote_id: finalRow.id,
-      share_token: shareToken,
-      // NOT stamped sent here. sent_at must mean "a carrier accepted a text at
-      // this time" and nothing else — it is what the double-tap window below
-      // reads. Stamping it at insert made a row created 30s ago whose SMS then
-      // 502'd indistinguishable from one delivered 30s ago, which suppressed
-      // the legitimate retry AND reported it to the tradie as a re-send. Same
-      // released_at / quote_sent_at split painting had to make. Stamped after
-      // a delivered dispatch below.
-      status: 'draft',
-      sent_at: null,
-      // The balance IS the row's total: /r reads total_inc_gst and deposit_pct
-      // and, for a balance row, charges the whole remaining amount.
-      total_inc_gst: +(balanceBase / 100).toFixed(2),
-      deposit_pct: depositPct,
-      needs_inspection: false,
-      good: null,
-      better: null,
-      best: null,
-      scope_of_works: finalRow.scope_of_works,
-      scope_short: finalRow.scope_short ?? null,
-      assumptions: finalRow.assumptions ?? [],
-      estimated_timeframe: finalRow.estimated_timeframe,
-      gst_note: finalRow.gst_note,
-      display_mode: finalRow.display_mode ?? null,
-      stripe_links: {},
-      price_hold_until: null,
-    })
-    .select('id, share_token')
-    .maybeSingle()
-
-  if (insertErr) {
-    if (insertErr.code === PG_UNIQUE_VIOLATION) {
-      const { data: existing } = await supabase
-        .from('quotes')
-        .select('id, share_token, sent_at')
-        .eq('parent_quote_id', finalRow.id)
-        .eq('quote_kind', 'balance')
-        .is('paid_at', null)
-        .maybeSingle()
-      if (existing) {
-        balanceId = existing.id as string
-        balanceToken = existing.share_token as string
-        already = true
-        recoveredSentAt = (existing.sent_at as string | null) ?? null
+  const accepted = saved.status === 'accepted' || saved.status === 'delivered'
+  if (accepted && !text(saved.provider_sid)) throw new RequestError(409, 'balance_delivery_review_required')
+  // Older approved payloads predate the expanded 215 snapshot. Do not recompose
+  // or re-approve them with a new hash; the original receipt remains authoritative.
+  return { accepted, saved }
+}
+/** Lost POST recovery uses the final ID already known to the device. Missing
+ * child/outbox remains unconfirmed: this read never authorizes a retry. */
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { final, tenant } = await owned(req, (await ctx.params).id)
+    const requestId = new URL(req.url).searchParams.get('requestId') ?? undefined
+    try { genericQuoteSendKey(String(final.id), requestId) } catch { throw new RequestError(400, 'invalid_request_id') }
+    const balance = await children(final, tenant.id)
+    if (balance) {
+      const [root, intake] = await Promise.all([
+        read<Row>(supabase.from('quotes').select('*').eq('id', final.parent_quote_id).eq('tenant_id', tenant.id).maybeSingle()),
+        read<Row>(supabase.from('intakes').select('*').eq('id', final.intake_id).eq('tenant_id', tenant.id).maybeSingle()),
+      ])
+      if (!root || !intake || intake.tenant_id !== tenant.id || intake.id !== final.intake_id ||
+        root.id !== final.parent_quote_id || !validBalance(balance, final, root, intake)) {
+        throw new RequestError(409, 'balance_history_review_required')
       }
     }
-    if (!balanceId) {
-      log.err('balance row insert failed', insertErr.message, { final_id: finalRow.id })
-      return Response.json(
-        { ok: false, error: 'insert_failed', detail: insertErr.message },
-        { status: 500 },
-      )
+    return Response.json(balance ? { finalQuoteId: final.id, balancePaid: !!balance.paid_at,
+      ...await deliveryReadback(balance, tenant.id, requestId) }
+      : { ok: true, finalQuoteId: final.id, quoteId: null, requestId: requestId ?? null, status: 'not_created', message: null },
+    { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) { return failure(error) }
+}
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { final, tenant, ownerId } = await owned(req, (await ctx.params).id)
+    let input: Row
+    try {
+      const raw = await req.text()
+      input = raw ? JSON.parse(raw) : {}
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error()
+    } catch { throw new RequestError(400, 'invalid_request') }
+    const requestId = input.requestId as string | undefined
+    try { genericQuoteSendKey(String(final.id), requestId) } catch { throw new RequestError(400, 'invalid_request_id') }
+    if (input.expected_revision !== undefined && input.expected_revision !== quoteCustomerReleaseRevision(final)) {
+      throw new RequestError(409, 'quote_review_required')
     }
-  } else {
-    balanceId = (created?.id as string) ?? null
-    balanceToken = (created?.share_token as string) ?? shareToken
-  }
-
-  // ─── Text the customer ───────────────────────────────────────────
-  type IntakeRow = {
-    call_id?: string | null
-    job_type?: string | null
-    caller?: { name?: string; phone?: string } | null
-  }
-  let intake: IntakeRow | null = null
-  if (finalRow.intake_id) {
-    const { data } = await supabase
-      .from('intakes')
-      .select('id, call_id, job_type, caller')
-      .eq('id', finalRow.intake_id)
-      .maybeSingle()
-    intake = (data as unknown as IntakeRow | null) ?? null
-  }
-  let callerNumber: string | null = intake?.caller?.phone ?? null
-  if (!callerNumber && intake?.call_id) {
-    const { data: callRow } = await supabase
-      .from('calls')
-      .select('caller_number')
-      .eq('id', intake.call_id)
-      .maybeSingle()
-    callerNumber = (callRow?.caller_number as string | null) ?? null
-  }
-
-  if (!callerNumber) {
-    // The row exists and is payable from the dashboard, but we cannot claim
-    // a send that did not happen.
-    return Response.json(
-      {
-        ok: false,
-        error: 'no_customer_number',
-        sent: false,
-        quote_id: balanceId,
-        share_token: balanceToken,
-      },
-      { status: 409 },
-    )
-  }
-
-  // A double-tap on the job must not text the customer twice. The DB index
-  // collapses the two INSERTS into one row; this collapses the two SENDS.
-  //
-  // A CONDITIONAL CLAIM on sent_at, not a timestamp comparison — the same
-  // pattern the payment path uses for paid_at, and for the same reason: a
-  // time-window check cannot see a first dispatch that is still IN FLIGHT
-  // (its sent_at is not written yet), so two near-simultaneous taps would
-  // both pass it and both text the customer. Whoever wins this UPDATE owns
-  // the send; the loser matches zero rows and reports sent:false.
-  //
-  // The window is still here, as the claim's WHERE: a row last sent longer
-  // ago than this is re-claimable, which is how a tradie deliberately
-  // re-sends. And because a failed dispatch REVERTS the claim below, a retry
-  // after a carrier failure is never blocked.
-  const DOUBLE_TAP_WINDOW_MS = 2 * 60_000
-  const claimCutoff = new Date(Date.now() - DOUBLE_TAP_WINDOW_MS).toISOString()
-  const { data: claimed, error: claimErr } = await supabase
-    .from('quotes')
-    .update({ sent_at: nowIso })
-    .eq('id', balanceId as string)
-    .or(`sent_at.is.null,sent_at.lt.${claimCutoff}`)
-    .select('id')
-  if (claimErr) {
-    log.err('balance send claim failed', claimErr.message, { quote_id: balanceId })
-    return Response.json({ ok: false, error: 'claim_failed', sent: false }, { status: 500 })
-  }
-  if (!claimed || claimed.length === 0) {
-    log.ok('balance re-request suppressed — another send holds the claim', {
-      quote_id: balanceId,
+    if (!final.sent_at) throw new RequestError(409, 'final_not_sent')
+    if (!final.paid_at || !['deposit', 'credit'].includes(String(final.paid_tier))) throw new RequestError(409, 'deposit_not_paid')
+    if (!connectDestinationForTenant(tenant)) throw new RequestError(409, 'connect_required')
+    if (!text(tenant.twilio_sms_number)) throw new RequestError(503, 'tenant_messaging_unavailable')
+    const readiness = await readQuoteDraftReadiness(supabase, {
+      id: String(final.id), tenant_id: tenant.id, intake_id: text(final.intake_id), quote_kind: 'final',
     })
-    return Response.json({
-      ok: true,
-      sent: false,
-      already: true,
-      suppressed: 'recently_sent',
-      quote_id: balanceId,
-      share_token: balanceToken,
-      balance_cents: balanceBase,
-      charged_cents: charged,
-    })
-  }
+    if (!readiness.ready) throw new RequestError(409, readiness.code)
+    if (!text(final.intake_id) || !text(final.parent_quote_id)) throw new RequestError(409, 'quote_chain_not_payable')
+    const [intake, root] = await Promise.all([
+      read<Row>(supabase.from('intakes').select('*').eq('id', final.intake_id).eq('tenant_id', tenant.id).maybeSingle()),
+      read<Row>(supabase.from('quotes').select('*').eq('id', final.parent_quote_id).eq('tenant_id', tenant.id).maybeSingle()),
+    ])
+    if (!intake || intake.tenant_id !== tenant.id || intake.id !== final.intake_id ||
+      !root || root.tenant_id !== tenant.id || root.id !== final.parent_quote_id) throw new RequestError(409, 'quote_chain_not_payable')
+    const proof = quoteChainMoney(final, 'final', root, root, text(intake.trade))
+    if (!proof.available || proof.balanceBase === null || proof.depositPercent === null) throw new RequestError(409, 'quote_pricing_review_required')
+    if (proof.balanceBase < MIN_STRIPE_CHARGE_CENTS) throw new RequestError(409, 'nothing_to_charge')
+    const existing = await children(final, tenant.id)
+    if (existing && !validBalance(existing, final, root, intake)) throw new RequestError(409, 'balance_history_review_required')
+    if (existing?.paid_at) return Response.json({ ok: true, sent: false, already_actioned: true,
+      status: 'balance_already_paid', finalQuoteId: final.id, channel: 'sms', quote_id: existing.id, share_token: existing.share_token })
 
-  const appUrl = process.env.APP_URL ?? 'https://www.quotemax.com.au'
-  const body = buildBalanceRequestSms({
-    firstName: intake?.caller?.name,
-    businessName: tenant.business_name,
-    jobType: intake?.job_type ?? 'job',
-    balanceAud: Math.round(balanceBase / 100),
-    chargedAud: Math.round(charged / 100),
-    payUrl: `${appUrl}/r/${balanceToken}/balance`,
-  })
-
-  const dispatch = await dispatchQuoteMessage({
-    to: callerNumber,
-    text: body,
-    from: tenant.twilio_sms_number ?? undefined,
-  })
-
-  if (!dispatch.ok) {
-    log.err('balance request SMS failed', null, {
-      quote_id: balanceId,
-      sms_code: dispatch.smsAttempt.code,
-    })
-    // Hand the claim back. Without this the failed send would leave sent_at
-    // stamped, the row would look delivered, and the tradie's retry would be
-    // suppressed for two minutes — the exact window a retry happens in.
-    // (Same shape as painting's revertPaintingRelease.)
-    const { error: revertErr } = await supabase
-      .from('quotes')
-      .update({ sent_at: null })
-      .eq('id', balanceId as string)
-    if (revertErr) {
-      log.err('balance send-claim revert failed', revertErr.message, { quote_id: balanceId })
+    if (existing) {
+      const retained = await retainedBalanceDelivery(existing, tenant.id, requestId, input.expected_recipient)
+      if (retained) return Response.json({ ok: true, approved: true, accepted: retained.accepted, sent: retained.accepted,
+        finalQuoteId: final.id, channel: 'sms', requestId: requestId?.toLowerCase() ?? null,
+        status: retained.accepted ? 'provider_accepted' : 'approved_delivery_pending', deliveryStatus: retained.saved.status,
+        outboxId: retained.saved.id, already: true, quote_id: existing.id, share_token: existing.share_token,
+        balance_cents: proof.balanceBase, charged_cents: chargedCents(proof.balanceBase),
+        ...(retained.accepted ? { sid: retained.saved.provider_sid } : {}),
+      }, { status: retained.accepted ? 200 : 202, headers: { 'Cache-Control': 'private, no-store' } })
     }
-    return Response.json(
-      {
-        ok: false,
-        error: 'send_failed',
-        sent: false,
-        quote_id: balanceId,
-        share_token: balanceToken,
-        detail: dispatch.smsAttempt.code ?? null,
-      },
-      { status: 502 },
-    )
-  }
 
-  // Delivered. sent_at is already held by the claim above; advance the
-  // lifecycle so the row stops reading as a draft awaiting the tradie.
-  if (balanceId) {
-    const { error: stampErr } = await supabase
-      .from('quotes')
-      .update({ status: 'sent' })
-      .eq('id', balanceId)
-    if (stampErr) {
-      log.err('balance sent stamp failed', stampErr.message, { quote_id: balanceId })
+    // Contact precedence matches owned GET, with tenant-scoped fallback reads.
+    const caller = intake.caller && typeof intake.caller === 'object' ? intake.caller as Row : null
+    const { phone } = await resolveOwnedQuoteCustomerContact(supabase, tenant.id, intake)
+    if (!phone || !phoneIdentity(phone)) throw new RequestError(409, 'no_customer_number')
+    assertExpectedQuoteRecipient('sms', input.expected_recipient, phone)
+    let payOrigin: string
+    try { payOrigin = publicWebUrl('/') } catch { throw new RequestError(503, 'public_origin_unavailable') }
+    let conversationId: string | null
+    try { conversationId = await resolveQuoteOriginConversation(supabase, { tenantId: tenant.id, family: 'generic',
+      resourceId: String(final.id), intakeId: final.intake_id, customerPhone: phone, fromNumber: text(tenant.twilio_sms_number) }) }
+    catch { throw new RequestError(503, 'quote_origin_unavailable') }
+    const prepared = await supabase.rpc('prepare_balance_quote', { p_final_id: final.id, p_tenant_id: tenant.id,
+      p_final_snapshot: final, p_root_snapshot: root, p_intake_snapshot: intake,
+      p_balance_cents: proof.balanceBase, p_share_token: generateShareToken() })
+    if (prepared.error || !prepared.data?.quote) throw new RequestError(409, 'balance_prepare_unconfirmed')
+    const balance = prepared.data.quote as Row
+    const check = quoteChainMoney(balance, 'balance', final, root, text(intake.trade))
+    if (balance.tenant_id !== tenant.id || !UUID.test(String(balance.id)) || !text(balance.share_token) || !check.available) {
+      throw new RequestError(409, 'balance_prepare_unconfirmed')
     }
-  }
-
-  log.ok('balance requested', {
-    final_id: finalRow.id,
-    balance_id: balanceId,
-    base_cents: balanceBase,
-    charged_cents: charged,
-  })
-
-  return Response.json({
-    ok: true,
-    sent: true,
-    already,
-    quote_id: balanceId,
-    share_token: balanceToken,
-    balance_cents: balanceBase,
-    charged_cents: charged,
-  })
+    if (balance.paid_at) return Response.json({ ok: true, sent: false, already_actioned: true,
+      status: 'balance_already_paid', finalQuoteId: final.id, channel: 'sms', quote_id: balance.id, share_token: balance.share_token })
+    // Historical sent rows without an initial outbox need explicit resend intent.
+    if (!requestId && genericQuoteReleased(balance)) {
+      const saved = await deliveryReadback(balance, tenant.id)
+      if (!saved.outboxId) return Response.json({ ok: true, sent: false, already_actioned: true,
+        status: 'legacy_delivery_review_required', finalQuoteId: final.id, channel: 'sms', quote_id: balance.id, share_token: balance.share_token })
+    }
+    const release = await persistGenericQuoteRelease(supabase, { quote: balance, tenantId: tenant.id, ownerId, holdUntil: null,
+      outbound: { to: phone, from: text(tenant.twilio_sms_number)!, text: buildBalanceRequestSms({
+        firstName: text(caller?.name), businessName: text(tenant.business_name), jobType: text(intake.job_type) ?? 'job',
+        balanceAud: proof.balanceBase / 100, chargedAud: chargedCents(proof.balanceBase) / 100,
+        payUrl: new URL('/r/' + balance.share_token + '/balance', payOrigin).href,
+      }), tenantId: tenant.id, audience: 'customer', deliveryKey: genericQuoteSendKey(String(balance.id), requestId),
+      ...(conversationId ? { conversationId } : {}),
+    } })
+    if (!release.outbound || !release.outboxId) throw new RequestError(409, 'balance_release_unconfirmed')
+    const dispatch = await dispatchQuoteMessage(release.outbound)
+    return Response.json({ ok: true, approved: true, accepted: dispatch.ok, sent: dispatch.ok,
+      finalQuoteId: final.id, channel: 'sms',
+      status: dispatch.ok ? 'provider_accepted' : 'approved_delivery_pending', outboxId: release.outboxId,
+      already: prepared.data.already === true, quote_id: balance.id, share_token: balance.share_token,
+      balance_cents: proof.balanceBase, charged_cents: chargedCents(proof.balanceBase),
+      ...(dispatch.ok ? { sid: dispatch.sid } : {}),
+    }, { status: dispatch.ok ? 200 : 202 })
+  } catch (error) { return failure(error) }
 }

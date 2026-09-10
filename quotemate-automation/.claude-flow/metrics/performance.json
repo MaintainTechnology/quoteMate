@@ -1,27 +1,14 @@
 {
-<<<<<<< HEAD
-  "timestamp": "2026-09-07T07:09:47.198Z",
+  "timestamp": "2026-09-08T05:27:11.281Z",
   "mode": "local",
   "memoryUsage": {
-    "rss": 10067968,
-    "heapTotal": 23478272,
-    "heapUsed": 21633256,
-    "external": 4015921,
-    "arrayBuffers": 117872
-  },
-  "uptime": 2161.6239603,
-=======
-  "timestamp": "2026-09-08T04:12:10.786Z",
-  "mode": "local",
-  "memoryUsage": {
-    "rss": 63168512,
+    "rss": 40210432,
     "heapTotal": 23216128,
-    "heapUsed": 21363352,
-    "external": 4005825,
-    "arrayBuffers": 107816
+    "heapUsed": 21858360,
+    "external": 4015910,
+    "arrayBuffers": 117861
   },
-  "uptime": 242.0885532,
->>>>>>> sms-receptionist-fix
+  "uptime": 4742.5836651,
   "optimizations": {
     "cacheHitRate": 0.78,
     "avgResponseTime": 45

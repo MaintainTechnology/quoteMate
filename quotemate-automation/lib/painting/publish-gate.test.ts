@@ -9,7 +9,8 @@ describe('canShowPaintingPrices', () => {
   it('hides prices until the tradie releases', () => {
     const r = canShowPaintingPrices({ releasedAt: null })
     expect(r.showPrices).toBe(false)
-    expect(r.reason).toMatch(/finalising/i)
+    expect(r.reason).toMatch(/saved.*awaiting.*review/i)
+    expect(r.reason).not.toMatch(/shortly|on its way|will send/i)
   })
   it('shows prices once released', () => {
     expect(canShowPaintingPrices({ releasedAt: '2026-06-26T00:00:00Z' })).toEqual({ showPrices: true, reason: null })

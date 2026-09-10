@@ -56,11 +56,6 @@ import {
 } from '@/lib/quote/mint-tier'
 import {
   INSPECTION_FEE_AUD_CENTS,
-  MIN_STRIPE_CHARGE_CENTS,
-  asMoneyNumber,
-  clampDepositPct,
-  finalDepositBaseCents,
-  surchargeCents,
 } from '@/lib/quote/money'
 import { pipelineLog } from '@/lib/log/pipeline'
 import {
@@ -68,9 +63,14 @@ import {
   createCheckoutSessionForTier,
   createFinalDepositCheckoutSession,
   createInspectionCheckoutSession,
-  expireCheckoutSession,
 } from '@/lib/stripe/checkout'
 import { connectDestinationForTenantId } from '@/lib/stripe/connect'
+import { MINT_QUOTE_FIELDS, saveMintState, persistMintedCheckout, type MintQuote } from '@/lib/quote/mint-authority'
+import { loadQuotePricingVersion, versionedQuoteGst } from '@/lib/quote/pricing-version'
+import { validOwnedQuoteBook } from '@/lib/quote/edit-authority'
+import { genericQuoteReleased } from '@/lib/quote/customer-release'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { loadChildQuoteMoney, QuoteChainMoneyError } from '@/lib/quote/chain-money'
 
 // A single Stripe Session create runs on the stripe path — give it headroom
 // over the fast-redirect default so a cold start can't time out mid-mint.
@@ -170,8 +170,7 @@ export function resolvePayRedirect(input: {
 /**
  * Mint a fresh deposit Checkout Session for this quote+tier and persist the
  * URL back onto quotes.stripe_links (so the /paid page and any re-click stay
- * consistent). Returns the live Session URL, or null if minting fails — the
- * caller then falls back to the stored link rather than hard-failing.
+ * consistent). Returns a URL only after the unchanged owned row acknowledges it.
  */
 async function mintFreshDepositUrl(
   quote: {
@@ -187,36 +186,27 @@ async function mintFreshDepositUrl(
   },
   tier: string,
   token: string,
+  authority: MintQuote,
 ): Promise<string | null> {
   const appUrl = process.env.APP_URL!
+  let expected = authority
   try {
     // Connect routing (2% platform fee, destination = the tenant's live
     // connected account) — same decision the draft-time Session used.
     const connect = await connectDestinationForTenantId(db(), quote.tenant_id)
 
-    const { data: intakeRow } = await db()
+    const { data: intakeRow, error: intakeError } = await db()
       .from('intakes')
       .select('job_type, scope, caller, trade')
       .eq('id', quote.intake_id)
+      .eq('tenant_id', quote.tenant_id!)
       .maybeSingle()
+    if (intakeError || !intakeRow) return null
+    if (resolveGenericMintTier(tier, typeof intakeRow.trade === 'string' ? intakeRow.trade : null, 'initial').kind !== 'passthrough') return null
     const intake = {
       job_type: (intakeRow?.job_type as string) ?? 'other',
       scope: (intakeRow?.scope as { item_count?: number; description?: string } | null) ?? null,
       caller: (intakeRow?.caller as { name?: string; email?: string } | null) ?? null,
-    }
-
-    // P1 — the freshly-minted Session must honour gst_registered like every
-    // display surface and the stored total. Best-effort: no book row (legacy
-    // tenant-less quote) defaults to registered, today's behaviour.
-    let gstRegistered = true
-    if (quote.tenant_id) {
-      const { data: pb } = await db()
-        .from('pricing_book')
-        .select('gst_registered')
-        .eq('tenant_id', quote.tenant_id)
-        .eq('trade', (intakeRow?.trade as string | null) ?? 'electrical')
-        .maybeSingle()
-      gstRegistered = (pb as { gst_registered?: boolean | null } | null)?.gst_registered ?? true
     }
 
     let url: string | null = null
@@ -229,49 +219,36 @@ async function mintFreshDepositUrl(
         connect,
       })
     } else {
+      const trade = typeof intakeRow.trade === 'string' ? intakeRow.trade : null
+      if (!trade || !quote.tenant_id || typeof quote.deposit_pct !== 'number' || !Number.isFinite(quote.deposit_pct) ||
+          quote.deposit_pct < 1 || quote.deposit_pct > 90) return null
+      const version = await loadQuotePricingVersion(db(), authority, trade)
+      if (!version) {
+        const { data: book, error } = await db().from('pricing_book').select('id,tenant_id,trade,gst_registered')
+          .eq('tenant_id', quote.tenant_id).eq('trade', trade).maybeSingle()
+        if (error || !validOwnedQuoteBook(book, quote.tenant_id, trade)) return null
+      }
+      const gstRegistered = versionedQuoteGst(authority, version)
+      if (gstRegistered === null) return null
       // REALISE the early-booking discount here — this mint is the money
       // choke-point under pay-first. (It used to be realised in the book API
       // when the customer committed a time, but that ran only for unpaid
       // quotes; pay-first means they are always paid by then, so leaving it
       // there would have killed the discount for everyone.)
       //
-      // Best-effort + isolated: any failure just means the customer pays the
-      // undiscounted deposit — never a blocked checkout. The early_bird_*
-      // columns land via migration 044, so a pre-migration deploy simply
-      // finds no offer.
-      let discountPct = 0
-      try {
-        const { data: eb } = await db()
-          .from('quotes')
-          .select('applied_discount_pct, early_bird_discount_pct, early_bird_expires_at')
-          .eq('id', quote.id)
-          .maybeSingle()
-        const decision = resolveMintDiscount({
-          appliedPct: Number(eb?.applied_discount_pct ?? 0),
-          offerPct: (eb?.early_bird_discount_pct as number | null) ?? null,
-          expiresAt: (eb?.early_bird_expires_at as string | null) ?? null,
+      const decision = resolveMintDiscount({
+          appliedPct: Number(expected.applied_discount_pct ?? 0),
+          offerPct: (expected.early_bird_discount_pct as number | null) ?? null,
+          expiresAt: (expected.early_bird_expires_at as string | null) ?? null,
           tier,
         })
-        discountPct = decision.pct
-        if (decision.stamp) {
-          const nowIso = new Date().toISOString()
-          const { error: stampErr } = await db()
-            .from('quotes')
-            .update({ applied_discount_pct: decision.pct, applied_discount_at: nowIso })
-            .eq('id', quote.id)
-          if (stampErr) {
-            // Couldn't record it — charge full price rather than give a
-            // discount the quote has no record of earning.
-            pipelineLog('dispatch').err(
-              'early-bird stamp failed — minting at full price',
-              stampErr.message,
-              { quote_id: quote.id, tier },
-            )
-            discountPct = 0
-          }
-        }
-      } catch {
-        discountPct = 0
+      const discountPct = decision.pct
+      if (decision.stamp) {
+        const saved = await saveMintState(db(), expected, {
+          applied_discount_pct: decision.pct, applied_discount_at: new Date().toISOString(),
+        })
+        if (!saved || saved.applied_discount_pct !== decision.pct) return null
+        expected = saved
       }
 
       type CheckoutOpts = Parameters<typeof createCheckoutSessionForTier>[0]
@@ -285,13 +262,7 @@ async function mintFreshDepositUrl(
           // from the tenant rate card at draft time; DB default 30). The
           // column was previously ignored here — a hardcoded 30 — so a
           // tenant deposit change never reached the charge.
-          deposit_pct:
-            typeof quote.deposit_pct === 'number' &&
-            Number.isFinite(quote.deposit_pct) &&
-            quote.deposit_pct >= 1 &&
-            quote.deposit_pct <= 90
-              ? Math.round(quote.deposit_pct)
-              : 30,
+          deposit_pct: quote.deposit_pct,
           gst_registered: gstRegistered,
         } as unknown as CheckoutOpts['quote'],
         tierKey: tier as 'good' | 'better' | 'best',
@@ -303,22 +274,10 @@ async function mintFreshDepositUrl(
       })
     }
 
-    if (url) {
-      const links = { ...(quote.stripe_links ?? {}) }
-      const replaced = links[tier]
-      links[tier] = url
-      await db().from('quotes').update({ stripe_links: links }).eq('id', quote.id)
-      // Expire the Session this one replaces (best-effort, tolerant of
-      // already-expired/paid) so at most ONE payable Session exists per
-      // quote+tier. Without this a customer with two tabs / a double-click
-      // could complete an ORPHANED older Session — the webhook's paid_at
-      // guard silently drops the duplicate record, but Stripe still charges.
-      if (replaced && replaced !== url) await expireCheckoutSession(replaced)
-    }
-    return url
+    return url && await persistMintedCheckout(db(), expected, tier, url) ? url : null
   } catch (e: unknown) {
     pipelineLog('dispatch').err(
-      'fresh deposit Session mint failed — caller falls back to stored link',
+      'fresh deposit Session mint unavailable',
       e instanceof Error ? e.message : String(e),
       { quote_id: quote.id, tier },
     )
@@ -350,7 +309,8 @@ async function mintChildChargeUrl(
   },
   kind: 'final' | 'balance',
   token: string,
-): Promise<{ url: string | null; reason?: 'no_connect' | 'below_minimum' | 'error' }> {
+  authority: MintQuote,
+): Promise<{ url: string | null; reason?: 'no_connect' | 'invalid_chain' | 'chain_unavailable' | 'error' }> {
   const appUrl = process.env.APP_URL!
   try {
     // A child charge MUST route through Connect. Unlike the $99 — which falls
@@ -360,16 +320,24 @@ async function mintChildChargeUrl(
     const connect = await connectDestinationForTenantId(db(), quote.tenant_id)
     if (!connect) return { url: null, reason: 'no_connect' }
 
-    const { data: intakeRow } = await db()
+    const { data: intakeRow, error: intakeError } = await db()
       .from('intakes')
-      .select('job_type, caller')
+      .select('job_type, caller, trade')
       .eq('id', quote.intake_id)
+      .eq('tenant_id', quote.tenant_id!)
       .maybeSingle()
+    if (intakeError) throw new QuoteChainMoneyError(503)
+    if (!intakeRow) throw new QuoteChainMoneyError(409)
     const jobLabel = ((intakeRow?.job_type as string) ?? 'job').replace(/_/g, ' ')
     const email = (intakeRow?.caller as { email?: string } | null)?.email ?? null
 
-    const totalCents = Math.round(asMoneyNumber(quote.total_inc_gst) * 100)
-    const depositPct = clampDepositPct(quote.deposit_pct)
+    const proof = await loadChildQuoteMoney(db(), authority, typeof intakeRow.trade === 'string' ? intakeRow.trade : null)
+    const readiness = await readQuoteDraftReadiness(db(), {
+      id: quote.id, tenant_id: quote.tenant_id, intake_id: quote.intake_id, quote_kind: kind,
+    })
+    if (!readiness.ready) throw new QuoteChainMoneyError(readiness.code === 'quote_draft_processing' ? 409 : 503)
+    const totalCents = kind === 'balance' ? proof.money.current_payment_base_cents! : proof.finalTotal!
+    const depositPct = proof.depositPercent!
     // The two child kinds store DIFFERENT things in total_inc_gst, and
     // conflating them undercharges the tradie by half the job:
     //   • a FINAL row holds the whole job total, so the deposit is derived
@@ -378,11 +346,9 @@ async function mintChildChargeUrl(
     //     computed it once, from the final row, and stamped it). Running the
     //     balance formula over it again would deduct the $99 credit and a
     //     second deposit from an amount that already has both taken out.
-    const base =
-      kind === 'final' ? finalDepositBaseCents(totalCents, depositPct) : totalCents
-    if (base < MIN_STRIPE_CHARGE_CENTS) return { url: null, reason: 'below_minimum' }
+    const base = proof.money.current_payment_base_cents!
 
-    const fee = surchargeCents(base)
+    const fee = proof.money.platform_fee_cents!
     const shared = {
       quoteId: quote.id,
       shareToken: token,
@@ -407,27 +373,9 @@ async function mintChildChargeUrl(
           })
         : await createBalanceCheckoutSession(shared)
 
-    if (url) {
-      const links = { ...(quote.stripe_links ?? {}) }
-      const tierKey = CHILD_TIER_FOR_KIND[kind]
-      const replaced = links[tierKey]
-      links[tierKey] = url
-      const { error: linkErr } = await db()
-        .from('quotes')
-        .update({ stripe_links: links })
-        .eq('id', quote.id)
-      if (linkErr) {
-        pipelineLog('dispatch').err('child stripe_links persist failed', linkErr.message, {
-          quote_id: quote.id,
-          tier: tierKey,
-        })
-      }
-      // Keyed by the CHILD literal, so a balance mint can never expire the
-      // deposit's Session (and vice versa).
-      if (replaced && replaced !== url) await expireCheckoutSession(replaced)
-    }
-    return { url }
+    return { url: url && await persistMintedCheckout(db(), authority, CHILD_TIER_FOR_KIND[kind], url) ? url : null }
   } catch (e: unknown) {
+    if (e instanceof QuoteChainMoneyError) return { url: null, reason: e.status === 503 ? 'chain_unavailable' : 'invalid_chain' }
     pipelineLog('dispatch').err(
       'child charge Session mint failed',
       e instanceof Error ? e.message : String(e),
@@ -443,15 +391,25 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     return new Response('Invalid tier', { status: 400 })
   }
 
-  const { data: quote } = await db()
+  const { data: quote, error: readError } = await db()
     .from('quotes')
-    .select(
-      'id, stripe_links, paid_at, scheduled_at, created_at, price_hold_until, needs_inspection, intake_id, tenant_id, good, better, best, deposit_pct, quote_kind, parent_quote_id, total_inc_gst',
-    )
+    .select(MINT_QUOTE_FIELDS.join(','))
     .eq('share_token', token)
-    .single()
+    .single<MintQuote>()
 
+  if (readError) return new Response('Payment unavailable', { status: 503 })
   if (!quote) return new Response('Not found', { status: 404 })
+  if (!genericQuoteReleased(quote)) return Response.redirect(new URL(`/q/${token}?pay=unavailable`, req.url), 302)
+  if (quote.quote_kind != null && !['initial', 'final', 'balance'].includes(String(quote.quote_kind))) {
+    return Response.redirect(new URL(`/q/${token}?pay=unavailable`, req.url), 302)
+  }
+  if (!quote.paid_at && (quote.quote_kind == null || quote.quote_kind === 'initial')) {
+    const readiness = await readQuoteDraftReadiness(db(), {
+      id: quote.id, tenant_id: quote.tenant_id, intake_id: typeof quote.intake_id === 'string' ? quote.intake_id : null,
+      quote_kind: quote.quote_kind,
+    })
+    if (!readiness.ready) return Response.redirect(new URL(`/q/${token}?pay=unavailable`, req.url), 302)
+  }
 
   const quoteKind = asQuoteKind(quote.quote_kind as string | null)
 
@@ -496,8 +454,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
       },
       quoteKind,
       token,
+      quote,
     )
     if (minted.url) return Response.redirect(minted.url, 302)
+    if (minted.reason === 'chain_unavailable' || minted.reason === 'invalid_chain') {
+      return Response.json({ ok: false, error: minted.reason === 'chain_unavailable' ? 'quote_chain_unavailable' : 'quote_chain_not_payable' },
+        { status: minted.reason === 'chain_unavailable' ? 503 : 409 })
+    }
     // No silent fallback to a stored link here: a child's amounts are
     // computed per click, so a stale Session could charge the wrong money.
     // Bounce to the quote page with a reason the page can render.
@@ -519,11 +482,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   // intake) FAILS OPEN to today's behaviour: it is not provably elec/plumb.
   // Only a priced tier can be redirected, so 'inspection' skips the lookup.
   if (tier !== 'inspection' && quote.intake_id) {
-    const { data: tradeRow } = await db()
+    const { data: tradeRow, error: tradeError } = await db()
       .from('intakes')
       .select('trade')
       .eq('id', quote.intake_id)
+      .eq('tenant_id', quote.tenant_id!)
       .maybeSingle()
+    if (tradeError || !tradeRow || typeof tradeRow.trade !== 'string') {
+      return Response.redirect(new URL(`/q/${token}?pay=unavailable`, req.url), 302)
+    }
     const gate = resolveGenericMintTier(tier, (tradeRow?.trade as string | null) ?? null, quoteKind)
     if (gate.kind === 'redirect_to_inspection') {
       // Same-app hop, so base it on the REQUEST rather than APP_URL: the two
@@ -613,18 +580,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     },
     tier,
     token,
+    quote,
   )
   if (fresh) return Response.redirect(fresh, 302)
 
-  // Mint failed — fall back to the stored link so the flow isn't hard-broken
-  // (no worse than the pre-fix behaviour). Logged: this link is usually past
-  // Stripe's 24h expiry, so the customer likely sees the timed-out page.
-  const stored = (quote.stripe_links as Record<string, string> | null)?.[tier]
-  pipelineLog('dispatch').err(
-    'mint failed — falling back to stored (likely dead) Session link',
-    null,
-    { quote_id: quote.id, tier, has_stored: !!stored },
-  )
-  if (stored) return Response.redirect(stored, 302)
-  return new Response('No payment link for this tier', { status: 404 })
+  return Response.redirect(new URL(`/q/${token}?pay=unavailable`, req.url), 302)
 }

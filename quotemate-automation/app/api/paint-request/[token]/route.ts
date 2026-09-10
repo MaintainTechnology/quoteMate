@@ -4,19 +4,15 @@
 //
 //   GET  → form context (business name + whether it's already submitted).
 //   POST → validate the painting inputs, run the estimate + save the job,
-//          mark the lead submitted, and text the customer their full quote
-//          from the tenant's number. Since spec painting-auto-send the quote
-//          is released at save time and goes out here — no tradie gate.
+//          persist a tradie review task, and text the saved draft's status.
+//          Only an authenticated tradie can approve sharing the quote.
 //
 // No auth: the unguessable token IS the capability, exactly like the public
 // quote pages. One-shot: a submitted link can't be re-run.
 
 import { createClient } from '@supabase/supabase-js'
 import { EstimateRequestSchema } from '@/lib/painting/request-schema'
-import { composePaintingQuoteDelivery, runAndSavePaintingQuote } from '@/lib/painting/quote-dispatch'
-import { autoSendPaintingQuote, notifyPaintingTradie } from '@/lib/painting/release'
-import { buildPaintingHoldingSms } from '@/lib/sms/painting-compose'
-import { sendSms } from '@/lib/sms/twilio'
+import { estimateAndDispatchPainting } from '@/lib/sms/painting-estimate-dispatch'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 
 export const dynamic = 'force-dynamic'
@@ -34,11 +30,12 @@ const APP_BASE_URL = (
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
-  const { data: lead } = await supabase
+  const { data: lead, error: lookupError } = await supabase
     .from('painting_lead_requests')
     .select('token, tenant_id, status')
     .eq('token', token)
     .maybeSingle()
+  if (lookupError) return Response.json({ ok: false, error: 'Form temporarily unavailable' }, { status: 503 })
   if (!lead) {
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
   }
@@ -57,11 +54,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
 
-  const { data: lead } = await supabase
+  const { data: lead, error: lookupError } = await supabase
     .from('painting_lead_requests')
     .select('token, tenant_id, conversation_id, customer_phone, status')
     .eq('token', token)
     .maybeSingle()
+  if (lookupError) return Response.json({ ok: false, error: 'Form temporarily unavailable' }, { status: 503 })
   if (!lead) {
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
   }
@@ -86,134 +84,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const tenantId = (lead.tenant_id as string | null) ?? null
   const customerPhone = (lead.customer_phone as string | null) ?? null
 
-  // The estimate runs the Google Solar footprint lookup — the same path
-  // the SMS Q&A flow uses.
-  const disp = await runAndSavePaintingQuote({
-    supabase,
-    tenantId,
-    customerPhone,
-    request: { address: parsed.data.address, inputs: parsed.data.inputs },
+  if (!tenantId || !customerPhone) return Response.json({ ok: false, error: 'Customer and tenant are required' }, { status: 422 })
+  const { data: tenant, error: tenantError } = await supabase.from('tenants').select('twilio_sms_number').eq('id',tenantId).maybeSingle()
+  if (tenantError || !tenant?.twilio_sms_number) return Response.json({ ok: false, error: 'Messaging setup unavailable' }, { status: 503 })
+  const i = parsed.data.inputs
+  const convId = (lead.conversation_id as string | null) ?? undefined
+  const result = await estimateAndDispatchPainting({ supabase, tenantId, customerPhone, conversationId: convId,
+    firstName: null, baseUrl: APP_BASE_URL, requestKey: `paint-form:${token}`,
+    slots: { address: parsed.data.address.address, postcode: parsed.data.address.postcode, state: parsed.data.address.state,
+      address_confirmed: true, scopes: i.scopes, coats: i.coats, condition: i.condition,
+      ceiling_height: i.ceiling_height, storeys: i.storeys ?? 1, colour_change: i.colour_change,
+      manual_floor_area_m2: i.manual_floor_area_m2 ?? null },
+    sendReply: async (text) => dispatchQuoteMessage({ tenantId,conversationId:convId,
+      to:customerPhone,from:tenant.twilio_sms_number,audience:'customer',text,deliveryKey:`paint-form:${token}:status` }),
   })
-
-  // One-shot: mark the lead submitted regardless of the estimate outcome.
-  await supabase
-    .from('painting_lead_requests')
-    .update({ status: 'submitted', submitted_at: new Date().toISOString(), quote_token: disp.ok ? disp.token : null })
-    .eq('token', token)
-
-  // Post-submit dispatch. Since spec painting-auto-send a PRICED quote is
-  // released at save time and texted to the customer here — prices, quote
-  // page, PDF and the one $99 site-visit link — with the tradie notified but
-  // no longer a gate. An INSPECTION-routed request keeps its on-site-measure
-  // message. Best-effort — never blocks the thank-you response.
-  if (disp.ok) {
-    try {
-      const convId = (lead.conversation_id as string | null) ?? null
-      const { data: t } = tenantId
-        ? await supabase
-            .from('tenants')
-            .select('owner_mobile, owner_first_name, twilio_sms_number, business_name')
-            .eq('id', tenantId)
-            .maybeSingle()
-        : { data: null }
-      const tenantRow = (t as {
-        owner_mobile?: string | null
-        owner_first_name?: string | null
-        twilio_sms_number?: string | null
-        business_name?: string | null
-      } | null) ?? null
-
-      let fromNumber: string | null = null
-      if (convId) {
-        const { data: conv } = await supabase
-          .from('sms_conversations')
-          .select('to_number')
-          .eq('id', convId)
-          .maybeSingle()
-        fromNumber = (conv?.to_number as string | undefined) ?? null
-      }
-      if (!fromNumber) fromNumber = tenantRow?.twilio_sms_number ?? null
-      const address = parsed.data.address.address
-
-      if (disp.inspection) {
-        if (customerPhone && fromNumber) {
-          const { text, mmsUrl } = await composePaintingQuoteDelivery({ supabase, disp, address, appUrl: APP_BASE_URL, tenantId })
-          await sendSms({ to: customerPhone, from: fromNumber, text, mediaUrl: mmsUrl })
-          if (convId) {
-            await supabase.from('sms_messages').insert({ conversation_id: convId, direction: 'outbound', body: text })
-            await supabase
-              .from('sms_conversations')
-              .update({ painting_state: { slots: {}, last_step: 'await_booking', pending_quote_token: disp.token }, updated_at: new Date().toISOString() })
-              .eq('id', convId)
-          }
-        }
-      } else {
-        // Priced — auto-send the full quote through the SAME helper the SMS
-        // receptionist uses, so compose → send → stamp/revert cannot drift
-        // between the two origins. `sent` is true only when Twilio accepted
-        // it: no phone, no from-number, or a rejection is a failure, never a
-        // silent success (spec painting-auto-send R3).
-        const { sent } = await autoSendPaintingQuote({
-          supabase,
-          disp,
-          address,
-          appUrl: APP_BASE_URL,
-          tenantId,
-          send: async (text, mmsUrl) => {
-            if (!customerPhone || !fromNumber) return false
-            const res = await sendSms({ to: customerPhone, from: fromNumber, text, mediaUrl: mmsUrl })
-            if (!res.ok) {
-              console.error('[paint-request] Twilio rejected the quote send', res.code, res.reason)
-              return false
-            }
-            if (convId) {
-              await supabase.from('sms_messages').insert({ conversation_id: convId, direction: 'outbound', body: text })
-            }
-            return true
-          },
-        })
-        if (!sent) {
-          // The row is held again — set the customer's expectation, no price.
-          if (customerPhone && fromNumber) {
-            await sendSms({
-              to: customerPhone,
-              from: fromNumber,
-              text: buildPaintingHoldingSms({ businessName: tenantRow?.business_name ?? null }),
-            })
-          }
-        }
-        await notifyPaintingTradie({
-          tenant: {
-            owner_mobile: tenantRow?.owner_mobile ?? null,
-            owner_first_name: tenantRow?.owner_first_name ?? null,
-            twilio_sms_number: tenantRow?.twilio_sms_number ?? null,
-          },
-          customerName: null,
-          address,
-          betterIncGst: disp.estimate.price.tiers.find((tier) => tier.tier === 'better')?.inc_gst ?? null,
-          estimateToken: disp.estimateToken,
-          appUrl: APP_BASE_URL,
-          dispatch: (o) => dispatchQuoteMessage({ to: o.to, text: o.text, from: o.from, audience: 'tradie' }),
-          customerTexted: sent,
-        })
-        if (convId) {
-          await supabase
-            .from('sms_conversations')
-            .update({ painting_state: { slots: {}, last_step: 'quoted', pending_quote_token: disp.token }, updated_at: new Date().toISOString() })
-            .eq('id', convId)
-        }
-      }
-    } catch (e) {
-      console.warn('[paint-request] post-submit dispatch failed (non-fatal)', e)
-    }
+  if (!result.ok) return Response.json({ ok:false,error:'estimate_failed',reason:result.reason },{status:502})
+  if (convId) {
+    const updated = await supabase.from('sms_conversations').update({painting_state:result.state,updated_at:new Date().toISOString()}).eq('id',convId)
+    if (updated.error) return Response.json({ok:false,error:'Conversation state unavailable; request saved'},{status:503})
   }
-
-  return Response.json(
-    {
-      ok: disp.ok,
-      inspection: disp.ok ? disp.inspection : false,
-      error: disp.ok ? undefined : 'estimate_failed',
-    },
-    { status: 200 },
-  )
+  const submitted = await supabase.from('painting_lead_requests').update({status:'submitted',submitted_at:new Date().toISOString(),quote_token:result.token}).eq('token',token)
+  if (submitted.error) return Response.json({ok:false,error:'Submission state unavailable; retry the same form'},{status:503})
+  return Response.json({ok:true,inspection:result.inspection,stage:'awaiting_review',texted:false})
 }

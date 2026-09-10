@@ -243,6 +243,7 @@ describe('POST /api/onboard/activate authentication and idempotency', () => {
       ok: true,
       tenantId: 'tenant-existing',
       alreadyActivated: true,
+      setupComplete: false,
       idempotent: true,
     })
     await expect(second.json()).resolves.toMatchObject({
@@ -251,7 +252,9 @@ describe('POST /api/onboard/activate authentication and idempotency', () => {
     })
     expect(h.state.eqCalls).toEqual([
       ['clerk_user_id', 'user_authenticated'],
+      ['tenant_id', 'tenant-existing'],
       ['clerk_user_id', 'user_authenticated'],
+      ['tenant_id', 'tenant-existing'],
     ])
     expect(h.checkInvitationCode).not.toHaveBeenCalled()
     expect(h.consumeInvitationCode).not.toHaveBeenCalled()

@@ -17,7 +17,10 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
 import { resolveTierSelection, type PricedTier } from '@/lib/quote/select-tier'
+import { type QuoteEditRow, QUOTE_EDIT_FIELDS, quoteEditRevision, validOwnedQuoteBook, validExpectedRevision } from '@/lib/quote/edit-authority'
+import { loadQuotePricingVersion, versionedQuoteGst, QuotePricingVersionError, type QuotePricingVersion } from '@/lib/quote/pricing-version'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,12 +38,14 @@ export async function PATCH(
     return Response.json({ ok: false, error: 'missing_quote_id' }, { status: 400 })
   }
 
-  let body: { tier?: unknown } = {}
+  let body: { tier?: unknown; expected_revision?: unknown } = {}
   try {
-    body = (await req.json()) as typeof body
+    const raw: unknown = await req.json()
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) body = raw
   } catch {
     /* malformed body → resolveTierSelection rejects below */
   }
+  if (!validExpectedRevision(body.expected_revision)) return Response.json({ ok: false, error: 'invalid_revision' }, { status: 400 })
 
   // ─── Auth (dual-auth: Clerk OR legacy Supabase token) ──
   const resolved = await resolveTenantRequest(supabase, req, 'id')
@@ -52,9 +57,9 @@ export async function PATCH(
   // ─── Load quote + verify ownership + editability ──
   const { data: quote, error: qErr } = await supabase
     .from('quotes')
-    .select('id, tenant_id, paid_at, needs_inspection, good, better, best')
+    .select(QUOTE_EDIT_FIELDS.join(','))
     .eq('id', quoteId)
-    .maybeSingle()
+    .maybeSingle<QuoteEditRow>()
   if (qErr) return Response.json({ ok: false, error: qErr.message }, { status: 500 })
   if (!quote) return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   if (!quote.tenant_id) {
@@ -63,8 +68,13 @@ export async function PATCH(
   if (!tenant || quote.tenant_id !== tenant.id) {
     return Response.json({ ok: false, error: 'not_owner' }, { status: 403 })
   }
+  const readiness = await readQuoteDraftReadiness(supabase, quote)
+  if (!readiness.ready) return Response.json({ ok: false, error: readiness.code }, { status: 409 })
   if (quote.paid_at) {
     return Response.json({ ok: false, error: 'quote_already_paid' }, { status: 409 })
+  }
+  if (body.expected_revision && body.expected_revision !== quoteEditRevision(quote)) {
+    return Response.json({ ok: false, error: 'quote_changed' }, { status: 409 })
   }
   if (quote.needs_inspection) {
     return Response.json(
@@ -77,15 +87,31 @@ export async function PATCH(
     )
   }
 
-  // GST treatment for the recomputed headline. Mirrors the edit route: one
-  // pricing_book row per tenant carries gst_registered (defaults to registered).
-  const { data: pb } = await supabase
+  const { data: intake, error: intakeError } = await supabase.from('intakes')
+    .select('tenant_id, trade').eq('id', quote.intake_id).eq('tenant_id', tenant.id).maybeSingle()
+  const trade = intake?.trade
+  if (intakeError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  if (!intake || intake.tenant_id !== tenant.id || typeof trade !== 'string' || !trade.trim()) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
+  let savedVersion: QuotePricingVersion | null
+  try { savedVersion = await loadQuotePricingVersion(supabase, quote, trade) }
+  catch (error) {
+    return Response.json({ ok: false, error: error instanceof QuotePricingVersionError ? error.code : 'pricing_unavailable' },
+      { status: error instanceof QuotePricingVersionError ? error.status : 503 })
+  }
+  const { data: currentBook, error: bookError } = savedVersion ? { data: null, error: null } : await supabase
     .from('pricing_book')
-    .select('gst_registered')
+    .select('id, tenant_id, trade, gst_registered')
     .eq('tenant_id', quote.tenant_id)
-    .limit(1)
+    .eq('trade', trade)
     .maybeSingle()
-  const gstRegistered = (pb?.gst_registered ?? true) as boolean
+  const pb = savedVersion?.snapshot ?? currentBook
+  if (bookError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  const gstRegistered = versionedQuoteGst(quote, savedVersion)
+  if (!validOwnedQuoteBook(pb, tenant.id, trade) || gstRegistered === null) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
 
   const result = resolveTierSelection({
     tier: body.tier,
@@ -100,7 +126,7 @@ export async function PATCH(
     return Response.json({ ok: false, error: result.error }, { status: 400 })
   }
 
-  const { error: updErr } = await supabase
+  let update = supabase
     .from('quotes')
     .update({
       selected_tier: result.selectedTier,
@@ -113,12 +139,22 @@ export async function PATCH(
     })
     .eq('id', quoteId)
     .eq('tenant_id', tenant.id)
+    .is('paid_at', null)
+    .eq('total_inc_gst', quote.total_inc_gst)
+  for (const key of QUOTE_EDIT_FIELDS) {
+    if (['id', 'tenant_id', 'paid_at', 'total_inc_gst'].includes(key)) continue
+    const value = quote[key]
+    update = value == null ? update.is(key, null) : update.eq(key,
+      typeof value === 'object' ? JSON.stringify(value) : value)
+  }
+  const { data: saved, error: updErr } = await update.select(QUOTE_EDIT_FIELDS.join(',')).maybeSingle<QuoteEditRow>()
   if (updErr) {
     return Response.json(
       { ok: false, error: 'update_failed', detail: updErr.message },
       { status: 500 },
     )
   }
+  if (!saved) return Response.json({ ok: false, error: 'quote_changed', hint: 'Reload the quote before choosing a tier.' }, { status: 409 })
 
-  return Response.json({ ok: true, selected_tier: result.selectedTier })
+  return Response.json({ ok: true, persisted: true, edit_revision: quoteEditRevision(saved), selected_tier: result.selectedTier, total_inc_gst: result.totalIncGst, gst_registered: gstRegistered })
 }

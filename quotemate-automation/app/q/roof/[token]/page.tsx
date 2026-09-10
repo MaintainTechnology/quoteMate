@@ -26,7 +26,9 @@
 import type { CSSProperties } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { notFound, redirect } from 'next/navigation'
-import { servesPromotedQuote } from '@/lib/roofing/promotion'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
+import { approvedRoofPromotion } from '@/lib/roofing/approved-promotion'
 import type {
   MultiRoofQuote,
   RoofMaterial,
@@ -192,47 +194,27 @@ export default async function RoofingQuotePage({
 
   const { data, error } = await supabase
     .from('roofing_measurements')
-    .select('tenant_id, address, state, provider, routing, combined_area_m2, quote, public_token, confirmed_at, confirmed_structure, included_indices')
+    .select('tenant_id, address, state, provider, routing, combined_area_m2, quote, public_token, confirmed_at, confirmed_structure, included_indices, released_at, quote_share_token, paid_at')
     .eq('public_token', token)
     .maybeSingle()
 
-  if (error || !data) notFound()
-  const row = data as Row
-
-  // Promoted measurement (mig 168): its single source of truth is the quotes
-  // row (spec quote-sync-and-roofing-workflow-fix F1) — old SMS'd /q/roof
-  // links must land on the live, tradie-editable quote, not this frozen
-  // pre-promotion snapshot with stale prices. Exceptions:
-  //   • a measurement that already took its own site-visit payment stays —
-  //     this page is that payment's receipt + booking surface;
-  //   • ?full=1 — the dashboard's Saved-roofing-job "View" opens THIS rich
-  //     measurement view (satellite + structures + layout map, priced from
-  //     the live selection); without it the tradie landed on the generic
-  //     promoted quote whose geocoded hero often showed the WRONG building.
-  // Both columns post-date 081, so they're read best-effort (like the
-  // mig-165 payment block below): a pre-migration DB just skips the redirect.
-  if (sp.full !== '1') {
-    const { data: promo } = await supabase
-      .from('roofing_measurements')
-      .select('quote_share_token, paid_at')
-      .eq('public_token', token)
-      .maybeSingle()
-    // Shared rule (lib/roofing/promotion.ts) — the roof PDF route mirrors this
-    // exact decision so the page and the SMS'd PDF link can never serve two
-    // different documents for the same job. `full` is already false here.
-    if (
-      promo &&
-      servesPromotedQuote(
-        {
-          quote_share_token: (promo.quote_share_token as string | null) ?? null,
-          paid_at: (promo.paid_at as string | null) ?? null,
-        },
-        false,
-      )
-    ) {
-      redirect(`/q/${promo.quote_share_token}`)
-    }
+  if (error) return <QuoteUnavailable correlationId={quoteReadFailure('roof', error)} />
+  if (!data) notFound()
+  try {
+    const promoted = await approvedRoofPromotion(supabase,data,sp.full === '1')
+    if (promoted) redirect(`/q/${promoted}`)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Promoted roof quote temporarily unavailable') return <QuoteUnavailable correlationId={quoteReadFailure('roof',error)} />
+    throw error
   }
+  // Customer roof confirmation is not authorisation to publish a price.
+  if (!data.released_at) {
+    return <main style={{ maxWidth: 520, margin: '48px auto', padding: 24 }}>
+      <h1>Awaiting roofer review</h1>
+      <p>Your roofing request is saved. The roofer needs to review and approve the draft before the quote can be shared.</p>
+    </main>
+  }
+  const row = data as Row
 
   // Tradie identity for the letterhead (logo + Contact / Phone / Email),
   // matching the reference quote surface. Best-effort: degrades to null when

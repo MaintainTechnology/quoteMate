@@ -302,6 +302,13 @@ describe('stripLinkPromise', () => {
     expect(stripLinkPromise('Sending the link now.')).not.toBe('')
   })
 
+  it('asks for the next step without promising unscheduled quote work when no useful clause remains', () => {
+    expect(stripLinkPromise('Sending the link now.')).toBe(
+      'I have not sent a link in this reply. What would you like help with next?',
+    )
+    expect(stripLinkPromise('Sending the link now.')).not.toMatch(/shortly|on (?:its|the) way|quote sorted|come back/i)
+  })
+
   it('is a no-op on empty input', () => {
     expect(stripLinkPromise('')).toBe('')
   })

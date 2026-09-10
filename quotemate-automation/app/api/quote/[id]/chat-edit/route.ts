@@ -24,6 +24,10 @@ import {
   type ChatEditTiers,
 } from '@/lib/quote/chat-edit'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { type QuoteEditRow, QUOTE_EDIT_FIELDS, quoteEditRevision, validOwnedQuoteBook, preserveLineProvenance } from '@/lib/quote/edit-authority'
+import { finiteQuoteNumber } from '@/lib/quote/numeric-input'
+import { loadQuotePricingVersion, versionedQuoteGst, QuotePricingVersionError, type QuotePricingVersion } from '@/lib/quote/pricing-version'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -36,12 +40,16 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+const QuoteNumberSchema = z.preprocess(finiteQuoteNumber, z.number().min(0))
 const LineItemSchema = z.object({
+  original_line_index: z.number().int().min(0).optional(),
   description: z.string().trim().min(1).max(200),
-  quantity: z.coerce.number().min(0),
+  quantity: QuoteNumberSchema,
   unit: z.string().trim().max(20).optional().or(z.literal('')),
-  unit_price_ex_gst: z.coerce.number().min(0),
+  unit_price_ex_gst: QuoteNumberSchema,
   source: z.string().trim().max(120).optional().or(z.literal('')),
+  supplied_by: z.enum(['tradie', 'customer']).optional(),
+  safety_note: z.string().max(2000).optional(),
 })
 
 const TierSchema = z
@@ -53,6 +61,7 @@ const TierSchema = z
   .nullable()
 
 const BodySchema = z.object({
+  expected_revision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   instruction: z.string().trim().min(1).max(1000),
   // The live tiers as the tradie sees them on screen (so follow-up
   // instructions build on the working set). Optional — when absent the
@@ -77,21 +86,30 @@ type DbTier = {
     unit_price_ex_gst: number
     total_ex_gst?: number
     source?: string
+    supplied_by?: 'tradie' | 'customer'
+    safety_note?: string
   }>
 } | null
 
 /** Map a persisted quote tier JSONB to the chat-edit tier shape. */
 function dbTierToChatEdit(t: DbTier, key: string): ChatEditTier {
   if (!t) return null
+  if (t.line_items?.some((line) => finiteQuoteNumber(line.quantity) === null || finiteQuoteNumber(line.quantity)! < 0 ||
+      finiteQuoteNumber(line.unit_price_ex_gst) === null || finiteQuoteNumber(line.unit_price_ex_gst)! < 0)) {
+    throw new Error('stored_line_price_invalid')
+  }
   return {
     label: t.label ?? `${key} option`,
     timeframe: t.timeframe || undefined,
-    line_items: (t.line_items ?? []).map((li) => ({
+    line_items: (t.line_items ?? []).map((li, index) => ({
+      original_line_index: index,
       description: li.description,
-      quantity: Number(li.quantity),
+      quantity: finiteQuoteNumber(li.quantity)!,
       unit: li.unit || undefined,
-      unit_price_ex_gst: Number(li.unit_price_ex_gst),
+      unit_price_ex_gst: finiteQuoteNumber(li.unit_price_ex_gst)!,
       ...(li.source ? { source: li.source } : {}),
+      ...(li.supplied_by !== undefined ? { supplied_by: li.supplied_by } : {}),
+      ...(li.safety_note !== undefined ? { safety_note: li.safety_note } : {}),
     })),
   }
 }
@@ -130,13 +148,14 @@ export async function POST(
   const { instruction, currentTiers: bodyTiers } = parsed.data
 
   // ─── Load + authorise (same guards as /edit) ───────────────
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
     .select(
-      'id, tenant_id, intake_id, status, paid_at, good, better, best, needs_inspection, scope_of_works, assumptions',
+      `${QUOTE_EDIT_FIELDS.join(',')},scope_of_works,assumptions`,
     )
     .eq('id', quoteId)
-    .maybeSingle()
+    .maybeSingle<QuoteEditRow>()
+  if (quoteError) return Response.json({ ok: false, error: 'quote_unavailable' }, { status: 503 })
   if (!quote) return Response.json({ ok: false, error: 'no_quote' }, { status: 404 })
   if (!quote.tenant_id) {
     return Response.json({ ok: false, error: 'unscoped_quote' }, { status: 403 })
@@ -158,27 +177,46 @@ export async function POST(
   if (!tenant || quote.tenant_id !== tenant.id) {
     return Response.json({ ok: false, error: 'not_owner' }, { status: 403 })
   }
+  const readiness = await readQuoteDraftReadiness(supabase, quote)
+  if (!readiness.ready) return Response.json({ ok: false, error: readiness.code }, { status: 409 })
+  const revision = quoteEditRevision(quote)
+  if (parsed.data.expected_revision && parsed.data.expected_revision !== revision) {
+    return Response.json({ ok: false, error: 'quote_changed' }, { status: 409 })
+  }
 
   // ─── Trade + grounding mode ────────────────────────────────
-  const { data: intake } = await supabase
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('trade')
+    .select('tenant_id,trade')
     .eq('id', quote.intake_id)
+    .eq('tenant_id', tenant.id)
     .maybeSingle()
+  if (intakeError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  if (!intake || intake.tenant_id !== tenant.id || typeof intake.trade !== 'string' || !intake.trade.trim()) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
 
-  const { data: pricingBook } = await supabase
+  let savedVersion: QuotePricingVersion | null
+  try { savedVersion = await loadQuotePricingVersion(supabase, quote, intake.trade) }
+  catch (error) {
+    return Response.json({ ok: false, error: error instanceof QuotePricingVersionError ? error.code : 'pricing_unavailable' },
+      { status: error instanceof QuotePricingVersionError ? error.status : 503 })
+  }
+  const { data: currentBook, error: bookError } = savedVersion ? { data: null, error: null } : await supabase
     .from('pricing_book')
     .select(
-      'trade, hourly_rate, apprentice_rate, senior_rate, call_out_minimum, default_markup_pct, min_labour_hours, after_hours_multiplier',
+      'id,tenant_id,gst_registered,trade, hourly_rate, apprentice_rate, senior_rate, call_out_minimum, default_markup_pct, min_labour_hours, after_hours_multiplier',
     )
     .eq('tenant_id', quote.tenant_id)
-    .limit(1)
+    .eq('trade', intake.trade)
     .maybeSingle()
+  const pricingBook = savedVersion?.snapshot ?? currentBook
+  if (bookError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
 
-  const trade =
-    (intake?.trade as string | null | undefined) ??
-    (pricingBook?.trade as string | null | undefined) ??
-    'electrical'
+  const trade = intake.trade as string
+  if (!validOwnedQuoteBook(pricingBook, tenant.id, trade) || versionedQuoteGst(quote, savedVersion) === null) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
   const groundingMode = tradeGroundingMode(trade)
 
   // Catalogue trades (electrical/plumbing) need a complete pricing_book for the
@@ -186,7 +224,8 @@ export async function POST(
   // against a catalogue, so a sparse pricing_book is fine.
   if (
     groundingMode === 'catalogue' &&
-    (!pricingBook || pricingBook.hourly_rate == null || pricingBook.default_markup_pct == null)
+    (!pricingBook || typeof pricingBook.hourly_rate !== 'number' || !Number.isFinite(pricingBook.hourly_rate) || pricingBook.hourly_rate <= 0 ||
+      typeof pricingBook.default_markup_pct !== 'number' || !Number.isFinite(pricingBook.default_markup_pct) || pricingBook.default_markup_pct < 0 || pricingBook.default_markup_pct > 100)
   ) {
     return Response.json(
       {
@@ -215,7 +254,9 @@ export async function POST(
   }
 
   // ─── Resolve the tiers to edit ─────────────────────────────
-  const currentTiers: ChatEditTiers = bodyTiers
+  let currentTiers: ChatEditTiers
+  try {
+    currentTiers = bodyTiers
     ? {
         ...(bodyTiers.good !== undefined ? { good: bodyTiers.good as ChatEditTier } : {}),
         ...(bodyTiers.better !== undefined ? { better: bodyTiers.better as ChatEditTier } : {}),
@@ -226,6 +267,27 @@ export async function POST(
         better: dbTierToChatEdit(quote.better as DbTier, 'better'),
         best: dbTierToChatEdit(quote.best as DbTier, 'best'),
       }
+  } catch {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
+
+  if (bodyTiers) {
+    for (const key of ['good', 'better', 'best'] as const) {
+      const tier = currentTiers[key]
+      if (!tier) continue
+      const indices = tier.line_items.flatMap((line) => line.original_line_index === undefined ? [] : [line.original_line_index])
+      if (indices.length && !parsed.data.expected_revision) {
+        return Response.json({ ok: false, error: 'revision_required_for_line_identity' }, { status: 400 })
+      }
+      if (new Set(indices).size !== indices.length) return Response.json({ ok: false, error: 'duplicate_line_identity' }, { status: 400 })
+      const stored = (quote[key] as DbTier)?.line_items ?? []
+      for (const line of tier.line_items) {
+        const provenance = preserveLineProvenance(line, stored, groundingMode === 'catalogue')
+        if (!provenance) return Response.json({ ok: false, error: 'line_provenance_conflict' }, { status: 409 })
+        Object.assign(line, provenance)
+      }
+    }
+  }
 
   // ─── Candidates + propose ──────────────────────────────────
   try {
@@ -246,7 +308,7 @@ export async function POST(
       scopeOfWorks: (quote.scope_of_works as string | null) ?? null,
       assumptions: (quote.assumptions as unknown) ?? null,
     })
-    return Response.json({ ok: true, ...result })
+    return Response.json({ ok: true, edit_revision: revision, ...result })
   } catch (e: unknown) {
     console.error('[quote/chat-edit] propose failed', {
       quoteId,

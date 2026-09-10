@@ -117,9 +117,9 @@ describe('buildQuoteReportHtml', () => {
     expect(html).toContain('GOOD')
     expect(html).toContain('BETTER · RECOMMENDED')
     expect(html).toContain('BEST')
-    expect(html).toContain('$548')
-    expect(html).toContain('$658')
-    expect(html).toContain('$768')
+    expect(html).toContain('$547.80')
+    expect(html).toContain('$657.80')
+    expect(html).toContain('$767.80')
   })
 
   it('renders line items, scope, assumptions, and the view link', () => {
@@ -322,11 +322,8 @@ describe('buildQuoteReportHtml — propertyVisuals (spec quote-visual-parity R1)
     expect(omitted).not.toContain('Your roof, from above')
   })
 
-  it('REPORT_TEMPLATE_VERSION is bumped to 9 so cached PDFs regenerate (final-quote marker + disclaimer)', () => {
-    // v9: post-site-visit final quotes print "FINAL QUOTE" instead of "GOOD"
-    // and drop the "final pricing is confirmed on site" line, which is false
-    // once the visit has happened (spec post-visit-money-sequence R5).
-    expect(REPORT_TEMPLATE_VERSION).toBe(9)
+  it('REPORT_TEMPLATE_VERSION refreshes cached PDFs for saved appearance after the tax repair', () => {
+    expect(REPORT_TEMPLATE_VERSION).toBe(11)
   })
 
   it('v7 — tier prices honour the realised early-booking discount (P7)', () => {

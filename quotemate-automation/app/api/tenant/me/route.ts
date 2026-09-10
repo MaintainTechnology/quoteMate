@@ -174,7 +174,9 @@ export async function GET(req: Request) {
           // payment from a deposit, which is what gates "Issue final quote";
           // quote_kind/parent_quote_id keep a chained job (initial → final →
           // balance) counting as ONE job in the pipeline KPIs.
-          'id, created_at, status, selected_tier, total_inc_gst, scope_of_works, share_token, intake_id, needs_inspection, routing_decision, good, better, best, estimated_timeframe, display_mode, paid_at, paid_tier, quote_kind, parent_quote_id',
+          // Native review also needs the actual delivery time, inspection
+          // cause and server-issued EV document number (migrations 193/195).
+          'id, created_at, sent_at, status, selected_tier, total_inc_gst, scope_of_works, share_token, intake_id, needs_inspection, inspection_cause, estimate_number, routing_decision, good, better, best, estimated_timeframe, display_mode, paid_at, paid_tier, quote_kind, parent_quote_id',
         )
         .eq('tenant_id', tenant.id)
         .order('created_at', { ascending: false })

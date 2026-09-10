@@ -41,10 +41,7 @@ import {
 } from '@/lib/quote-request/schema'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { estimateAndDispatchPainting } from '@/lib/sms/painting-estimate-dispatch'
-import { applySolarToTiers } from '@/lib/sms/roofing-compose'
 import { measureAndDispatchRoofing } from '@/lib/sms/roofing-measure-dispatch'
-import { notifyRoofingTradie } from '@/lib/sms/roofing-notify'
-import { sendSms } from '@/lib/sms/twilio'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MultiRoofQuote } from '@/lib/roofing/types'
 
@@ -275,28 +272,13 @@ async function runHandoff(args: {
       } | null) ?? null
     const fromNumber = conv?.to_number ?? tenant?.twilio_sms_number ?? null
 
-    // The ONE delivery fact this request is allowed to report. Starts null
-    // (nothing attempted) and is AND-ed across turns, so a dispatch that
-    // sends twice — quote refused, then the holding message accepted —
-    // reports false rather than the last call's success.
-    let delivered: boolean | null = null
+    // The shared dispatcher sends saved-draft status only; approval sends the quote.
     const sendReply = async (text: string, mediaUrl?: string): Promise<{ ok: boolean }> => {
-      const res = await sendSms({ to: customerPhone, from: fromNumber ?? undefined, text, mediaUrl })
+      const res = await dispatchQuoteMessage({ to: customerPhone, from: fromNumber ?? undefined, text, mediaUrl, audience: 'customer', tenantId: lead.tenant_id, conversationId, deliveryKey: `quote-form:${lead.token}:status` })
       if (!res.ok) {
-        console.error('[quote-request] Twilio rejected the customer reply', data.trade, res.code, res.reason)
-        delivered = false
+        console.error('[quote-request] Twilio rejected the customer reply', data.trade, res.smsAttempt)
         return { ok: false }
       }
-      const { error } = await supabase
-        .from('sms_messages')
-        .insert({ conversation_id: conversationId, direction: 'outbound', body: text })
-      // Carrier acceptance IS the delivery fact, and a failed thread write
-      // must not be folded into it: this boolean is also what
-      // autoSendPaintingQuote reverts the release on, so treating a
-      // bookkeeping error as "not sent" would withhold a quote the customer
-      // is already holding in their hand. Loud, ops-visible, not a verdict.
-      if (error) console.error('[quote-request] outbound reply not persisted', error.message)
-      delivered = delivered !== false
       return { ok: true }
     }
 
@@ -323,6 +305,8 @@ async function runHandoff(args: {
       const dispatched = await estimateAndDispatchPainting({
         supabase: client,
         tenantId: lead.tenant_id,
+        requestKey: `quote-form:${lead.token}`,
+        conversationId,
         customerPhone,
         firstName: data.first_name ?? null,
         baseUrl: APP_BASE_URL,
@@ -349,7 +333,7 @@ async function runHandoff(args: {
         ok: true,
         quoteToken: dispatched.token,
         inspection: dispatched.inspection,
-        texted: delivered,
+        texted: false,
       }
     }
 
@@ -358,6 +342,7 @@ async function runHandoff(args: {
       tenantId: lead.tenant_id,
       tenantTrade: tenant?.trade ?? null,
       conversationId,
+      requestKey: `quote-form:${lead.token}`,
       customerPhone,
       replyFrom: fromNumber ?? undefined,
       firstName: data.first_name ?? null,
@@ -388,41 +373,8 @@ async function runHandoff(args: {
     const quote = dispatched.quote as MultiRoofQuote | null
     const inspection = quote?.routing?.decision === 'inspection_required'
 
-    // Roofing's dispatcher carries no tradie alert — the SMS route fires
-    // notifyRoofingTradie itself. Without this call a form-submitted roofing
-    // lead was measured, priced and texted, and reached no tradie at all.
-    // Best-effort: a failed alert must never cost the customer their quote.
-    try {
-      await notifyRoofingTradie({
-        kind: 'quote_sent',
-        tenant: {
-          owner_mobile: tenant?.owner_mobile ?? null,
-          owner_first_name: tenant?.owner_first_name ?? null,
-          twilio_sms_number: tenant?.twilio_sms_number ?? null,
-        },
-        customerName: data.first_name ?? null,
-        customerPhone,
-        address: data.address.address,
-        // An inspection-routed measure has no committed price, so the alert
-        // carries none (the same rule the SMS path follows).
-        betterIncGst: inspection
-          ? null
-          : (applySolarToTiers(quote?.combined?.tiers ?? [], quote?.solar ?? null)[1]?.inc_gst ?? null),
-        quoteUrl: `${APP_BASE_URL}/q/roof/${dispatched.token}`,
-        dispatch: (o) =>
-          dispatchQuoteMessage({
-            to: o.to,
-            text: o.text,
-            from: o.from,
-            audience: 'tradie',
-            tenantId: lead.tenant_id,
-          }),
-      })
-    } catch (e) {
-      console.warn('[quote-request] roofing tradie notify failed (non-fatal)', e)
-    }
-
-    return { ok: true, quoteToken: dispatched.token, inspection, texted: delivered }
+    // The shared dispatcher persisted the owner's review task before this status.
+    return { ok: true, quoteToken: dispatched.token, inspection, texted: false }
   }
 
   // electrical / plumbing — the transcript-driven pipeline. The form answers

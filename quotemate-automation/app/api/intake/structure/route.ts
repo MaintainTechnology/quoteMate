@@ -1,5 +1,9 @@
+import { smsIntakeWorkIdentity } from '@/lib/sms/intake-work'
+import { attributeSmsWorkTenant } from '@/lib/sms/durable-work'
 import { createClient } from '@supabase/supabase-js'
-import { after } from 'next/server'
+import { durableAfter as after, currentSmsWork, enqueueSmsWork, enqueueEstimateWork, internalWorkPayload, runSmsWorkNow, withFencedSmsClient, assertSmsWorkOwnership, smsWorkCheckpoint, smsWorkFetch } from '@/lib/sms/durable-work'
+import { smsDeliveryWorkScope } from '@/lib/sms/work-delivery-context'
+import { updateSmsDeliveryContext } from '@/lib/sms/delivery-context'
 import { structureIntake } from '@/lib/intake/structure'
 import { deriveTradeFromJobType } from '@/lib/intake/schema'
 import { embedIntake } from '@/lib/intake/embed'
@@ -9,7 +13,7 @@ import { pipelineLog } from '@/lib/log/pipeline'
 import { withRetry } from '@/lib/util/retry'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { resolveOutboundFromNumber } from '@/lib/sms/outbound-from'
-import { buildIncompleteCallSms, buildIntakeRecoverySms, buildPhotoRequestSms, buildQuoteFailureSms, type MissingIntakeField } from '@/lib/sms/templates'
+import { buildIncompleteCallSms, buildIntakeRecoverySms, buildPhotoRequestSms, type MissingIntakeField } from '@/lib/sms/templates'
 import { findOrCreateCustomer, updateCustomerFromIntake } from '@/lib/customers/lookup'
 import { isCronAuthorised } from '@/lib/agents/cron'
 import { enqueuePushEvent } from '@/lib/push/events'
@@ -27,10 +31,11 @@ const WP9_ENABLED = process.env.WP9_PRODUCT_OPTIONS === '1'
 
 export const maxDuration = 300
 
-const supabase = createClient(
+const supabase = withFencedSmsClient(createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch: smsWorkFetch } },
+))
 
 type IntakeLeadPushInput = {
   intakeId: string | null
@@ -147,6 +152,22 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json()) as Body
+  if (!currentSmsWork()) {
+    const source = 'conversationId' in body ? `sms:${body.conversationId}` : `voice:${body.callId}`
+    let identity = { key: `intake:${source}:initial`, serialKey: source }
+    if ('conversationId' in body) {
+      const { data: latest, error } = await supabase.from('sms_messages').select('id,twilio_message_sid')
+        .eq('conversation_id', body.conversationId).eq('direction', 'inbound')
+        .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle()
+      if (error) throw new Error('Intake input revision unavailable')
+      identity = smsIntakeWorkIdentity({ conversationId: body.conversationId, providerMessageSid: latest?.twilio_message_sid, messageId: latest?.id })
+    }
+    const job = await enqueueSmsWork({ ...identity, kind: 'intake',
+      payload: internalWorkPayload('/api/intake/structure', body) })
+    return runSmsWorkNow(job, POST, { scope: smsDeliveryWorkScope })
+  }
+  await assertSmsWorkOwnership()
+
 
   // Identify the source. Use callId for voice or a synthetic id for SMS so
   // pipeline logs stay correlatable end-to-end.
@@ -213,6 +234,10 @@ export async function POST(req: Request) {
       .select('*')
       .eq('id', conversationId)
       .single()
+    if (convo) {
+      updateSmsDeliveryContext({ tenantId: convo.tenant_id ?? null, conversationId })
+      await attributeSmsWorkTenant(convo.tenant_id)
+    }
     if (!convo) {
       log.err('sms conversation not found in DB', null, { conversationId })
       return Response.json({ error: 'sms conversation not found' }, { status: 404 })
@@ -234,38 +259,28 @@ export async function POST(req: Request) {
     // (running Opus twice + double-dispatching SMS) is what we're protecting
     // against. Long-window add-on / second-quote flows are NOT yet supported
     // on a single conversation in v1, so this is safe.
-    const IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000
-    if (convo.intake_id) {
-      const { data: existingIntake } = await supabase
-        .from('intakes')
-        .select('id, created_at')
-        .eq('id', convo.intake_id as string)
-        .maybeSingle()
-      if (
-        existingIntake &&
-        Date.now() - new Date(existingIntake.created_at as string).getTime() <
-          IDEMPOTENCY_WINDOW_MS
-      ) {
-        log.done('idempotency short-circuit - intake already produced for this conversation', {
-          intakeId: existingIntake.id,
-          age_seconds: Math.round(
-            (Date.now() - new Date(existingIntake.created_at as string).getTime()) / 1000,
-          ),
-          source: 'sms',
-        })
-        return Response.json({
-          ok: true,
-          intakeId: existingIntake.id,
-          idempotent: true,
-          source: 'duplicate-suppressed',
-        })
-      }
+    // A saved intake is a checkpoint, never proof that a quote was completed.
+    const existingIntakeQuery = supabase.from('intakes').select('*')
+    const { data: existingIntake, error: existingError } = await (convo.intake_id
+      ? existingIntakeQuery.eq('id', convo.intake_id).eq('tenant_id', convo.tenant_id)
+      : existingIntakeQuery.eq('sms_source_key', `sms:${conversationId}`)).maybeSingle()
+    if (existingError) throw new Error(`Intake recovery lookup failed: ${existingError.message}`)
+    if (existingIntake && evaluateIntakeQuality(existingIntake) !== 'empty') {
+      await enqueueEstimateWork(existingIntake.id, convo.tenant_id)
+      // Replaying intake may recover a missing review task, but must never
+      // demote a conversation whose quote is already saved or owner-released.
+      if (!convo.quote_id) await supabase.from('sms_conversations')
+        .update({ intake_id: existingIntake.id, quote_stage: 'estimate_pending', status: 'structuring' })
+        .eq('id', conversationId).is('quote_id', null)
+      return Response.json({ ok: true, intakeId: existingIntake.id,
+        stage: convo.quote_id ? (convo.quote_stage ?? 'quote_saved') : 'estimate_pending', idempotent: true })
     }
 
     const { data: messages } = await supabase
       .from('sms_messages')
       .select('direction, body, created_at, photo_urls, photo_paths')
       .eq('conversation_id', conversationId)
+      .or('direction.eq.inbound,delivery_status.in.(accepted,delivered)')
       .order('created_at', { ascending: true })
 
     transcript = (messages ?? [])
@@ -439,6 +454,8 @@ export async function POST(req: Request) {
     photoRequestToken = call.photo_request_token ?? null
     photoRequestAlreadySent = !!call.photo_request_sent_at
     tenantId = (call.tenant_id as string | null) ?? null
+    updateSmsDeliveryContext({ tenantId, conversationId: null })
+    await attributeSmsWorkTenant(tenantId)
   }
 
   const INTAKE_MODEL_CASCADE = [
@@ -449,7 +466,7 @@ export async function POST(req: Request) {
   let intakeModelIdx = 0
 
   log.step(`running intake — model cascade: ${INTAKE_MODEL_CASCADE.map(m => m.label).join(' → ')}, up to ${INTAKE_MODEL_CASCADE.length} attempts`, { tradeHint })
-  const intake = await withRetry(
+  const intake = await smsWorkCheckpoint('structured_intake', () => withRetry(
     () => {
       const m = INTAKE_MODEL_CASCADE[Math.min(intakeModelIdx++, INTAKE_MODEL_CASCADE.length - 1)]
       return structureIntake(transcript, photoUrls, tradeHint, m.id)
@@ -468,7 +485,7 @@ export async function POST(req: Request) {
         }
       },
     }
-  )
+  ))
   log.ok('Opus structured intake', {
     trade: intake.trade,
     job_type: intake.job_type,
@@ -692,10 +709,11 @@ export async function POST(req: Request) {
     intake.scope = {
       ...(intake.scope ?? {}),
       chosen_product: chosenProductForIntake,
-    } as any
+    } as typeof intake.scope
   }
 
-  const { data: intakeRow, error: insertErr } = await supabase.from('intakes').insert({
+  const { data: intakeRow, error: insertErr } = await supabase.from('intakes').upsert({
+    sms_source_key: conversationId ? `sms:${conversationId}` : `voice:${callId}`,
     call_id: callId,                  // null for SMS rows; that's OK
     customer_id: customer?.id ?? null,
     // v6 multi-tenant: stamp the tradie who owns the destination number
@@ -722,7 +740,7 @@ export async function POST(req: Request) {
     // by the public quote page so customer photos render alongside the
     // tier cards. Signed URLs are not persisted (24h TTL).
     photo_paths: photoPaths,
-  }).select().single()
+  }, { onConflict: 'sms_source_key' }).select().single()
 
   if (insertErr || !intakeRow) {
     log.err('intakes insert failed', insertErr ?? null)
@@ -762,8 +780,8 @@ export async function POST(req: Request) {
         },
       })
       log.ok('customer record updated from intake', { customerId: customer.id })
-    } catch (e: any) {
-      log.err('customer update threw', e?.message ?? e)
+    } catch (e: unknown) {
+      log.err('customer update threw', (e instanceof Error ? e.message : undefined) ?? e)
     }
   }
 
@@ -792,11 +810,12 @@ export async function POST(req: Request) {
       .from('sms_conversations')
       .update({
         intake_id: intakeRow.id,
-        status: 'done',
+        status: 'structuring',
+        quote_stage: 'intake_saved',
         updated_at: new Date().toISOString(),
       })
       .eq('id', conversationId)
-    if (linkErr) log.err('sms_conversations update failed', linkErr)
+    if (linkErr) throw new Error(`Intake link failed: ${linkErr.message}`)
   }
 
   // Quality gate — decides whether downstream SMS dispatches and the
@@ -865,7 +884,7 @@ export async function POST(req: Request) {
       ds.step('intake gated as empty — dispatching recovery SMS', { missing })
       if (!callerNumber) {
         ds.err('no caller_number — cannot send recovery SMS', null, { intake_id: intakeRow.id })
-        return
+        throw new Error('Empty intake recovery requires a customer number')
       }
       try {
         // SMS source: focused recovery question (the conversation has
@@ -904,13 +923,16 @@ export async function POST(req: Request) {
           tenantSmsNumber = (t?.twilio_sms_number as string | null) ?? null
         }
         const fromNumber = resolveOutboundFromNumber({ tenantSmsNumber, sourceChannel })
-        const result = await dispatchQuoteMessage({ to: callerNumber, text, from: fromNumber })
+        const result = await dispatchQuoteMessage({ to: callerNumber, text, from: fromNumber, tenantId,
+          conversationId: sourceChannel === 'sms' ? conversationId : undefined,
+          deliveryKey: `${currentSmsWork()!.jobId}:empty-intake-recovery` })
+        if (!result.ok && !result.outboxId) throw new Error('Empty intake recovery SMS could not be queued')
         if (result.ok) {
           ds.ok('recovery SMS sent', { channel: result.channel, sid: result.sid, missing })
           // Persist the recovery SMS as an outbound message so the dialog
           // agent sees it in the conversation history on the next turn.
           // Without this, Haiku doesn't know we asked for the name/suburb.
-          if (sourceChannel === 'sms' && conversationId) {
+          if (sourceChannel === 'sms' && conversationId && !result.outboxId) {
             await supabase.from('sms_messages').insert({
               conversation_id: conversationId,
               direction: 'outbound',
@@ -926,6 +948,7 @@ export async function POST(req: Request) {
         }
       } catch (e) {
         ds.err('recovery SMS threw', e)
+        throw e
       }
     })
 
@@ -1019,68 +1042,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // Dispatch to /api/estimate/draft (shared for voice + SMS).
-    // Wrapped in withRetry — final hop in the chain. If this drops,
-    // the intake row exists but no quote is ever produced. 3 attempts,
-    // 2s/4s backoff. Inside after() so non-blocking on webhook ack.
-    const dispatch = pipelineLog('intake', logId)
-    dispatch.step('dispatching to /api/estimate/draft (with retry)', { intake_id: intakeRow.id })
-    try {
-      await withRetry(
-        async () => {
-          const res = await fetch(`${process.env.APP_URL}/api/estimate/draft`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Internal self-call — /api/estimate/draft and /api/intake/structure are
-              // guarded by isCronAuthorised, which is fail-closed in production.
-              Authorization: `Bearer ${process.env.CRON_SECRET}`,
-            },
-            body: JSON.stringify({ intakeId: intakeRow.id }),
-          })
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-          }
-          return res
-        },
-        {
-          maxAttempts: 3,
-          baseDelayMs: 2000,
-          onAttemptFailed: (err, attempt, willRetry) => {
-            const msg = err instanceof Error ? err.message : String(err)
-            const tag = willRetry ? 'retrying' : 'EXHAUSTED'
-            dispatch.err(`estimate handoff attempt ${attempt}/3 — ${tag}`, msg.slice(0, 200))
-          },
-        }
-      )
-      dispatch.ok('estimate/draft dispatched')
-    } catch (e: any) {
-      dispatch.err('estimate handoff EXHAUSTED — sending failure SMS', e?.message ?? String(e), { intake_id: intakeRow.id })
-      // NEVER leave the customer silent. Send a fallback SMS so they
-      // know to expect a callback. Both voice and SMS paths converge
-      // here; callerNumber works for either (set above when loading
-      // the source row).
-      try {
-        if (!callerNumber) {
-          dispatch.err('cannot send failure SMS — no caller_number / from_number', null, { intake_id: intakeRow.id })
-        } else {
-          const failureBody = buildQuoteFailureSms({ firstName: callerFirstName })
-          const failureDispatch = await dispatchQuoteMessage({ to: callerNumber, text: failureBody, from: blockFromNumber })
-          if (failureDispatch.ok) {
-            dispatch.ok('failure SMS dispatched', {
-              channel: failureDispatch.channel,
-              sid: failureDispatch.sid,
-            })
-          } else {
-            dispatch.err('failure SMS FAILED on both channels', null, {
-              sms_code: failureDispatch.smsAttempt.code,
-              wa_code: failureDispatch.waAttempt?.code,
-            })
-          }
-        }
-      } catch (notifyErr) {
-        dispatch.err('failure SMS itself threw', notifyErr, { intake_id: intakeRow.id })
-      }
+    await enqueueEstimateWork(intakeRow.id, tenantId)
+    if (conversationId) {
+      const { error } = await supabase.from('sms_conversations').update({ quote_stage: 'estimate_pending', status: 'structuring' }).eq('id', conversationId)
+      if (error) throw new Error(`Estimate stage update failed: ${error.message}`)
     }
   })
 

@@ -1,3 +1,7 @@
+import { smsIntakeWorkIdentity } from '@/lib/sms/intake-work'
+import { recordSmsReply } from '@/lib/sms/reply-publication'
+import { attributeSmsWorkTenant } from '@/lib/sms/durable-work'
+import { flagRetiredSmsWebhook } from '@/lib/sms/retired-webhook'
 // ─────────────────────────────────────────────────────────────────────
 // SMS Agent — Phase 2 (the AI brain).
 // Validates Twilio signature, persists inbound, asks the Sonnet dialog
@@ -10,7 +14,13 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { createClient } from '@supabase/supabase-js'
-import { after } from 'next/server'
+import { durableAfter as after, currentSmsWork, enqueueSmsWork, internalWorkPayload, withFencedSmsClient, assertSmsWorkOwnership, smsWorkCheckpoint, smsWorkFetch } from '@/lib/sms/durable-work'
+import { updateSmsDeliveryContext } from '@/lib/sms/delivery-context'
+import { handleExistingQuoteAction, guardGeneratedQuoteLinks } from '@/lib/sms/quote-actions'
+import { handleSavedJobCorrection, type PendingJobCorrection } from '@/lib/sms/job-corrections'
+import { handleSolarSmsTurn, type SolarSmsState } from '@/lib/sms/solar-receptionist'
+import { publicWebOrigin, publicWebUrl } from '@/lib/sms/public-origin'
+import { persistHumanHandoff } from '@/lib/sms/human-handoff'
 import { randomBytes } from 'node:crypto'
 import {
   validateTwilioSignature,
@@ -18,10 +28,11 @@ import {
 } from '@/lib/sms/twilio-validator'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
 import { decideNextTurn, type ConversationTurn } from '@/lib/sms/dialog'
-import { toRoofingRequest, seedRoofingSlots, isStopRequest, isNegative, isAffirmative, rejectsReadBack, extractStreetAddress } from '@/lib/sms/roofing-intake'
+import { toRoofingRequest, seedRoofingSlots, isAffirmative, rejectsReadBack, extractStreetAddress, nextRoofingStep } from '@/lib/sms/roofing-intake'
 import { screenConfirmAddress, verifyAuAddress, gateUnverifiedProfileAddress, lastOutboundAskedAddress, consumeAddressRejection } from '@/lib/sms/verify-address'
 import {
   advanceRoofing,
+  roofingTurnIsDeterministic,
   confirmedIncludedIndices,
   shouldEngageRoofing,
   closeStaleRoofingState,
@@ -30,6 +41,7 @@ import {
   isActiveRoofingFlow,
   type RoofingConversationState,
 } from '@/lib/sms/roofing-receptionist'
+import { ensureRoofingFormRequest, buildRoofingFormOffer } from '@/lib/sms/roofing-form-offer'
 import { generalDialogIsMidGather } from '@/lib/sms/general-gather'
 import {
   applySolarToTiers,
@@ -45,7 +57,6 @@ import {
 import {
   llmReceptionistEnabled,
   buildTenantFacts,
-  composeDeflect,
   roofingTurnViaLlm,
   paintingTurnViaLlm,
   type TenantFacts,
@@ -63,11 +74,7 @@ import {
 } from '@/lib/sms/roofing-notify'
 import { archiveAndIngestQuote } from '@/lib/filestore/ingest-quote'
 import { buildQuoteKbText } from '@/lib/filestore/minimize'
-import {
-  measureAndDispatchRoofing,
-  sendRoofPhotoMms,
-  ROOFING_APP_BASE_URL,
-} from '@/lib/sms/roofing-measure-dispatch'
+import { measureAndDispatchRoofing } from '@/lib/sms/roofing-measure-dispatch'
 import { newMeasurementTokens } from '@/lib/roofing/tokens'
 import { generateRoofAfterImage } from '@/lib/roofing/roof-after'
 import { tenantHasRoofingTrade, tenantIsRoofingOnly } from '@/lib/roofing/tenant'
@@ -88,6 +95,7 @@ import {
   composePaintingCancel,
 } from '@/lib/sms/painting-compose'
 import { estimateAndDispatchPainting } from '@/lib/sms/painting-estimate-dispatch'
+import { ensurePaintingFormRequest, PaintingFormPersistenceError } from '@/lib/sms/painting-form-offer'
 import {
   formatActiveFollowupContext,
   parseFollowupQuoteContext,
@@ -115,7 +123,7 @@ import {
 } from '@/lib/sms/quote-readiness'
 import { extractAndStoreMmsPhotos } from '@/lib/sms/mms'
 import { buildPhotoRequestSms, buildQuoteFailureSms } from '@/lib/sms/templates'
-import { withRetry } from '@/lib/util/retry'
+
 import {
   findOrCreateCustomer,
   formatCustomerContext,
@@ -155,7 +163,6 @@ import { deriveTradeFromJobType } from '@/lib/intake/schema'
 import { recordTrace } from '@/lib/log/trace'
 import {
   getDeliveryKnobs,
-  retryWithBackoff,
   logSendOutcome,
   adaptiveDebounceMs,
   dedupeConsecutiveReply,
@@ -166,8 +173,6 @@ import {
   classifyInboundInsert,
   decideConversationUpsert,
   arrivalTimestampsFromTurns,
-  hasUnrepliedInbound,
-  throwIfDispatchFailed,
   sideEffectsAllowed,
   isNearMaxDuration,
   isGlobalOptOut,
@@ -391,10 +396,11 @@ function guessFirstName(turns: ConversationTurn[]): string | undefined {
 // drives the runtime near-timeout self-monitor + debounce/retry tuning below.
 export const maxDuration = 300
 
-const supabase = createClient(
+const supabase = withFencedSmsClient(createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+  { global: { fetch: smsWorkFetch } },
+))
 
 // Graceful fallback if the dialog agent throws — the customer still gets
 // a reply rather than silence.
@@ -429,11 +435,11 @@ function buildDialogFallbackReply(opts: {
     return null
   })()
   if (jobPhrase) {
-    return `Cheers${namePart} - we've got ${jobPhrase} noted and our system hit a quick snag on this turn. Give us a minute and we'll be back to confirm.`
+    return `Thanks${namePart}, ${jobPhrase} is recorded. I could not complete this turn, so the request is saved for tradie review. No quote has been sent.`
   }
   return first
-    ? `Cheers ${first} - hit a quick snag on this turn. Give us a moment and we'll be right back.`
-    : "Thanks - we'll be right back to confirm details, just a quick snag on our end."
+    ? `Thanks ${first}, I could not complete this turn. Your request is saved for tradie review. No quote has been sent.`
+    : "I could not complete this turn. Your request is saved for tradie review. No quote has been sent."
 }
 
 /**
@@ -460,6 +466,15 @@ function safeRulesAsText(jobType: string): string {
 // decision logic lives in lib/sms/roofing-{intake,receptionist,compose};
 // this does the I/O (measure, persist, dispatch).
 // ─────────────────────────────────────────────────────────────────────
+class SpecialistPersistenceError extends Error {}
+
+async function specialistCheckpoint<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  try { return await smsWorkCheckpoint(key, operation) }
+  catch (error) {
+    throw new SpecialistPersistenceError(error instanceof Error ? error.message : 'Specialist turn checkpoint failed')
+  }
+}
+
 async function handleRoofingTurn(args: {
   conversationId: string
   roofingStateRaw: unknown
@@ -527,14 +542,14 @@ async function handleRoofingTurn(args: {
   // the deterministic decision for this turn instead. The I/O below is
   // untouched either way, which is what keeps every price coming out of
   // measureAndPriceRoofs + the roofing composer.
-  const useLlm = !!args.tenantFacts && llmReceptionistEnabled(tenantId)
+  const useLlm = !!args.tenantFacts && llmReceptionistEnabled(tenantId) && !roofingTurnIsDeterministic(prevState, decisionInput)
   const turn = useLlm
-    ? await roofingTurnViaLlm({
+    ? await specialistCheckpoint('roofing_turn', () => roofingTurnViaLlm({
         prev: prevState,
         inbound: decisionInput,
         history: turns,
         facts: args.tenantFacts as TenantFacts,
-      })
+      }))
     : null
   if (turn) {
     console.log('[sms/inbound:roofing] LLM receptionist turn', {
@@ -543,7 +558,7 @@ async function handleRoofingTurn(args: {
       action: turn.decision.action,
     })
   }
-  let decision = turn ? turn.decision : advanceRoofing(prevState, decisionInput)
+  let decision = turn ? turn.decision : advanceRoofing(prevState, decisionInput, { formFirst: true })
   const carry: TurnCarry = turn?.carry ?? {}
 
   // ── Re-measure guard on an already-quoted thread ──────────────────────
@@ -679,17 +694,7 @@ async function handleRoofingTurn(args: {
     }
     lastSent = body
     const res = await dispatchQuoteMessage({ to: fromNumber, text: body, from: replyFrom, mediaUrl })
-    // supabase-js RESOLVES {data, error} on failure — a bare await here made
-    // a failed insert invisible, and the repeat backstop above reads this
-    // history on the next turn.
-    const { error: logError } = await supabase.from('sms_messages').insert({
-      conversation_id: conversationId,
-      direction: 'outbound',
-      body,
-    })
-    if (logError) {
-      console.error('[sms/inbound:roofing] outbound sms_messages insert failed', logError)
-    }
+    await recordSmsReply(supabase, conversationId, body, res)
     return res
   }
   const persist = async (state: RoofingConversationState, status: 'open' | 'done') => {
@@ -724,22 +729,25 @@ async function handleRoofingTurn(args: {
       // a silently-dropped update restarts every counter at zero next turn,
       // which is precisely how a bounded loop keeps not ending
       // (specs/address-confirm-loop.md).
-      const { error: persistError } = await supabase
+      const { data: persisted, error: persistError } = await supabase
         .from('sms_conversations')
         .update({ roofing_state: merged, status, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', conversationId)
-      if (persistError) {
+        .select('id').maybeSingle()
+      if (persistError || !persisted) {
         console.error('[sms/inbound:roofing] roofing_state persist FAILED - counters will restart next turn', {
           conversationId,
           lastStep: merged.last_step ?? null,
           error: persistError,
         })
+        throw new SpecialistPersistenceError('Roofing conversation state could not be saved; retry required')
       }
     } catch (e) {
-      console.warn('[sms/inbound:roofing] roofing_state persist failed (migration 085?)', e)
+      throw e instanceof SpecialistPersistenceError ? e
+        : new SpecialistPersistenceError(e instanceof Error ? e.message : 'Roofing conversation state could not be saved; retry required')
     }
   }
-  const baseUrl = ROOFING_APP_BASE_URL
+  const baseUrl = publicWebOrigin()
   // US-002 — tell the tradie a roofing lead just happened (quote delivered /
   // inspection booked). Best-effort, never blocks or breaks the customer
   // send: before this, roofing leads landed in the DB and nobody was told.
@@ -843,6 +851,28 @@ async function handleRoofingTurn(args: {
   }
 
   // ── Still gathering inputs — ask the next question. ──
+  // Preserve the shipped roofing service's choice of form or SMS. Saving
+  // and reading the owned token precedes publication; retries reuse it.
+  if (decision.action === 'offer_form') {
+    const token = tenantId ? await ensureRoofingFormRequest({ db: supabase, tenantId, conversationId, customerPhone: fromNumber }) : null
+    if (token) {
+      await persist({ slots: decision.slots, last_step: 'offer_form', pending_form_token: token,
+        pending_quote_token: null, pending_structure_count: null }, 'open')
+      await sendReply(buildRoofingFormOffer({ firstName, token }))
+      return true
+    }
+    const next = nextRoofingStep(decision.slots)
+    decision = next.step === 'ready' ? { action: 'measure', slots: decision.slots }
+      : next.step === 'inspection' ? { action: 'inspection', slots: decision.slots, reason: next.reason ?? 'On-site inspection required' }
+      : { action: 'ask', slots: decision.slots, step: next.step, reply: next.question ?? 'What is the property address?' }
+  }
+  if (decision.action === 'await_form') {
+    await persist({ slots: decision.slots, last_step: 'await_form', pending_form_token: prevState?.pending_form_token ?? null,
+      pending_quote_token: null, pending_structure_count: null }, 'open')
+    await sendReply(decision.reply)
+    return true
+  }
+
   if (decision.action === 'ask') {
     let askSlots = decision.slots
     let askStep = decision.step
@@ -863,7 +893,7 @@ async function handleRoofingTurn(args: {
     // (live 2026-07-27).
     const answeringTurn = turn?.tool === 'answer_business_question' || turn?.tool === 'deflect_and_notify'
     if (decision.step === 'confirm_address' && !answeringTurn) {
-      const screened = await screenConfirmAddress(decision.slots)
+      const screened = await specialistCheckpoint('roofing_confirm_address', () => screenConfirmAddress(decision.slots))
       askSlots = screened.slots
       if (screened.step) askStep = screened.step
       if (screened.reply) askReply = screened.reply
@@ -936,6 +966,19 @@ async function handleRoofingTurn(args: {
       if (decision.action === 'reconfirm') {
         await sendReply(composeConfirmMessage({ quote: pending.quote, address: pending.address, quoteUrl, firstName }))
         await persist({ slots: decision.slots, last_step: 'confirm_roof', pending_quote_token: pending.token, pending_structure_count: prevState?.pending_structure_count ?? pending.quote.structures.length }, 'open')
+        return true
+      }
+      const { data: releasedRoof, error: releaseReadError } = await supabase.from('roofing_measurements')
+        .select('id,released_at').eq('public_token', pending.token).eq('tenant_id', tenantId).maybeSingle()
+      if (releaseReadError || !releasedRoof) throw new Error('Saved roof release state unavailable')
+      if (!releasedRoof.released_at) {
+        if (!tenantId) throw new Error('Roof review requires tenant ownership')
+        await persistHumanHandoff({ supabase, tenantId, customerPhone: fromNumber, conversationId, trade: 'roofing',
+          requestKey: `roof:${releasedRoof.id}:review`, reason: 'Customer confirmed the roof; review the saved draft before sharing prices',
+          resourceType: 'roof', resourceId: releasedRoof.id })
+        const reply = await sendReply('Your roof details are saved and awaiting the roofer’s review. No priced quote has been sent yet.')
+        if (!reply.ok) throw new Error('Roof review status reply failed')
+        await persist({ ...prevState, slots: decision.slots, last_step: 'closed', pending_quote_token: pending.token, workflow_stage: 'awaiting_review' }, 'done')
         return true
       }
       // send_saved — confirmed; send the (optionally narrowed) estimate.
@@ -1117,7 +1160,25 @@ async function handleRoofingTurn(args: {
   // runs the identical one after a call. A failure falls through to the
   // unavailable path below, exactly as it did inline.
   const reqInput = toRoofingRequest(decision.slots)
-  if (reqInput) {
+  const leadAddress = reqInput?.address.address ?? decision.slots.address ?? null
+  const fallbackAddress = leadAddress ?? 'your property'
+  const fallbackRequestKey = currentSmsWork()?.jobId ? `roofing-unmeasured:${currentSmsWork()!.jobId}` : null
+  const readUnmeasuredLead = async () => {
+    if (!tenantId || !fallbackRequestKey) throw new SpecialistPersistenceError('Unmeasured roofing lead requires owned recoverable SMS work')
+    const saved = await supabase.from('roofing_measurements').select('measure_token')
+      .eq('tenant_id', tenantId).eq('source_request_key', fallbackRequestKey)
+      .eq('customer_phone', fromNumber).maybeSingle()
+    if (saved.error) throw new SpecialistPersistenceError('Unmeasured roofing lead read failed; retry required')
+    return saved.data?.measure_token ? String(saved.data.measure_token) : null
+  }
+  // A committed fallback is the chosen outcome even if its checkpoint response
+  // was lost. Read it before a retry can run measurement and select a new outcome.
+  let leadMeasureToken: string | null = null
+  if (leadAddress) {
+    try { leadMeasureToken = await readUnmeasuredLead() }
+    catch (error) { throw error instanceof SpecialistPersistenceError ? error : new SpecialistPersistenceError('Unmeasured roofing lead read failed; retry required') }
+  }
+  if (reqInput && !leadMeasureToken) {
     const dispatched = await measureAndDispatchRoofing({
       supabase,
       tenantId,
@@ -1136,6 +1197,9 @@ async function handleRoofingTurn(args: {
       await persist(dispatched.state, 'open')
       return true
     }
+    if (dispatched.savedToken) {
+      throw new SpecialistPersistenceError('Saved roofing draft status requires recovery; retry the existing quote')
+    }
   }
 
   // Fallback — the automatic measurement was unavailable (provider down /
@@ -1146,8 +1210,6 @@ async function handleRoofingTurn(args: {
   // takes. Previously this closed the thread with a "we'll confirm your
   // quote shortly" message that created no measurement, no booking, and no
   // tradie alert — a black hole the customer never heard back from.
-  const leadAddress = reqInput?.address.address ?? decision.slots.address ?? null
-  const fallbackAddress = leadAddress ?? 'your property'
 
   // A complete brief we COULDN'T measure is still a real lead, and until
   // 2026-07-23 nothing was written here at all — so the job never reached
@@ -1157,21 +1219,16 @@ async function handleRoofingTurn(args: {
   // Geoscape resolves the address but holds ZERO building footprints for
   // it, so no measurement is possible at any time — not a transient outage.
   //
-  // Best-effort and fully guarded: this fallback's contract is "always
-  // reply, always park", and a throw here runs inside after(), which would
-  // swallow the customer's reply — the exact black hole it exists to
-  // prevent. pending_quote_token stays null deliberately: /q/roof/[token]
-  // is headlined "Your roof, measured", which this lead is not.
-  // Kept so the booking notify can link the tradie at THIS job (/m/<measure>)
-  // rather than the bare dashboard. Set only after a confirmed insert —
-  // supabase-js resolves {data,error} on failure rather than throwing, so a
-  // bare await here would hand the tradie a link to a row that never landed.
-  let leadMeasureToken: string | null = null
-  if (leadAddress) {
-    try {
+  // Save before the reply and retain one owned lead on retry. The unique
+  // tenant/source_request_key index is supplied by migration 201. The public
+  // quote token stays out of conversation state because this roof is unmeasured.
+  if (leadAddress && !leadMeasureToken) {
+    leadMeasureToken = await specialistCheckpoint('roofing_unmeasured_lead', async () => {
       const leadTokens = newMeasurementTokens()
-      const { error: leadErr } = await supabase.from('roofing_measurements').insert({
+      const { error: leadErr } = await supabase.from('roofing_measurements').upsert({
         tenant_id: tenantId,
+        source_request_key: fallbackRequestKey,
+        released_at: null,
         address: leadAddress,
         postcode: reqInput?.address.postcode || decision.slots.postcode || null,
         state: reqInput?.address.state ?? decision.slots.state ?? null,
@@ -1183,15 +1240,12 @@ async function handleRoofingTurn(args: {
         routing: 'inspection_required',
         quote: null,
         ...leadTokens,
-      })
-      if (leadErr) {
-        console.warn('[sms/inbound:roofing] unmeasured lead insert failed (non-fatal)', leadErr)
-      } else {
-        leadMeasureToken = leadTokens.measure_token
-      }
-    } catch (e) {
-      console.warn('[sms/inbound:roofing] unmeasured lead insert threw (non-fatal)', e)
-    }
+      }, { onConflict: 'tenant_id,source_request_key', ignoreDuplicates: true })
+      if (leadErr) throw new SpecialistPersistenceError('Unmeasured roofing lead save failed; retry required')
+      const savedToken = await readUnmeasuredLead()
+      if (!savedToken) throw new SpecialistPersistenceError('Unmeasured roofing lead could not be confirmed; retry required')
+      return savedToken
+    })
   }
 
   await sendReply(composeMeasureUnavailableMessage(firstName, fallbackAddress))
@@ -1256,12 +1310,12 @@ async function handlePaintingTurn(args: {
     !!args.tenantFacts &&
     llmReceptionistEnabled(tenantId)
   const turn = useLlm
-    ? await paintingTurnViaLlm({
+    ? await specialistCheckpoint('painting_turn', () => paintingTurnViaLlm({
         prev: prevState,
         inbound: latestInbound,
         history: turns,
         facts: args.tenantFacts as TenantFacts,
-      })
+      }))
     : null
   if (turn) {
     console.log('[sms/inbound:painting] LLM receptionist turn', {
@@ -1370,17 +1424,7 @@ async function handlePaintingTurn(args: {
     }
     lastSent = body
     const res = await dispatchQuoteMessage({ to: fromNumber, text: body, from: replyFrom, mediaUrl })
-    // supabase-js RESOLVES {data, error} on failure — a bare await here made
-    // a failed insert invisible, and the repeat backstop above reads this
-    // history on the next turn.
-    const { error: logError } = await supabase.from('sms_messages').insert({
-      conversation_id: conversationId,
-      direction: 'outbound',
-      body,
-    })
-    if (logError) {
-      console.error('[sms/inbound:painting] outbound sms_messages insert failed', logError)
-    }
+    await recordSmsReply(supabase, conversationId, body, res)
     return res
   }
   const persist = async (state: PaintingConversationState, status: 'open' | 'done') => {
@@ -1404,22 +1448,25 @@ async function handlePaintingTurn(args: {
       // booking_reask) rides in this jsonb: a silently-dropped update restarts
       // every counter at zero next turn, which is precisely how a bounded loop
       // keeps not ending (specs/address-confirm-loop.md).
-      const { error: persistError } = await supabase
+      const { data: persisted, error: persistError } = await supabase
         .from('sms_conversations')
         .update({ painting_state: merged, status, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', conversationId)
-      if (persistError) {
+        .select('id').maybeSingle()
+      if (persistError || !persisted) {
         console.error('[sms/inbound:painting] painting_state persist FAILED - counters will restart next turn', {
           conversationId,
           lastStep: merged.last_step ?? null,
           error: persistError,
         })
+        throw new SpecialistPersistenceError('Painting conversation state could not be saved; retry required')
       }
     } catch (e) {
-      console.warn('[sms/inbound:painting] painting_state persist failed (migration 154?)', e)
+      throw e instanceof SpecialistPersistenceError ? e
+        : new SpecialistPersistenceError(e instanceof Error ? e.message : 'Painting conversation state could not be saved; retry required')
     }
   }
-  const baseUrl = ROOFING_APP_BASE_URL
+  const baseUrl = publicWebOrigin()
   // The deflect ("I'll check with <owner> and come back to you") is only
   // honest if a human is actually told. The roofing handler has its own
   // notifyTradie closure; painting had none, so the promise was made and
@@ -1535,18 +1582,9 @@ async function handlePaintingTurn(args: {
 
   // ── Opener — offer the self-serve form link FIRST (unique per request). ──
   if (decision.action === 'offer_form') {
-    const token = randomBytes(16).toString('hex')
-    try {
-      await supabase.from('painting_lead_requests').insert({
-        token,
-        tenant_id: tenantId,
-        conversation_id: conversationId,
-        customer_phone: fromNumber,
-        status: 'pending',
-      })
-    } catch (e) {
-      console.warn('[sms/inbound:painting] lead request insert failed (migration 154?)', e)
-    }
+    if (!tenantId) throw new PaintingFormPersistenceError('Painting form requires an owning tenant')
+    // Fail through the durable worker before sending a link or advancing state.
+    const token = await ensurePaintingFormRequest({ db: supabase, tenantId, conversationId, customerPhone: fromNumber })
     const formUrl = `${baseUrl}/paint-request/${token}`
     await sendReply(buildPaintingFormOffer({ firstName, formUrl }))
     await persist({ slots: {}, last_step: 'offer_form', pending_form_token: token, pending_quote_token: null }, 'open')
@@ -1569,7 +1607,7 @@ async function handlePaintingTurn(args: {
     // the same skip when this turn is a question rather than an address.
     const answeringTurn = turn?.tool === 'answer_business_question' || turn?.tool === 'deflect_and_notify'
     if (decision.step === 'confirm_address' && !answeringTurn) {
-      const screened = await screenConfirmAddress(decision.slots)
+      const screened = await specialistCheckpoint('painting_confirm_address', () => screenConfirmAddress(decision.slots))
       askSlots = screened.slots
       if (screened.step) askStep = screened.step
       if (screened.reply) askReply = screened.reply
@@ -1637,7 +1675,7 @@ async function handlePaintingTurn(args: {
       return true
     }
     // Couldn't estimate (provider down / missing fields) — fall back.
-    await sendReply("Thanks, we've got your painting details. Our team will confirm your quote shortly.")
+    await sendReply("Your painting details are saved. A tradie review is needed before a quote can be shared.")
     await persist({ slots: decision.slots, last_step: 'closed', pending_form_token: null, pending_quote_token: null }, 'done')
     return true
   }
@@ -1674,23 +1712,7 @@ const RECEPTIONIST_ENABLED = process.env.SMS_RECEPTIONIST_ENABLED === '1'
 const RETIRED_ACK = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
 
 export async function POST(req: Request) {
- if (!RECEPTIONIST_ENABLED) {
-   // Read the body only to name the number in the log — nothing is processed,
-   // no reply is sent, no row is written.
-   let to = 'unknown'
-   let from = 'unknown'
-   try {
-     const p = parseTwilioForm(await req.text())
-     to = p.To ?? 'unknown'
-     from = p.From ?? 'unknown'
-   } catch { /* body shape is irrelevant here */ }
-   console.error('[sms/inbound] RETIRED — in-app receptionist is disabled; this number should point at the Front Desk', {
-     to,
-     from: from.slice(0, 8) + '…',
-     expected_webhook: 'https://qm-front-desk-production.up.railway.app/api/sms/inbound',
-   })
-   return new Response(RETIRED_ACK, { status: 200, headers: { 'content-type': 'text/xml' } })
- }
+ if (!RECEPTIONIST_ENABLED) return flagRetiredSmsWebhook(req)
  try {
   console.log('[sms/inbound] step 1 — reading body')
   // 1. Read raw body (needed for both signature check and field parsing).
@@ -1711,7 +1733,7 @@ export async function POST(req: Request) {
     ? `${forwardedProto}://${forwardedHost}${reqUrl.pathname}${reqUrl.search}`
     : reqUrl.toString()
 
-  if (!validateTwilioSignature(signature, url, params)) {
+  if (!currentSmsWork() && !validateTwilioSignature(signature, url, params)) {
     console.warn('[sms/inbound] rejected — bad Twilio signature', {
       url,
       reqUrl: req.url,
@@ -1747,6 +1769,20 @@ export async function POST(req: Request) {
   if (!fromNumber || !toNumber || !inboundBody) {
     return new Response('Missing required Twilio fields', { status: 400 })
   }
+
+  // Persist the provider receipt and work atomically before acknowledging it.
+  // The durable worker re-enters this handler and drains every deferred stage.
+  if (!currentSmsWork()) {
+    if (!messageSid) return new Response('MessageSid is required', { status: 400 })
+    const job = await enqueueSmsWork({
+      key: `inbound:${toNumber}:${messageSid}`, kind: 'inbound',
+      serialKey: `sms:${toNumber}:${fromNumber}`,
+      turnId: req.headers.get('x-quotemax-turn-id') ?? undefined,
+      payload: { url: req.url, headers: Object.fromEntries([...req.headers.entries()].filter(([name]) => ['content-type', 'x-quotemax-turn-id', 'x-quotemax-simulated'].includes(name))), body: rawBody },
+    })
+    return new Response(RETIRED_ACK, { status: 200, headers: { 'content-type': 'text/xml', 'x-quotemax-job-id': job.id, 'x-quotemax-turn-id': job.turn_id } })
+  }
+  await assertSmsWorkOwnership()
 
   // ─────── Tenant routing (v6 multi-tenant) ───────
   // Look up which registered tradie owns the destination number the
@@ -1784,6 +1820,8 @@ export async function POST(req: Request) {
   }
 
   const tenant = await tenantByDestinationSms(supabase, toNumber)
+  await attributeSmsWorkTenant(tenant?.id)
+  updateSmsDeliveryContext({ tenantId: tenant?.id ?? null })
   if (tenant) {
     console.log('[sms/inbound] step 2a — tenant resolved by destination number', {
       tenantId: tenant.id,
@@ -1846,6 +1884,7 @@ export async function POST(req: Request) {
   // through to normal processing rather than failing closed.
   // R47 — the skip-vs-process decision is extracted to decideSidDedup
   // (pure + unit-tested) so the idempotency contract can't silently regress.
+  let replayConversationId: string | null = null
   if (messageSid) {
     const { data: existingMsg } = await supabase
       .from('sms_messages')
@@ -1853,8 +1892,9 @@ export async function POST(req: Request) {
       .eq('twilio_message_sid', messageSid)
       .eq('direction', 'inbound')
       .maybeSingle()
+    replayConversationId = existingMsg?.conversation_id ?? null
     const dedup = decideSidDedup(messageSid, existingMsg)
-    if (dedup.action === 'skip_duplicate') {
+    if (dedup.action === 'skip_duplicate' && !currentSmsWork()) {
       console.warn('[sms/inbound] duplicate MessageSid — ignoring retry', {
         messageSid,
         existingMessageId: dedup.existingId,
@@ -1946,7 +1986,8 @@ export async function POST(req: Request) {
     .eq('from_number', fromNumber)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(1)
-  const { data: prior, error: lookupErr } = await (
+  if (replayConversationId) priorQuery.eq('id', replayConversationId)
+  const { data: observedPrior, error: lookupErr } = await (
     tenant
       ? priorQuery.eq('tenant_id', tenant.id)
       : priorQuery.eq('to_number', toNumber)
@@ -1957,15 +1998,22 @@ export async function POST(req: Request) {
     return new Response('DB error', { status: 500 })
   }
 
+  // Freeze classification inputs BEFORE any reuse/status mutation. A replay
+  // must not mistake this job's own pre-enqueue 'structuring' write for another
+  // quote already in flight. Adopt older jobs' saved conversation snapshots too.
+  const { prior, ageMs } = await smsWorkCheckpoint('conversation_lookup', async () => {
+    const legacy = currentSmsWork()?.job?.checkpoint?.conversation_snapshot as typeof observedPrior | undefined
+    const snapshot = legacy ?? observedPrior
+    const observedAge = replayConversationId || legacy ? 0 : snapshot?.last_message_at
+      ? Date.now() - new Date(snapshot.last_message_at as string).getTime() : Number.MAX_SAFE_INTEGER
+    return { prior: snapshot, ageMs: Number.isFinite(observedAge) ? observedAge : Number.MAX_SAFE_INTEGER }
+  })
+
   type CustomerHistoryHint = 'first_time' | 'returning' | 'continuing'
   type LookupMode = 'inflight' | 'reuse' | 'new'
   let customerHistoryHint: CustomerHistoryHint
   let conversation: typeof prior
   let mode: LookupMode
-
-  const ageMs = prior?.last_message_at
-    ? Date.now() - new Date(prior.last_message_at as string).getTime()
-    : Infinity
 
   // ── Mode classification ───────────────────────────────────────────
   // Order matters — first matching rule wins.
@@ -1987,7 +2035,14 @@ export async function POST(req: Request) {
     prior.status === 'done' && ageMs < REUSE_DONE_GRACE_MS
   )
 
-  if (isInflight) {
+  const savedConversationSnapshot = currentSmsWork()?.job?.checkpoint?.conversation_snapshot as typeof observedPrior | undefined
+  if (savedConversationSnapshot) {
+    // Setup already completed before the crash. Reuse its result without
+    // reopening/resetting it or creating a second conversation on replay.
+    conversation = savedConversationSnapshot
+    mode = isInflight ? 'inflight' : isReuseOpenLike || isReuseDoneGrace ? 'reuse' : 'new'
+    customerHistoryHint = mode === 'new' ? (prior ? 'returning' : 'first_time') : 'continuing'
+  } else if (isInflight) {
     mode = 'inflight'
     conversation = prior!
     customerHistoryHint = 'continuing'  // unused in inflight path; canned message bypasses Sonnet
@@ -2245,6 +2300,8 @@ export async function POST(req: Request) {
     })
   }
 
+  conversation = await smsWorkCheckpoint('conversation_snapshot', async () => conversation!)
+
   // 4a. If this is an MMS, fetch the media from Twilio and upload to our
   //     intake-photos bucket BEFORE persisting the inbound row, so the
   //     resulting signed URLs + permanent paths land on the same row.
@@ -2320,6 +2377,7 @@ export async function POST(req: Request) {
     direction: 'inbound',
     body: inboundBody,
     twilio_message_sid: messageSid,
+    turn_id: currentSmsWork()?.turnId,
     photo_urls: inboundPhotoUrls,
     photo_paths: inboundPhotoPaths,
   })
@@ -2328,7 +2386,7 @@ export async function POST(req: Request) {
   // by migration 004's unique partial index) is always acked as a duplicate
   // and never mistaken for a generic DB failure.
   const insertOutcome = classifyInboundInsert(insertErr)
-  if (insertOutcome.action === 'ack_duplicate') {
+  if (insertOutcome.action === 'ack_duplicate' && !currentSmsWork()) {
     console.warn('[sms/inbound] race lost — duplicate MessageSid landed concurrently', {
       messageSid,
       conversationId: conversation.id,
@@ -2340,65 +2398,21 @@ export async function POST(req: Request) {
     return new Response('DB error', { status: 500 })
   }
 
-  // ─────── Per-conversation lock claim ───────
-  // Atomically try to claim "I'm the leader who'll prepare the next reply
-  // for this conversation". If the row's processing_until is NULL or in
-  // the past, we win the lock; otherwise another webhook is already
-  // running Sonnet for this customer and we should bail without sending
-  // a duplicate reply. The follower's inbound message is already persisted
-  // (above) so the leader will see it when it loads conversation history.
-  //
-  // R43 ORDERING (persist-before-lock): the inbound INSERT above runs BEFORE
-  // this lock claim deliberately. A webhook that loses the lock has ALREADY
-  // persisted its inbound row, so the leader picks it up in the post-debounce
-  // history read — no inbound is ever left unprocessed. Combined with the
-  // migration-122 idempotent create, two concurrent first-messages now
-  // converge on ONE conversation row and ONE leader instead of split-brain.
-  //
-  // Lock auto-expires after 60s in case a function crashes mid-flow —
-  // a customer is never permanently blocked.
-  const LOCK_DURATION_MS = 60 * 1000
-  const lockUntilIso = new Date(Date.now() + LOCK_DURATION_MS).toISOString()
-  const nowIso = new Date().toISOString()
-
-  const { data: lockedRow, error: lockErr } = await supabase
-    .from('sms_conversations')
-    .update({ processing_until: lockUntilIso })
+  // Exclusivity is owned by sms_work_jobs.serial_key, renewed every 20s.
+  // DB triggers fence every mutation using the job attempt. Never fail open.
+  await assertSmsWorkOwnership()
+  const workOwner = currentSmsWork()!.ownerToken
+  const { error: lockErr } = await supabase.from('sms_conversations')
+    .update({ processing_owner: workOwner, processing_until: new Date(Date.now() + 90_000).toISOString() })
     .eq('id', conversation.id)
-    .or(`processing_until.is.null,processing_until.lt.${nowIso}`)
-    .select()
-    .maybeSingle()
-
-  // Distinguish three outcomes:
-  //   1. lockErr set         → DB / schema problem. FAIL OPEN — process the
-  //                            message without dedup. Customer reply is more
-  //                            important than risking an occasional duplicate.
-  //                            Common case: migration 007 not yet applied →
-  //                            'processing_until' column missing → PGRST204.
-  //   2. lockedRow set       → we acquired the lock cleanly, proceed.
-  //   3. lockedRow null + no err → another webhook holds the lock. Coalesce.
-  const lockInfraBroken = !!lockErr
-  if (lockInfraBroken) {
-    console.error('[sms/inbound] lock claim threw — FAILING OPEN (processing without dedup)', {
-      conversationId: conversation.id,
-      code: (lockErr as { code?: string } | null)?.code,
-      message: lockErr?.message,
-      hint: 'If code=PGRST204 the migration 007_sms_conversation_locking.sql has not been applied — run scripts/run-conversation-locking-migration.mjs',
-    })
-  } else if (!lockedRow) {
-    // Real coalesce — lock infra is working AND another webhook holds it.
-    // Our message is persisted; the leader's debounce window will pick it up.
-    console.log('[sms/inbound] coalesced — leader holds the lock; bailing without dispatch', {
-      conversationId: conversation.id,
-    })
-    return ackTwiml()
-  }
+  if (lockErr) throw new Error(`Conversation lease failed: ${lockErr.message}`)
 
   // ─────── Fast-ack the webhook ───────
   // Everything below — Sonnet call, Twilio outbound, conversation update,
   // intake handoff — runs after the 200 is returned. This keeps the
   // webhook latency under ~500ms regardless of how long Sonnet takes.
   const conversationId = conversation.id
+  updateSmsDeliveryContext({ conversationId, tenantId: tenant?.id ?? null })
   const initialAssumptions = (conversation.assumptions_made as string[] | null) ?? []
   const initialTurnCount = conversation.turn_count
   // Capture pre-reuse quote state. When a conversation is reused under
@@ -2461,7 +2475,6 @@ export async function POST(req: Request) {
     // When we read the authoritative history. Any inbound newer than this was
     // never processed by us — the orphan-drain check in `finally` needs it, so
     // it is declared out here rather than inside the try.
-    let historyReadAt: string | null = null
     try {
       // ─────── In-flight continuation ───────
       // The customer texted while their PREVIOUS quote is still being
@@ -2522,20 +2535,34 @@ export async function POST(req: Request) {
         .from('sms_messages')
         .select('direction, body, created_at')
         .eq('conversation_id', conversationId)
+        .or('direction.eq.inbound,delivery_status.in.(accepted,delivered)')
         .order('created_at', { ascending: true })
       if (historyError) {
         console.error('[sms/inbound:after] sms_messages history read FAILED - transcript-keyed guards are blind this turn', {
           conversationId,
           error: historyError,
         })
+        throw new Error('Conversation history unavailable')
       }
 
-      historyReadAt = new Date().toISOString()
-      const turns: ConversationTurn[] = (historyRows ?? []).map(m => ({
+      const savedHistoryRows = await smsWorkCheckpoint('history', async () => historyRows ?? [])
+      const turns: ConversationTurn[] = savedHistoryRows.map(m => ({
         direction: m.direction as 'inbound' | 'outbound',
         body: m.body,
       }))
       const inboundCount = turns.filter(t => t.direction === 'inbound').length
+      const sendTrackedReply = async (text: string, key: string) => {
+        const result = await dispatchQuoteMessage({ to: fromNumber, from: toNumber, text,
+          deliveryKey: `${currentSmsWork()!.jobId}:${key}`, conversationId, tenantId: tenant?.id, turnId: currentSmsWork()?.turnId })
+        if (result.ok && !result.outboxId) {
+          const { error } = await supabase.from('sms_messages').insert({ conversation_id: conversationId, direction: 'outbound', body: text,
+            twilio_message_sid: result.sid, outbox_id: result.outboxId, turn_id: currentSmsWork()?.turnId,
+            delivery_status: ['delivered', 'read'].includes(result.status) ? 'delivered' : 'accepted' })
+          if (error) throw new Error('Accepted reply transcript could not be saved')
+        } else if (!result.outboxId) throw new Error('Reply could not be durably queued')
+        return result
+      }
+
 
       // US-003 (audit 2026-07-23) — a standard Twilio opt-out keyword as the
       // whole message ends the thread on EVERY conversation type, not just
@@ -2555,13 +2582,7 @@ export async function POST(req: Request) {
         console.log('[sms/inbound:after] opt-out keyword — confirming once and closing', { conversationId })
         try {
           const res = await dispatchQuoteMessage({ to: fromNumber, from: toNumber, text: OPT_OUT_CONFIRMATION })
-          if (res.ok) {
-            await supabase.from('sms_messages').insert({
-              conversation_id: conversationId,
-              direction: 'outbound',
-              body: OPT_OUT_CONFIRMATION,
-            })
-          }
+          await recordSmsReply(supabase, conversationId, OPT_OUT_CONFIRMATION, res)
         } catch (e) {
           console.warn('[sms/inbound:after] opt-out confirmation not sent (non-fatal)', e)
         }
@@ -2581,6 +2602,109 @@ export async function POST(req: Request) {
           console.warn('[sms/inbound:after] opt-out close failed (non-fatal)', e)
         }
         return
+      }
+
+      // Existing quote actions precede the gather machines. References are read
+      // from tenant/customer-owned records even after a new conversation/restart.
+      if (tenant?.id) {
+        const actionState = (conversation.conversation_state ?? {}) as Record<string, unknown>
+        const correction = await handleSavedJobCorrection({ supabase, tenantId: tenant.id, customerPhone: fromNumber,
+          fromNumber: toNumber, conversationId, receiptId: messageSid ?? currentSmsWork()!.jobId,
+          text: inboundBody, trade: process.env.SMS_WORKER_SERVICE ?? tenant.trade ?? 'customer', pending: actionState.pending_job_correction as PendingJobCorrection | undefined })
+        if (correction.handled) {
+          // Save a disambiguation question's context before its SMS can arrive.
+          // Required writes fail through durableAfter so the same task/reply resumes.
+          const saved = await supabase.from('sms_conversations').update({ conversation_state: { ...actionState,
+            pending_job_correction: correction.pending ?? null,
+            quote_reference: correction.reference ?? actionState.quote_reference,
+            quote_candidates: correction.candidates?.map(item => ({ family: item.family, id: item.id })) ?? null } })
+            .eq('id', conversationId).eq('tenant_id', tenant.id).select('id').maybeSingle()
+          if (saved.error || saved.data?.id !== conversationId) throw new Error('Correction conversation context could not be saved')
+          await sendTrackedReply(correction.reply, 'job-correction')
+          return
+        }
+        const action = await handleExistingQuoteAction({ supabase, tenantId: tenant.id,
+          customerPhone: fromNumber, text: inboundBody,
+          preferredReference: actionState.quote_reference as { family: string; id: string } | undefined,
+          selectionCandidates: actionState.quote_candidates as Array<{ family: string; id: string }> | undefined })
+        if (action.handled) {
+          await sendTrackedReply(action.reply!, 'quote-action')
+          const { error } = await supabase.from('sms_conversations').update({ conversation_state: { ...actionState,
+            quote_reference: action.reference ?? actionState.quote_reference,
+            quote_candidates: action.candidates?.map(q => ({ family: q.family, id: q.id })) ?? null } }).eq('id', conversationId)
+          if (error) throw new Error('Quote action state could not be saved')
+          return
+        }
+        const solarState = actionState.solar as SolarSmsState | undefined
+        const enabledTrades: string[] = Array.isArray(tenant.trades) ? tenant.trades : []
+        const savedRoof = (conversation as Record<string, unknown>).roofing_state as RoofingConversationState | undefined
+        // A held roof is closed to gathering. Its ordinary follow-ups must not
+        // reach the roofing-only cold opener and replace its consumed inputs.
+        // Explicit new jobs still take the existing fresh-intake path below.
+        const newRoofJob = /\b(?:new|another|separate|second|different)\s+(?:(?:roof|roofing|re-?roof(?:ing)?)\s+)?(?:job|quote|estimate|property|project|house|home|address|roof|re-?roof(?:ing)?)\b/i.test(inboundBody) ||
+          /\b(?:quote|estimate|price)\s+(?:(?:a|the)\s+re-?roof\s+)?(?:(?:at|for)\s+)?\d+\s+[a-z]/i.test(inboundBody)
+        if (tenantIsRoofingOnly(tenant.trades) && savedRoof?.last_step === 'closed' &&
+          savedRoof.workflow_stage === 'awaiting_review' && savedRoof.pending_quote_token && !newRoofJob) {
+          // The inbound intake stage reopens a done conversation to accept this
+          // turn. Complete this saved-result follow-up after its checked write.
+          let profileState: Record<string, unknown> | undefined
+          let reply = 'Your saved roofing draft is unchanged. Ask for the quote link to check its current status, or tell me if you need a quote for a new job.'
+          let replyKey = 'roofing-saved-followup'
+          if (/\b(?:(?:my\s+)?(?:first\s+)?name\b|call me\b)/i.test(inboundBody)) {
+            const extraction = await smsWorkCheckpoint('saved_specialist_profile', () => extractSlots({
+              state: initialConversationState, customerMessage: inboundBody,
+              lastAgentMessage: turns.filter(turn => turn.direction === 'outbound').at(-1)?.body ?? null,
+              tenantTrades: tenant.trades,
+            }))
+            const firstName = extraction.updates.first_name?.trim()
+            replyKey = 'roofing-profile'
+            if (firstName) {
+              const corrected = mergeSlotUpdates(initialConversationState, { first_name: firstName })
+              profileState = { ...actionState, ...corrected }
+              reply = `Thanks ${firstName}, I have updated your name. Your saved roofing draft is unchanged. Ask for the quote link to check its current status.`
+            } else {
+              reply = 'Please reply "My first name is Alex" using your first name. Your saved roofing draft is unchanged.'
+            }
+          }
+          const { data: savedProfile, error: profileError } = await supabase.from('sms_conversations')
+            .update({ status: 'done', ...(profileState ? { conversation_state: profileState } : {}) })
+            .eq('id', conversationId).eq('tenant_id', tenant.id).select('id').maybeSingle()
+          if (profileError || savedProfile?.id !== conversationId) throw new Error('Roofing name or follow-up could not be saved; retry required')
+          // Approval may have changed since this conversation snapshot. Quote
+          // actions above read the owned resource for its current status.
+          await sendTrackedReply(reply, replyKey)
+          return
+        }
+        if (enabledTrades.includes('solar') && (process.env.SMS_WORKER_SERVICE === 'solar' || solarState || /\bsolar|solar panels|battery storage\b/i.test(inboundBody))) {
+          // A saved solar result must not swallow profile corrections. Keep
+          // its priced inputs/reference intact; only the customer's name is
+          // updated here, before acknowledging it, outside the draft pipeline.
+          if (solarState?.reference) {
+            const extraction = await smsWorkCheckpoint('solar_saved_profile', () => extractSlots({
+              state: initialConversationState, customerMessage: inboundBody,
+              lastAgentMessage: turns.filter(turn => turn.direction === 'outbound').at(-1)?.body ?? null,
+              tenantTrades: tenant.trades,
+            }))
+            const firstName = extraction.updates.first_name?.trim()
+            if (firstName) {
+              const corrected = mergeSlotUpdates(initialConversationState, { first_name: firstName })
+              const { data: savedProfile, error: profileError } = await supabase.from('sms_conversations')
+                .update({ conversation_state: { ...actionState, ...corrected }, status: 'done' })
+                .eq('id', conversationId).eq('tenant_id', tenant.id).select('id').maybeSingle()
+              if (profileError || savedProfile?.id !== conversationId) throw new Error('Solar name correction could not be saved; retry required')
+              await sendTrackedReply(`Thanks ${firstName}, I have updated your name. Your saved solar draft is unchanged. Ask for the quote link to check its review status.`, 'solar-profile')
+              return
+            }
+          }
+          const result = await handleSolarSmsTurn({ supabase, tenantId: tenant.id, customerPhone: fromNumber,
+            conversationId, text: inboundBody, state: solarState, requestKey: `solar:sms:${conversationId}`,
+            baseUrl: publicWebOrigin(), sendReply: text => sendTrackedReply(text, 'solar-reply') })
+          const { error } = await supabase.from('sms_conversations').update({ conversation_state: { ...actionState, solar: result.state,
+            quote_reference: result.reference ?? actionState.quote_reference }, quote_stage: result.stage,
+            status: ['awaiting_review', 'unavailable'].includes(result.stage) ? 'done' : 'open' }).eq('id', conversationId)
+          if (error) throw new Error('Solar conversation state could not be saved')
+          return
+        }
       }
 
       // Is a follow-up pin active on this thread? The tradie may have just
@@ -2672,6 +2796,7 @@ export async function POST(req: Request) {
             return
           }
         } catch (e) {
+          if (e instanceof SpecialistPersistenceError) throw e
           console.error('[sms/inbound:after] roofing receptionist threw — falling through to standard dialog', e)
         }
       } else if (!roofingEnabled) {
@@ -2731,6 +2856,7 @@ export async function POST(req: Request) {
             return
           }
         } catch (e) {
+          if (e instanceof PaintingFormPersistenceError || e instanceof SpecialistPersistenceError) throw e
           console.error('[sms/inbound:after] painting receptionist threw — falling through to standard dialog', e)
         }
       }
@@ -2805,10 +2931,10 @@ export async function POST(req: Request) {
               }
             }
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           console.warn('[sms/inbound:after] WP9 CAPTURE skipped (non-fatal)', {
             conversationId,
-            error: e?.message ?? String(e),
+            error: (e instanceof Error ? e.message : undefined) ?? String(e),
           })
         }
       }
@@ -2872,7 +2998,7 @@ export async function POST(req: Request) {
           if (next.last_extracted_at !== conversationState.last_extracted_at) {
             await supabase
               .from('sms_conversations')
-              .update({ conversation_state: next, updated_at: new Date().toISOString() })
+              .update({ conversation_state: { ...(conversation.conversation_state ?? {}), ...next }, updated_at: new Date().toISOString() })
               .eq('id', conversationId)
             conversationState = next
             console.log('[sms/inbound:after] slots extracted + merged', {
@@ -2936,9 +3062,9 @@ export async function POST(req: Request) {
                     tenantId: tenant?.id ?? null,
                     fields: gatedFields,
                   })
-                } catch (e: any) {
+                } catch (e: unknown) {
                   console.warn('[sms/inbound:after] eager write-back threw - non-fatal, finish-time backfill will retry', {
-                    message: e?.message,
+                    message: (e instanceof Error ? e.message : undefined),
                   })
                 }
               }
@@ -2949,7 +3075,7 @@ export async function POST(req: Request) {
             reasoning: extraction.reasoning,
           })
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Surface ENOUGH context to diagnose the failure without re-running:
         //   - which conversation (so we can correlate with stored state)
         //   - which inbound message triggered it (the customer text)
@@ -2968,9 +3094,9 @@ export async function POST(req: Request) {
           inboundPreview: lastInbound.slice(0, 80),
           staleStateSlots: Object.keys(conversationState.slots ?? {}),
           staleStateSources: conversationState.sources ?? {},
-          error_message: e?.message,
-          error_name: e?.name,
-          first_stack_frame: e?.stack?.split('\n')[1]?.trim(),
+          error_message: (e instanceof Error ? e.message : undefined),
+          error_name: (e instanceof Error ? e.name : undefined),
+          first_stack_frame: (e instanceof Error ? e.stack : undefined)?.split('\n')[1]?.trim(),
         })
       }
 
@@ -3303,7 +3429,7 @@ export async function POST(req: Request) {
 
       let decision: Awaited<ReturnType<typeof decideNextTurn>>
       try {
-        decision = await decideNextTurn({
+        decision = await smsWorkCheckpoint('dialog_decision', () => decideNextTurn({
           history: turns,
           inboundCount,
           customerHistory,
@@ -3339,22 +3465,26 @@ export async function POST(req: Request) {
           // background. The dialog stays conversational but must not run
           // a second verification handshake / handoff.
           quoteInProgress: inflightContinuation,
-        })
+        }))
         console.log('[sms/inbound:after] step 6 — decision', {
           action: decision.action,
           job_type_guess: decision.job_type_guess,
           ready_for_intake: decision.ready_for_intake,
           assumptions: decision.assumptions_made.length,
         })
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('[sms/inbound:after] dialog agent failed', {
-          message: err?.message,
-          name: err?.name,
+          message: (err instanceof Error ? err.message : undefined),
+          name: (err instanceof Error ? err.name : undefined),
         })
         // Use whatever the slot extractor already merged into state
         // (name from this turn or earlier, job_type if guessed) so the
         // fallback acknowledges the customer's context rather than
         // brushing them off with a generic "we'll get back to you".
+        if (!tenant?.id) throw err
+        await persistHumanHandoff({ supabase, tenantId: tenant.id, customerPhone: fromNumber, conversationId,
+          requestKey: `${currentSmsWork()!.jobId}:dialog-recovery`, trade: process.env.SMS_WORKER_SERVICE ?? 'general',
+          reason: 'The receptionist could not complete this customer turn; review the saved conversation' })
         const fallbackFirst =
           (conversationState.slots.first_name as string | undefined) ||
           (customer?.first_name as string | undefined) ||
@@ -3650,11 +3780,23 @@ export async function POST(req: Request) {
       // Either signal is sufficient. Both must be true for normal flow.
       const { data: convoState } = await supabase
         .from('sms_conversations')
-        .select('intake_id, roofing_state, painting_state')
+        .select('intake_id, quote_id, quote_stage, roofing_state, painting_state')
         .eq('id', conversationId)
         .maybeSingle()
       const freshIntakeId = (convoState?.intake_id as string | null) ?? null
-      const hasExistingIntake = !!freshIntakeId || quoteAlreadyDrafted
+      // Only a saved quote proves completion. An incomplete intake resumes estimation.
+      let savedQuoteId = (convoState?.quote_id as string | null) ?? null
+      if (freshIntakeId && !savedQuoteId) {
+        const { data: recoveredQuote, error: quoteLookupError } = await supabase.from('quotes')
+          .select('id').eq('intake_id', freshIntakeId).is('parent_quote_id', null).order('created_at', { ascending: true }).limit(1).maybeSingle()
+        if (quoteLookupError) throw new Error('Quote progress lookup unavailable')
+        savedQuoteId = recoveredQuote?.id ?? null
+        if (!savedQuoteId) await enqueueSmsWork({
+          ...smsIntakeWorkIdentity({ conversationId, providerMessageSid: messageSid }), kind: 'intake', tenantId: tenant?.id,
+          payload: internalWorkPayload('/api/intake/structure', { conversationId, sourceChannel: 'sms' }),
+        })
+      }
+      const hasExistingIntake = !!savedQuoteId || quoteAlreadyDrafted
       // Spec ev-charger-location-photo R9 — set by the readiness block below,
       // read by the photo-request trigger in step 8b. Declared here so the two
       // are in the same scope; false for every non-EV job.
@@ -3865,7 +4007,7 @@ export async function POST(req: Request) {
             conversationState = nextState
             await supabase
               .from('sms_conversations')
-              .update({ conversation_state: nextState, updated_at: new Date().toISOString() })
+              .update({ conversation_state: { ...(conversation.conversation_state ?? {}), ...nextState }, updated_at: new Date().toISOString() })
               .eq('id', conversationId)
           }
         } else if (priorClarifyCount !== 0 || priorMissing.length > 0) {
@@ -3875,7 +4017,7 @@ export async function POST(req: Request) {
           conversationState = nextState
           await supabase
             .from('sms_conversations')
-            .update({ conversation_state: nextState, updated_at: new Date().toISOString() })
+            .update({ conversation_state: { ...(conversation.conversation_state ?? {}), ...nextState }, updated_at: new Date().toISOString() })
             .eq('id', conversationId)
         }
       }
@@ -3971,8 +4113,7 @@ export async function POST(req: Request) {
 
       const dispatchPhotoRequestSms = async () => {
         try {
-          const appUrl = process.env.APP_URL ?? 'https://www.quotemax.com.au'
-          const uploadUrl = `${appUrl}/upload/${photoRequestToken}`
+          const uploadUrl = publicWebUrl(`/upload/${photoRequestToken}`)
           // Priority order (authoritative → best-effort):
           //   1. conversation_state.slots.first_name (this turn's extracted + merged name)
           //   2. customer.first_name (stable DB record)
@@ -3982,25 +4123,23 @@ export async function POST(req: Request) {
             (customer?.first_name as string | undefined) ||
             guessFirstName(turns) ||
             undefined
-          const photoBody = buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms', jobType: decision.job_type_guess })
+          // Keep the chosen random variant stable across process recovery.
+          // The outbox's logical key must always carry the first saved body.
+          const photoBody = await smsWorkCheckpoint('photo_request_message', async () =>
+            buildPhotoRequestSms({ firstName, uploadUrl, source: 'sms', jobType: decision.job_type_guess }))
+          const photoWork = currentSmsWork()
           const photoDispatch = await dispatchQuoteMessage({
             to: fromNumber,
             from: toNumber,
             text: photoBody,
+            ...(photoWork ? { deliveryKey: `${photoWork.jobId}:photo-request` } : {}),
           })
           if (photoDispatch.ok) {
             console.log('[sms/inbound:after] step 8b — photo-request SMS sent', {
               channel: photoDispatch.channel,
               sid: photoDispatch.sid,
             })
-            await supabase.from('sms_messages').insert({
-              conversation_id: conversationId,
-              direction: 'outbound',
-              body: photoDispatch.channel === 'whatsapp'
-                ? `[WhatsApp fallback] ${photoBody}`
-                : photoBody,
-              twilio_message_sid: photoDispatch.sid,
-            })
+            await recordSmsReply(supabase, conversationId, photoBody, photoDispatch)
             await supabase
               .from('sms_conversations')
               .update({ photo_request_sent_at: new Date().toISOString() })
@@ -4010,12 +4149,14 @@ export async function POST(req: Request) {
               smsAttempt: photoDispatch.smsAttempt,
               waAttempt: photoDispatch.waAttempt,
             })
+            if (photoWork && !photoDispatch.outboxId) throw new Error('Photo request has no durable intent; retry required')
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           console.error('[sms/inbound:after] step 8b — photo-request SMS threw', {
-            message: e?.message,
-            name: e?.name,
+            message: (e instanceof Error ? e.message : undefined),
+            name: (e instanceof Error ? e.name : undefined),
           })
+          if (currentSmsWork()) throw e
         }
       }
 
@@ -4136,8 +4277,7 @@ export async function POST(req: Request) {
               // Just offered → hold the quote until the customer picks.
               wp9HoldingForChoice = true
               wp9HoldingOptionCount = options.length
-              const appUrl = process.env.APP_URL ?? 'https://www.quotemax.com.au'
-              const chooseUrl = `${appUrl}/q/choose/${token}`
+              const chooseUrl = publicWebUrl(`/q/choose/${token}`)
               let optionsBody = buildProductOptionsSms(options, chooseUrl, category)
               // External / weather-exposed install with no weatherproof
               // product in the catalogue → flag it so the sparky confirms
@@ -4162,15 +4302,7 @@ export async function POST(req: Request) {
                 text: optionsBody,
               })
               if (offerDispatch.ok) {
-                await supabase.from('sms_messages').insert({
-                  conversation_id: conversationId,
-                  direction: 'outbound',
-                  body:
-                    offerDispatch.channel === 'whatsapp'
-                      ? `[WhatsApp fallback] ${optionsBody}`
-                      : optionsBody,
-                  twilio_message_sid: offerDispatch.sid,
-                })
+                await recordSmsReply(supabase, conversationId, optionsBody, offerDispatch)
                 console.log('[sms/inbound:after] WP9 OFFER — options SMS sent', {
                   conversationId,
                   category,
@@ -4186,10 +4318,10 @@ export async function POST(req: Request) {
               }
             }
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           console.warn('[sms/inbound:after] WP9 OFFER skipped (non-fatal)', {
             conversationId,
-            error: e?.message ?? String(e),
+            error: (e instanceof Error ? e.message : undefined) ?? String(e),
           })
         }
       }
@@ -4227,49 +4359,15 @@ export async function POST(req: Request) {
       // carrier codes (21610 STOP, etc.) are not retried. Every outcome is
       // logged via logSendOutcome in an alertable shape.
       const replySendStartedAt = Date.now()
-      const replyOutcome = await retryWithBackoff(
-        async () => {
-          const r = await dispatchQuoteMessage({
-            to: fromNumber,
-            from: toNumber,
-            text: decision.reply_to_send,
-          })
-          // Throw on a failed result so retryWithBackoff classifies + retries
-          // transient failures (abort/timeout/network/429/5xx); a successful
-          // result passes through unchanged.
-          return throwIfDispatchFailed(r)
-        },
-        {
-          retries: DELIVERY_KNOBS.sendRetries,
-          baseDelayMs: DELIVERY_KNOBS.sendBaseDelayMs,
-          maxDelayMs: DELIVERY_KNOBS.sendMaxDelayMs,
-          onRetry: (err, nextAttempt, delayMs) =>
-            console.warn('[sms/inbound:after] step 7 — reply send retrying', {
-              conversationId,
-              nextAttempt,
-              delayMs,
-              error: err instanceof Error ? err.message : String(err),
-            }),
-        },
-      )
-      // Recover the dispatch-shaped result for the unchanged downstream code.
-      // On success retryWithBackoff returns the original DispatchOk; on terminal
-      // failure we synthesise a DispatchFail from the thrown DispatchFailedError
-      // so the existing `dispatch.ok === false` branch (recordTrace err) runs.
-      const replySendError: unknown = replyOutcome.ok ? undefined : replyOutcome.error
-      const dispatch = replyOutcome.ok
-        ? replyOutcome.value
-        : ({
-            ok: false as const,
-            smsAttempt: {
-              code: (replySendError as { code?: string })?.code ?? 'UNKNOWN',
-              reason: (replySendError as Error)?.message ?? 'reply dispatch failed',
-            },
-            smsAttempts: replyOutcome.attempts,
-            waAttempt: (replySendError as { waCode?: string | null })?.waCode != null
-              ? { code: String((replySendError as { waCode?: string | null }).waCode), reason: 'whatsapp fallback failed' }
-              : undefined,
-          })
+      // The outbox owns retries and ambiguous acceptance. A second wrapper
+      // must not mint another delivery intent for the same reply.
+      decision.reply_to_send = guardGeneratedQuoteLinks(decision.reply_to_send)
+      if (decision.action === 'finish') decision.reply_to_send = 'Thanks, your details are recorded. The draft needs tradie review before a quote can be sent.'
+      const dispatch = await dispatchQuoteMessage({ to: fromNumber, from: toNumber, text: decision.reply_to_send,
+        deliveryKey: `${currentSmsWork()!.jobId}:main-reply`, conversationId, tenantId: tenant?.id, turnId: currentSmsWork()?.turnId })
+      if (!dispatch.ok && !dispatch.outboxId) throw new Error('Reply could not be durably queued')
+      const replyOutcome = { attempts: dispatch.smsAttempts ?? 0 }
+      const replySendError = dispatch.ok ? undefined : dispatch.smsAttempt.reason
       logSendOutcome(sendLogger, {
         sendType: 'customer_reply',
         status: dispatch.ok ? (dispatch.channel === 'whatsapp' ? 'fallback' : 'ok') : 'failed',
@@ -4328,6 +4426,7 @@ export async function POST(req: Request) {
       }
 
       console.log('[sms/inbound:after] step 8 — persisting outbound', { channel: outboundChannel })
+      if (dispatch.ok && !dispatch.outboxId) {
       await supabase.from('sms_messages').insert({
         conversation_id: conversationId,
         direction: 'outbound',
@@ -4335,7 +4434,10 @@ export async function POST(req: Request) {
           ? `[WhatsApp fallback] ${decision.reply_to_send}`
           : decision.reply_to_send,
         twilio_message_sid: outboundSid,
+        delivery_status: ['delivered', 'read'].includes(dispatch.status) ? 'delivered' : 'accepted',
+        outbox_id: dispatch.outboxId, turn_id: currentSmsWork()?.turnId,
       })
+      }
 
       // 8c. Photo-link AFTER the verification-handshake reply (the
       // counterpart to 8b). Sonnet's reply on this turn says "I'll
@@ -4434,53 +4536,11 @@ export async function POST(req: Request) {
       ) {
         console.log('[sms/inbound:after] step 10 — firing intake/structure handoff', { conversationId })
         try {
-          await withRetry(
-            async () => {
-              const res = await fetch(`${process.env.APP_URL}/api/intake/structure`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  // Internal self-call — /api/estimate/draft and /api/intake/structure are
-                  // guarded by isCronAuthorised, which is fail-closed in production.
-                  Authorization: `Bearer ${process.env.CRON_SECRET}`,
-                },
-                body: JSON.stringify({ conversationId, sourceChannel: 'sms' }),
-              })
-              if (!res.ok) {
-                throw new Error(`intake/structure HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-              }
-            },
-            {
-              maxAttempts: 3,
-              baseDelayMs: 2000,
-              // 2026-05-19 "bug zapper" fix part 2 — do NOT retry on a
-              // fetch that aborted/timed out on the CLIENT side. When the
-              // outbound fetch is aborted (Vercel terminating a long
-              // in-flight request, undici headersTimeout, etc.), the
-              // intake/structure SERVER may still be running and will
-              // complete the full pipeline (Opus + dispatch + DB writes).
-              // A retry then triggers a second complete pipeline run —
-              // duplicate intake row, duplicate recovery SMS. Belt: the
-              // intake/structure route now also enforces idempotency by
-              // conversation_id, but treating timeouts as non-retriable
-              // here means we don't even attempt the duplicate work.
-              shouldRetry: (err) => {
-                const msg = err instanceof Error ? err.message : String(err)
-                const name = err instanceof Error ? err.name : ''
-                const looksLikeAbort =
-                  name === 'AbortError' ||
-                  name === 'TimeoutError' ||
-                  /aborted|timeout|ETIMEDOUT|UND_ERR_HEADERS_TIMEOUT|fetch failed/i.test(msg)
-                return !looksLikeAbort
-              },
-              onAttemptFailed: (err, attempt, willRetry) => {
-                const msg = err instanceof Error ? err.message : String(err)
-                const tag = willRetry ? 'retrying' : 'EXHAUSTED'
-                console.warn(`[sms/inbound:after] intake handoff attempt ${attempt}/3 failed — ${tag}`, msg.slice(0, 200))
-              },
-            }
-          )
-        } catch (e: any) {
+          await enqueueSmsWork({
+            ...smsIntakeWorkIdentity({ conversationId, providerMessageSid: messageSid }), kind: 'intake', tenantId: tenant?.id,
+            payload: internalWorkPayload('/api/intake/structure', { conversationId, sourceChannel: 'sms' }),
+          })
+        } catch (e: unknown) {
           // All retry attempts failed. NEVER leave the customer silent —
           // send a fallback "we hit a snag" SMS so they know to expect a
           // callback rather than wondering if the AI ignored them. Reopen
@@ -4488,7 +4548,7 @@ export async function POST(req: Request) {
           // into the in-flight short-circuit.
           console.error('[sms/inbound:after] intake handoff EXHAUSTED — sending failure SMS', {
             conversationId,
-            error: e?.message ?? String(e),
+            error: (e instanceof Error ? e.message : undefined) ?? String(e),
           })
           try {
             // Best-effort first-name lookup. Try the dialog transcript first,
@@ -4510,14 +4570,7 @@ export async function POST(req: Request) {
               from: toNumber,
               text: failureBody,
             })
-            await supabase.from('sms_messages').insert({
-              conversation_id: conversationId,
-              direction: 'outbound',
-              body: failureDispatch.ok && failureDispatch.channel === 'whatsapp'
-                ? `[WhatsApp fallback] ${failureBody}`
-                : failureBody,
-              twilio_message_sid: failureDispatch.ok ? failureDispatch.sid : null,
-            })
+            await recordSmsReply(supabase, conversationId, failureBody, failureDispatch)
             // Flip status back to 'open' so the customer can re-engage
             // without hitting the in-flight canned hold-on rule.
             await supabase
@@ -4531,12 +4584,13 @@ export async function POST(req: Request) {
               conversationId,
               dispatchOk: failureDispatch.ok,
             })
-          } catch (notifyErr: any) {
+          } catch (notifyErr: unknown) {
             console.error('[sms/inbound:after] failure SMS itself failed — customer will be silent', {
               conversationId,
-              error: notifyErr?.message ?? String(notifyErr),
+              error: (notifyErr instanceof Error ? notifyErr.message : undefined) ?? String(notifyErr),
             })
           }
+          throw e
         }
       }
 
@@ -4556,119 +4610,34 @@ export async function POST(req: Request) {
           error: `after() used ${Math.round(afterElapsedMs / 1000)}s of ${DELIVERY_KNOBS.maxDurationSec}s budget`,
         })
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[sms/inbound:after] UNHANDLED in after()', {
-        message: e?.message,
-        name: e?.name,
-        stack: e?.stack?.split('\n').slice(0, 6).join('\n'),
+        message: (e instanceof Error ? e.message : undefined),
+        name: (e instanceof Error ? e.name : undefined),
+        stack: (e instanceof Error ? e.stack : undefined)?.split('\n').slice(0, 6).join('\n'),
       })
+      throw e
     } finally {
-      // ─────── Post-quote orphan drain (round 4, live 2026-07-25) ───────
-      // We hold the lock for the WHOLE pipeline (measure + sends + PDF can run
-      // ~90s) but read history near the START. A follow-up landing in that
-      // window loses its lock claim and bails, and we never saw it — so nobody
-      // ever replies. Live: a price objection, a clarifying question and a
-      // second-property request after a quote all got total silence.
-      //
-      // Before releasing the lock (so no second webhook can race us), check for
-      // an inbound we never answered and serve it: re-run the roofing turn, and
-      // if the state machine hands it back (a question / objection it will not
-      // answer) send one honest acknowledgement. ONE pass, never re-drafts a
-      // quote, and every failure is swallowed so the lock is always released.
-      try {
-        // Deliberately an ACKNOWLEDGEMENT ONLY — it never re-runs the roofing
-        // state machine. Re-running it here would re-enter the measure/quote
-        // pipeline outside the roofingEnabled / inflight guards and, because
-        // the 60s lock has usually EXPIRED by the end of a ~90s run, could race
-        // a second webhook into a duplicate measurement, duplicate priced SMS
-        // and a second mintable quote link. One honest ack invites the customer
-        // to resend, and that next turn is processed normally under a fresh lock.
-        const { data: drainRows } = await supabase
-          .from('sms_messages')
-          .select('direction, body, created_at')
-          .eq('conversation_id', conversationId)
-          .order('created_at', { ascending: true })
-        if (hasUnrepliedInbound(drainRows ?? [], historyReadAt)) {
-          // Only ack while we PROVABLY still hold the lock: a 90s pipeline
-          // outruns the 60s lock, and once it lapses another webhook owns the
-          // conversation and will reply itself.
-          const { data: lockNow } = await supabase
-            .from('sms_conversations')
-            .select('processing_until, roofing_state')
-            .eq('id', conversationId)
-            .maybeSingle()
-          const lockRow = lockNow as { processing_until?: string | null; roofing_state?: unknown } | null
-          const stillOwnLock = !!lockRow?.processing_until && new Date(lockRow.processing_until) > new Date()
-          const drainStep = (lockRow?.roofing_state as RoofingConversationState | null)?.last_step ?? null
-          const roofingActive = !!drainStep && drainStep !== 'closed'
-          const lastInbound = [...(drainRows ?? [])].reverse().find(m => m.direction === 'inbound')?.body ?? ''
-          // Never reply to an opt-out, and never start work we cannot finish.
-          const optedOut = isStopRequest(lastInbound) || isGlobalOptOut(lastInbound)
-          const outOfBudget = isNearMaxDuration(Date.now() - afterStartedAt, DELIVERY_KNOBS.maxDurationSec)
-          console.log('[sms/inbound:after] orphaned follow-up detected before lock release', {
-            conversationId, roofingStep: drainStep, roofingActive, stillOwnLock, optedOut, outOfBudget,
-          })
-          if (roofingActive && stillOwnLock && !optedOut && !outOfBudget) {
-            const ack =
-              "Thanks, I've passed that to the roofer and they'll come back to you shortly. If you'd like another property quoted, just send the address."
-            await dispatchQuoteMessage({ to: fromNumber, text: ack, from: toNumber })
-            await supabase.from('sms_messages').insert({
-              conversation_id: conversationId,
-              direction: 'outbound',
-              body: ack,
-            })
-            console.log('[sms/inbound:after] orphaned follow-up acknowledged', { conversationId })
-          }
-        }
-      } catch (drainErr: any) {
-        console.warn('[sms/inbound:after] orphan drain failed (non-fatal)', {
-          conversationId,
-          message: drainErr?.message ?? String(drainErr),
-        })
-      }
+      // Every follower has its own durable sequence and runs after this owner.
+      // No generic acknowledgement consumes a message the model has not seen.
+      const { error: releaseErr } = await supabase.from('sms_conversations')
+        .update({ processing_until: null, processing_owner: null, last_processed_work_sequence: currentSmsWork()?.sequence })
+        .eq('id', conversationId).eq('processing_owner', workOwner)
+      if (releaseErr) console.error('[sms/inbound] fenced release failed', { conversationId, error: releaseErr.message })
 
-      // ─────── Release the per-conversation lock ───────
-      // Always runs — whether the work succeeded, threw, or was downgraded
-      // to the fallback. Clearing processing_until lets the next inbound
-      // SMS (which may be sitting in DB after a failed lock claim) be
-      // processed by the next webhook for this customer.
-      //
-      // If the column doesn't exist (migration 007 unapplied), this update
-      // returns an error which we log but DO NOT throw on — fail-open is
-      // already in effect upstream so the customer has been served.
-      try {
-        const { error: releaseErr } = await supabase
-          .from('sms_conversations')
-          .update({ processing_until: null })
-          .eq('id', conversationId)
-        if (releaseErr) {
-          console.warn('[sms/inbound:after] lock release returned error (will auto-expire in 60s)', {
-            conversationId,
-            code: (releaseErr as { code?: string }).code,
-            message: releaseErr.message,
-          })
-        } else {
-          console.log('[sms/inbound:after] lock released', { conversationId })
-        }
-      } catch (releaseErr: any) {
-        console.error('[sms/inbound:after] lock release threw (will auto-expire in 60s)', {
-          conversationId,
-          error: releaseErr?.message ?? String(releaseErr),
-        })
-      }
     }
   })
 
   console.log('[sms/inbound] step 11 — returning empty TwiML ack (work continues in after())')
   return ackTwiml()
- } catch (err: any) {
+ } catch (err: unknown) {
   console.error('[sms/inbound] UNHANDLED error', {
-    message: err?.message,
-    name: err?.name,
-    stack: err?.stack?.split('\n').slice(0, 8).join('\n'),
+    message: (err instanceof Error ? err.message : undefined),
+    name: (err instanceof Error ? err.name : undefined),
+    stack: (err instanceof Error ? err.stack : undefined)?.split('\n').slice(0, 8).join('\n'),
   })
   return new Response(
-    JSON.stringify({ error: err?.message ?? String(err) }),
+    JSON.stringify({ error: (err instanceof Error ? err.message : undefined) ?? String(err) }),
     { status: 500, headers: { 'Content-Type': 'application/json' } },
   )
  }
@@ -4812,7 +4781,7 @@ async function maybeHandleTradieRegistration(args: {
   }
 
   // 6. Build the SMS body. Welcome on first-touch, reminder on re-text.
-  const appUrl = process.env.APP_URL ?? 'https://quote-mate-rho.vercel.app'
+  const appUrl = publicWebOrigin()
   const body = intent.reused
     ? buildTradieIntentStillOpenSms({ appUrl, token: intent.token, code: smsCode ?? undefined })
     : buildTradieWelcomeSms({ appUrl, token: intent.token, code: smsCode ?? undefined })
@@ -4846,10 +4815,10 @@ async function maybeHandleTradieRegistration(args: {
           reason: result.reason,
         })
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[sms/inbound] tradie outbound SMS threw', {
         conversationId,
-        message: e?.message ?? String(e),
+        message: (e instanceof Error ? e.message : undefined) ?? String(e),
       })
     }
   })

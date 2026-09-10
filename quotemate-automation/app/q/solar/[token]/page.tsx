@@ -33,6 +33,8 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import type { SolarEstimate } from '@/lib/solar/types'
 import { resolveSolarQuoteView } from '@/lib/solar/quote-page-row'
 import { buildSolarTierCards } from '@/lib/solar/tier-cards'
@@ -131,10 +133,11 @@ export default async function SolarQuotePage({
     .eq('public_token', token)
     .maybeSingle()
 
-  if (error || !data) notFound()
+  if (error) return <QuoteUnavailable correlationId={quoteReadFailure('solar', error)} />
+  if (!data) notFound()
   const row = data as Row
   const estimate = row.estimate
-  if (!estimate) notFound()
+  if (!estimate) return <QuoteUnavailable correlationId={quoteReadFailure('solar', { code: 'MISSING_ESTIMATE' })} />
 
   // Tradie identity for the letterhead (logo + Contact/Phone/Email strip).
   // Best-effort: null tenant_id or a pre-141 deploy simply hides the strip.

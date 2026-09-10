@@ -1,0 +1,101 @@
+{
+  "completed": true,
+  "results": [
+    {
+      "passed": true,
+      "requestId": "22222222-2222-4222-8222-222222222222",
+      "workId": "04913842-35df-4774-8882-72828898526e",
+      "uploadId": "29a7ee83-af10-4f1d-a27a-fb4dcdc07fe1",
+      "extractionId": "e6bf8873-bdf7-4894-a867-05d214fef95a",
+      "token": "992c677ee7585589f04115b7e003b3ed",
+      "totalIncGst": 242,
+      "ownerTaskId": "9c876d91-f111-46fb-88ee-474ab8481de4",
+      "statusOutboxId": "c3585b3f-ddf5-4be8-b546-eed6f7f8e8dc",
+      "statusTranscriptId": "9383eab2-867d-4b92-945f-679ac70fb2cc",
+      "approvalOutboxId": "83c2dd07-2582-4c26-887f-62c5980cdcc2",
+      "approvalTranscriptId": "27a63509-f15b-46ec-b338-23718141ec5f",
+      "sameConversation": {
+        "outboxId": "4bc751eb-8817-4835-a571-7c5c09efd0d7",
+        "conversationId": "33333333-3333-4333-8333-333333333333",
+        "transcriptId": "91f4d617-81dd-4b24-b3e2-ce634c867ae9"
+      },
+      "newConversation": {
+        "outboxId": "b4aa238c-bb0a-47bb-91c7-d43616dab537",
+        "conversationId": "0e748d6f-c724-48fe-9785-b3284fbfde29",
+        "transcriptId": "15158957-5e0b-4d24-a248-9ccb5c7a5bed"
+      }
+    }
+  ],
+  "failedTests": [],
+  "sourceHashes": {
+    "tests/sms-plan-created-release.test.mjs": "aaa58b240b204d0d127b30131857074a5c3c411854e01010e6da2c03f194405d",
+    "scripts/sms-plan-created-release-fixture.mjs": "bd7a524b16f08d8a02a6ef7b8c30638451972df0d59952ba844962f5d8359446",
+    "scripts/vitest-sms-plan-created-release.config.mjs": "ff7b6574db7b2fa3c01caa0548ec6a156682e617374029dc5d3a864f962d6f14",
+    "scripts/sms-owner-release-fixture.mjs": "b011f17e5f74398ff5a787b31d5544a64a84c4cdb6c6cce4f527ee5d248cd296",
+    "scripts/sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+    "app/api/upload/plan/[token]/route.ts": "1fcff80fd57fb7fb7d7bdaa08da1d25c08c456bf417593d8c2382df00ca83ff6",
+    "lib/estimation/plan-work.ts": "bf00a3c54b7c2acc8d3d781ee3300d486266065bc598095bec69efe9c1c94f90",
+    "lib/estimation/sms-run.ts": "cf933efc2feb4aa8d7c9ca48fbd282aee4420a82e867aa9a6beb3abaee0471f8",
+    "lib/estimation/pricing-context.ts": "42cca687a13b20f95598cd7546337ce09df2c7bac026204ade8e09286646cd11",
+    "lib/estimation/price.ts": "04401c8be33440ad4b067278c9e4a1feffc530ba42cafba91b8f60cce2b8f45b",
+    "app/api/tenant/estimator/extract/[id]/route.ts": "2d4d1242322c0ff9daf9286fcda61d21e857292f9c12718edad278b84df8f8f6",
+    "app/api/tenant/estimator/price/route.ts": "512b629928fe43106be1f4cd7e090b274703387abf7b5c681ea22bd1306085b0",
+    "lib/filestore/provision.ts": "bc7650b856dbea4f8f144bfe1b75e1eb798c2486f7b42c468b27541ec02e1e46",
+    "lib/storage/plan-pdf.ts": "6c793a55f792b773a43522889ea04477221980c50cf2c5963ee854f666d938c2",
+    "lib/sms/durable-work.ts": "384684697409da735d716b475a60444859459f4178482ca552b44049cd0f84f9",
+    "lib/sms/durable-outbox.ts": "df8b965e0efd9f0b76e40063d1b9e1da01464deab984d9e9779025826a365871",
+    "lib/sms/human-handoff.ts": "938b9e8fdef0addf9db7ceb324eff796b93e91184f92969b35d5ff6f07a69b6e",
+    "lib/sms/dispatch.ts": "e6229507b3d0fde594985ee4fff19bc4716135cb3be01084d342b14ed37bc10f",
+    "lib/sms/quote-origin-conversation.ts": "77e232c23eb34c1515e244391123678c584a886addde436975a41820007b8d83",
+    "lib/sms/quote-actions.ts": "443bbef14835115622808404075595caa3a4d07b2cfc4b9d0080019c888579c6",
+    "lib/sms/quote-review.ts": "17ee50b428bd0155e330582180c0a73a146add3c0d4b0c8965c068c3b98f04a5",
+    "app/api/sms/quote-release/route.ts": "78c60eaa346046e8bf28f32b35952a4d8f80a95cff76393a8fd388d0c6b0bfcb",
+    "app/q/plan/[token]/page.tsx": "3b248da4d994192b080e6fedad6954c2ebc06b0360f930acbf9b9d1592f1d01e",
+    "sql/migrations/198_sms_durable_work.sql": "61fa08fd34d3a308bf983d87571d4e4a527159b03d548c083213fa500d500410",
+    "sql/migrations/199_sms_delivery_outbox.sql": "4692464f2e96a84066c06bf38ced1fec1a0b8a3ea40aaebe849921fc4e482e40",
+    "sql/migrations/201_sms_trade_quote_contract.sql": "582c21e49397faa4bcc6559dbe3fc98734a29567335ba4ae0bb0e3dfac8caae0",
+    "sql/migrations/202_job_quote_operations.sql": "fca26595e4eb06777ab166815f33ce4130147feba508a57b2c97113472bc03d9",
+    "sql/migrations/205_generic_quote_customer_release.sql": "9ac29c9570b229d99699002f5c339e815ed40dd15d20860d2f6e5db50e1f7c31",
+    "sql/migrations/207_quote_pricing_versions.sql": "c93834f4c80c40a35a6bc2d85eef7ddbe03d59bb1e8f25cbd95854cd30ffdfe2",
+    "sql/migrations/210_sms_plan_work.sql": "061631fce3d847230ef9f4568a95428ba91116132e9e0d51b07cfb3ab352cb8c",
+    "sql/migrations/211_commercial_quote_release_guard.sql": "7b0b2f0892fd1fe67489a1d8a731ae518591347e0fc0b88763421e6e3676c909",
+    "sql/migrations/212_plan_quote_release_guard.sql": "4046d1bb6687c99025ad5e2e42692c66dc58906cc90e6f875ebe1ba68d5887d9",
+    "sql/migrations/215_generic_release_snapshot.sql": "43b8d452909c4128f3c45bab270399dca9c839d5d154d81720302cd532c8f2df",
+    "sql/migrations/217_final_quote_credit_settlement.sql": "90f64159234f20456e7cfe4efbf65f23f028c0de0c4e0f46e4e5ec949f12c6d0"
+  },
+  "limits": [
+    "Actual multipart upload, migration210 receipt/fenced worker, electrical loader/pricer, saved extraction, human task, owner quantity PATCH/reprice/release201, public page and outbox/reference paths share local rows.",
+    "Only an existing owned upload invitation/conversation, tenant rate book and assembly are seeded; extraction and priced BOM are created by actual worker code.",
+    "Model extraction response, private storage service, PDF branding, verified owner identity and carrier acceptance are fixtures. Actual storage wrapper round-trips the uploaded bytes.",
+    "No PDF report generation, filestore, browser-only overlays, live model/provider, production PostgREST/RLS, original SMS upload invitation or actual carrier delivery.",
+    "Single local PGlite connection; no multiconnection contention or process kill. Named source hashes are not the entire import closure."
+  ],
+  "generatedAt": "2026-09-09T07:32:45.639Z",
+  "carrierCalls": 5,
+  "modelCalls": [
+    {
+      "sha256": "216b578238adfdff81447a75ca08d28e5d5c06abd64ccc80189f3ffbcfddbcff",
+      "sheetHint": ""
+    }
+  ],
+  "pricingCalls": 2,
+  "storageUploads": [
+    {
+      "bucket": "plan-pdfs",
+      "path": "22222222-2222-4222-8222-222222222222/216b578238adfdff81447a75ca08d28e5d5c06abd64ccc80189f3ffbcfddbcff/plan.pdf",
+      "size": 55
+    },
+    {
+      "bucket": "plan-pdfs",
+      "path": "22222222-2222-4222-8222-222222222222/216b578238adfdff81447a75ca08d28e5d5c06abd64ccc80189f3ffbcfddbcff/plan.pdf",
+      "size": 55
+    }
+  ],
+  "storageDownloads": [
+    {
+      "bucket": "plan-pdfs",
+      "path": "22222222-2222-4222-8222-222222222222/216b578238adfdff81447a75ca08d28e5d5c06abd64ccc80189f3ffbcfddbcff/plan.pdf"
+    }
+  ],
+  "unexpected": []
+}

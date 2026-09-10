@@ -41,7 +41,7 @@ export function canShowPaintingPrices(input: PaintingPublishGateInput): Painting
     return {
       showPrices: false,
       reason:
-        'Your painter is finalising your quote and will send the prices through shortly.',
+        'Your painting draft is saved and awaiting your painter’s review and approval. The prices have not been released yet.',
     }
   }
   return { showPrices: true, reason: null }

@@ -1,6 +1,6 @@
 // GET /api/tenant/payouts — the Payouts tab's data source.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 
 const h = vi.hoisted(() => {
   type Result = { data: unknown; error: unknown }
@@ -30,9 +30,14 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.client }))
 import { GET, toPayoutJob } from './route'
 
 beforeEach(() => {
+  // These cases exercise DB-only shaping; host credentials must never enable
+  // optional Stripe enrichment in an otherwise isolated route fixture.
+  vi.stubEnv('STRIPE_SECRET_KEY', '')
   h.results.length = 0
   h.getUser.mockReset()
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 function req(withAuth = true) {
   return new Request('http://localhost/api/tenant/payouts', {

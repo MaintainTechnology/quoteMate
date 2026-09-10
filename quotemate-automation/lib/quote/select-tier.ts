@@ -38,7 +38,10 @@ export function resolveTierSelection(args: {
   const picked = tiers[tier]
   const subtotal =
     picked && typeof picked.subtotal_ex_gst === 'number' ? picked.subtotal_ex_gst : 0
-  if (subtotal <= 0) return { ok: false, error: 'tier_not_priced' }
+  if (!Number.isFinite(subtotal) || subtotal <= 0) return { ok: false, error: 'tier_not_priced' }
   const totalIncGst = +(subtotal * (gstRegistered ? 1.1 : 1.0)).toFixed(2)
+  if (!Number.isFinite(totalIncGst) || !Number.isSafeInteger(Math.round(totalIncGst * 100))) {
+    return { ok: false, error: 'tier_not_priced' }
+  }
   return { ok: true, selectedTier: tier, totalIncGst }
 }

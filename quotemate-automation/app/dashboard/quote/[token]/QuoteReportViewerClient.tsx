@@ -44,9 +44,11 @@ type Tier = {
 
 export default function QuoteReportViewerClient(props: {
   quoteId: string
+  reviewVersion?: string
+  sentBefore?: boolean
   shareToken: string
   trade: string
-  gstRegistered: boolean
+  gstRegistered: boolean | null
   needsInspection: boolean
   paid: boolean
   /** Phase 1 living-document editor — flag-gated (default off ⇒ current viewer). */
@@ -96,7 +98,6 @@ export default function QuoteReportViewerClient(props: {
 }) {
   const {
     quoteId,
-    shareToken,
     trade,
     gstRegistered,
     needsInspection,
@@ -235,6 +236,8 @@ export default function QuoteReportViewerClient(props: {
               />
             )}
             <SendQuotePanel
+              reviewVersion={props.reviewVersion}
+              sentBefore={props.sentBefore}
               quoteId={quoteId}
               customerPhone={customerPhone ?? null}
               customerEmail={customerEmail ?? null}
@@ -358,7 +361,7 @@ export default function QuoteReportViewerClient(props: {
       </div>
 
       {/* ─── Hidden editor: owns auth + grounding + save; toolbar drives it ─── */}
-      {capabilities.manualEdit && (
+      {capabilities.manualEdit && gstRegistered !== null && (
         <TradieEditor
           quoteId={quoteId}
           gstRegistered={gstRegistered}

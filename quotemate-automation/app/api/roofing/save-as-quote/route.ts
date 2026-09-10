@@ -34,6 +34,7 @@ import { SaveAsQuoteRequestSchema } from '@/lib/roofing/save-as-quote-schema'
 import type { RoofMetrics, RoofingQuotePrice } from '@/lib/roofing/types'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
 import { loadTenantRoofingPricingContext } from '@/lib/roofing/pricing-authority'
+import { publicWebUrl } from '@/lib/sms/public-origin'
 
 export const dynamic = 'force-dynamic'
 
@@ -156,15 +157,24 @@ export async function POST(req: Request) {
   // loses the claim can return the winner's token even while the winner's
   // insert is still in flight.
   const shareToken = generateShareToken()
-  const existingResponse = (quoteId: string | null, token: string) => {
-    const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const existingResponse = async (_quoteId: string | null, token: string) => {
+    const { data: persisted, error: readError } = await supabase.from('quotes')
+      .select('id,share_token').eq('tenant_id', tenant.id).eq('share_token', token).maybeSingle()
+    if (readError) return Response.json({ ok: false, error: 'promotion_lookup_unavailable' }, { status: 503 })
+    // A competing worker can have claimed a token without yet saving a quote.
+    // Return a retryable status until the persisted row actually exists.
+    if (!persisted?.id || !persisted.share_token) return Response.json({ ok: false, error: 'promotion_pending' }, { status: 409 })
+    const { error: linkError } = await supabase.from('roofing_measurements')
+      .update({ quote_id: persisted.id })
+      .eq('measure_token', measure_token!).eq('tenant_id', tenant.id).eq('quote_share_token', token)
+    if (linkError) return Response.json({ ok: false, error: 'roofing_link_failed' }, { status: 503 })
     return Response.json(
       {
         ok: true,
         existing: true,
-        quoteId,
+        quoteId: persisted.id,
         shareToken: token,
-        shareUrl: origin ? `${origin}/q/${token}` : `/q/${token}`,
+        shareUrl: publicWebUrl(`/q/${token}`),
       },
       { status: 200 },
     )
@@ -339,9 +349,8 @@ export async function POST(req: Request) {
     source: 'roofing/save-as-quote',
   })
 
-  // ── 3. Stamp the quote id onto the claimed measurement (best-effort) ──
-  // The share token was already stamped by the claim; a failure here only
-  // costs the loser-race response its quoteId, never the link itself.
+  // Link the draft without releasing customer prices. The owner still reviews
+  // and sends from the editor; existing release evidence is left unchanged.
   if (claimed) {
     const { error: linkErr } = await supabase
       .from('roofing_measurements')
@@ -351,12 +360,12 @@ export async function POST(req: Request) {
       .eq('quote_share_token', shareToken)
     if (linkErr) {
       console.warn('[roofing/save-as-quote] measurement link-back failed', linkErr.message)
+      return Response.json({ ok: false, error: 'roofing_link_failed', quoteId: quoteRow.id }, { status: 503 })
     }
   }
 
   // ── 4. Build the share URL ───────────────────────────────────────
-  const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? ''
-  const shareUrl = origin ? `${origin}/q/${quoteRow.share_token}` : `/q/${quoteRow.share_token}`
+  const shareUrl = publicWebUrl(`/q/${quoteRow.share_token}`)
 
   return Response.json(
     {

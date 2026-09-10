@@ -9,8 +9,9 @@
 // never prices anything. Auth: bearer pattern as /api/aircon/recommend.
 
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'node:crypto'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
-import { saveAirconRecommendation, supabaseUserIdFor } from '@/lib/aircon/save-recommendation'
+import { AirconRequestConflict, airconReplayResponse, airconRequestFingerprint, readAirconRequestReplay, saveAirconRecommendation, supabaseUserIdFor } from '@/lib/aircon/save-recommendation'
 import { AcAddressSchema, AcInputsSchema, AcRequestIdSchema } from '@/lib/aircon/request-schema'
 import { climateZoneForPostcode } from '@/lib/aircon/climate'
 import { sizeAircon } from '@/lib/aircon/sizing'
@@ -94,6 +95,14 @@ export async function POST(req: Request) {
       : null
   if (requestIdParsed && !requestIdParsed.success) return bad('invalid_request_id', 400)
   const requestId = requestIdParsed?.success ? requestIdParsed.data : undefined
+  const planBytes = new Uint8Array(await file.arrayBuffer())
+  const requestFingerprint = airconRequestFingerprint({ kind: 'plan', address, inputs, mediaType, planSha256: createHash('sha256').update(planBytes).digest('hex') })
+  try {
+    const previous = await readAirconRequestReplay(supabase, { tenantId: auth.tenantId, requestId, secret: process.env.SUPABASE_SERVICE_ROLE_KEY, fingerprint: requestFingerprint })
+    if (previous) return Response.json(airconReplayResponse(previous))
+  } catch (error) {
+    return bad(error instanceof AirconRequestConflict ? 'request_id_conflict' : 'saved_request_unavailable', error instanceof AirconRequestConflict ? 409 : 503)
+  }
 
   const pricing = auth.tenantId
     ? await loadTenantAcPricingContext(supabase, auth.tenantId, auth.primaryTrade)
@@ -102,7 +111,6 @@ export async function POST(req: Request) {
   const { zone, note } = climateZoneForPostcode(address.postcode, address.state)
 
   // Vision read of the plan and Google location evidence are independent.
-  const planBytes = new Uint8Array(await file.arrayBuffer())
   const [extractionSettled, location] = await Promise.all([
     runPlanExtraction({ data: planBytes, mediaType: mediaType as PlanMediaType }).then(
       (r) => ({ ok: true as const, r }),
@@ -173,7 +181,17 @@ export async function POST(req: Request) {
 
   // Persist for the Quotes tab + customer share page (migration 144) — the
   // plan branch surfaces on the dashboard exactly like the form-only branch.
-  const saved =
+  const responseContext = {
+    ok: true, request_id: requestId ?? null, climate_zone: zone, climate_note: note, location,
+    plan: {
+      filename: file.name, page: extraction.parsed.page, model: extraction.model,
+      runtime_seconds: extraction.runtimeSeconds, rooms: resolved.rooms, dimensioned: resolved.dimensioned,
+      total_area_m2: resolved.total_area_m2, stated_total_area_m2: extraction.parsed.stated_total_area_m2,
+      overall_note: extraction.parsed.overall_note, notes: resolved.notes, warnings: resolved.warnings,
+    }, design,
+  }
+  let saved
+  try { saved =
     recommendation.pricing_status === 'priced'
       ? await saveAirconRecommendation(supabase, {
           tenantId: auth.tenantId,
@@ -182,8 +200,13 @@ export async function POST(req: Request) {
           recommendation,
           requestId,
           idempotencySecret: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          requestFingerprint,
+          responseContext,
         })
       : null
+  } catch (error) {
+    return bad(error instanceof AirconRequestConflict ? 'request_id_conflict' : 'pricing_persistence_failed', error instanceof AirconRequestConflict ? 409 : 503)
+  }
 
   if (recommendation.pricing_status === 'priced' && !saved) {
     return bad('pricing_persistence_failed', 503)
@@ -191,27 +214,9 @@ export async function POST(req: Request) {
 
   return Response.json(
     {
-      ok: true,
-      request_id: requestId ?? null,
-      climate_zone: zone,
-      climate_note: note,
-      location,
-      plan: {
-        filename: file.name,
-        page: extraction.parsed.page,
-        model: extraction.model,
-        runtime_seconds: extraction.runtimeSeconds,
-        rooms: resolved.rooms,
-        dimensioned: resolved.dimensioned,
-        total_area_m2: resolved.total_area_m2,
-        stated_total_area_m2: extraction.parsed.stated_total_area_m2,
-        overall_note: extraction.parsed.overall_note,
-        notes: resolved.notes,
-        warnings: resolved.warnings,
-      },
-      design,
-      recommendation,
-      saved,
+      ...(saved?.requestReceipt?.responseContext ?? responseContext),
+      recommendation: saved?.recommendation ?? recommendation,
+      saved: saved ? { id: saved.id, public_token: saved.public_token } : null,
     },
     { status: 200 },
   )

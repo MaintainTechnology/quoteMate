@@ -1,19 +1,8 @@
 'use client'
 
-// Tradie "Send to customer" action on the /p review page. Releases the
-// painting quote (stamps released_at + texts the customer their full quote)
-// via POST /api/painting/release/[estimate_token]. Idempotent server-side, so
-// a double-click never re-texts; the button just reflects the sent state.
-//
-// Painting auto-sends now (spec painting-auto-send), so a row usually arrives
-// here already released — this button is the RESEND after an edit and the
-// RETRY when an auto-send failed. It shows "Sent" ONLY when the response says
-// `sent === true`: the route used to fire the SMS in after() and answer
-// ok:true regardless, which is how 3 of 8 live releases reported a send that
-// never happened. A retry re-posts with { resend: true } so it still delivers
-// if the row was left released.
-
+// Authenticated approval and delivery recovery for the saved painting quote.
 import { useEffect, useRef, useState } from 'react'
+import { getAuthToken } from '@/lib/auth/client-token'
 
 export function SendToCustomerButton({
   estimateToken,
@@ -33,19 +22,20 @@ export function SendToCustomerButton({
   // { resend: true }; the server sends without restamping released_at.
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resendRequestId = useRef<string | null>(null)
   useEffect(() => () => { if (resetTimer.current) clearTimeout(resetTimer.current) }, [])
 
-  const send = async (retry = false) => {
+  const send = async () => {
     setState('sending')
     setErr(null)
     try {
+      const token = await getAuthToken()
+      if (!token) throw new Error('Sign in to review and send this quote.')
       const res = await fetch(`/api/painting/release/${estimateToken}`, {
-        method: 'POST',
-        ...(retry
-          ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ resend: true }) }
-          : {}),
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
       })
       const j = await res.json()
+      if (typeof j.reviewUrl === 'string' && j.reviewUrl.startsWith('/dashboard/quote-review?')) { window.location.assign(j.reviewUrl); return }
       // "Sent" requires proof the SMS went out — ok alone is not proof.
       if (j.ok && j.sent === true) setState('sent')
       else {
@@ -53,7 +43,7 @@ export function SendToCustomerButton({
         setErr(
           j.error
             ? String(j.error)
-            : 'The customer was NOT texted — nothing was sent. Try again.',
+            : 'Delivery is not confirmed. Check SMS delivery recovery before retrying.',
         )
       }
     } catch (e) {
@@ -69,18 +59,22 @@ export function SendToCustomerButton({
     setResendState('sending')
     setErr(null)
     try {
+      const token = await getAuthToken()
+      if (!token) throw new Error('Sign in to resend this quote.')
+      resendRequestId.current ??= crypto.randomUUID()
       const res = await fetch(`/api/painting/release/${estimateToken}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ resend: true }),
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ resend: true, requestId: resendRequestId.current }),
       })
       const j = await res.json()
       if (j.ok && j.sent === true) {
         setResendState('done')
+        resendRequestId.current = null
         resetTimer.current = setTimeout(() => setResendState('idle'), 4000)
       } else {
         setResendState('error')
-        setErr(j.error ? String(j.error) : 'The customer was NOT texted — nothing was sent.')
+        setErr(j.error ? String(j.error) : 'Delivery is not confirmed. Check SMS delivery recovery before retrying.')
       }
     } catch (e) {
       setResendState('error')
@@ -116,11 +110,11 @@ export function SendToCustomerButton({
         type="button"
         // A retry after a failed send asks for a resend, so it still delivers
         // if that attempt left the row released.
-        onClick={() => send(state === 'error')}
+        onClick={() => send()}
         disabled={state === 'sending'}
         className="inline-flex items-center gap-2 bg-accent px-6 py-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {state === 'sending' ? 'Sending…' : (<>Send to customer <span aria-hidden="true">&rarr;</span></>)}
+        {state === 'sending' ? 'Sending…' : (<>Review and send <span aria-hidden="true">&rarr;</span></>)}
       </button>
       {err && <span className="text-sm text-warning">{err}</span>}
     </span>

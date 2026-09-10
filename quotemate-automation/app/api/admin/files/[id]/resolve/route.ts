@@ -6,6 +6,7 @@ import {
   adminFromBearer,
   getFileDocMeta,
   setThreadResolved,
+  ThreadResolutionError,
 } from '@/lib/filestore/comments'
 
 export const dynamic = 'force-dynamic'
@@ -26,6 +27,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     body = {}
   }
   const resolved = !!(body as { resolved?: unknown } | null)?.resolved
-  const state = await setThreadResolved(id, resolved, 'admin')
-  return Response.json({ ok: true, ...state })
+  try {
+    const state = await setThreadResolved(id, resolved, 'admin', doc.tenant_id)
+    return Response.json({ ok: true, ...state })
+  } catch (error) {
+    if (error instanceof ThreadResolutionError && error.code === 'not_found') {
+      return Response.json({ error: 'not_found' }, { status: 404 })
+    }
+    return Response.json({ error: 'thread_resolution_failed' }, { status: 503 })
+  }
 }

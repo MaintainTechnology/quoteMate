@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
 import Link from 'next/link'
 import { getAuthToken } from '@/lib/auth/client-token'
+import { useFollowupBrowserOperations } from '@/lib/quote/use-followup-browser-operations'
 import { CATEGORIES } from '@/lib/estimate/categories'
 import { materialCategoriesFor } from '@/lib/estimate/material-vocabulary'
 import {
@@ -14019,6 +14020,7 @@ function FollowupsTab({
   accessToken: string | null
   onGoToCalendar: () => void
 }) {
+  const followupOperations = useFollowupBrowserOperations('followup-queue')
   const [rows, setRows] = useState<FollowupItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -14200,40 +14202,13 @@ function FollowupsTab({
     setCallBusy(rowId)
     clearRowMsg(rowId)
     try {
-      const token = (await getAuthToken()) ?? accessToken
-      const res = await fetch('/api/tenant/followups/call', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(
-          item.kind === 'lead'
-            ? { conversationId: item.conversation_id }
-            : { quoteId: item.quote_id },
-        ),
+      if (!item.customer.phone) throw new Error('Refresh this customer and review their phone number before calling.')
+      const operation = await followupOperations.submit('call', {
+        ...(item.kind === 'lead' ? { conversationId: item.conversation_id! } : { quoteId: item.quote_id! }),
+        expectedRecipient: item.customer.phone,
       })
-      const json = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        message?: string
-        error?: string
-      }
-      if (!res.ok || !json.ok) {
-        setRowMsg(
-          rowId,
-          'err',
-          json.message ||
-            json.error ||
-            `Couldn't start the call (HTTP ${res.status}).`,
-        )
-        return
-      }
-      setRowMsg(
-        rowId,
-        'ok',
-        'Calling — your phone will ring, then we connect the customer.',
-      )
-      if (item.kind === 'quote') bumpHistory(rowId)
+      setRowMsg(rowId, operation.accepted ? 'ok' : 'err', operation.message)
+      if (operation.history === 'complete' && item.kind === 'quote') bumpHistory(rowId)
     } catch (e) {
       setRowMsg(
         rowId,
@@ -14243,6 +14218,18 @@ function FollowupsTab({
     } finally {
       setCallBusy(null)
     }
+  }
+
+  async function checkCallStatus(item: FollowupItem) {
+    const rowId = followupRowId(item)
+    setCallBusy(rowId)
+    try {
+      const operation = await followupOperations.recover('call', item.kind === 'lead'
+        ? { conversationId: item.conversation_id! } : { quoteId: item.quote_id! })
+      setRowMsg(rowId, operation?.accepted ? 'ok' : 'err', operation?.message ?? 'No saved call request on this browser.')
+      if (operation?.history === 'complete' && item.kind === 'quote') bumpHistory(rowId)
+    } catch (error) { setRowMsg(rowId, 'err', error instanceof Error ? error.message : 'Status unavailable.') }
+    finally { setCallBusy(null) }
   }
 
   // Filter state is derived with hooks, so it MUST be computed before the
@@ -14521,7 +14508,7 @@ function FollowupsTab({
                       onClick={() => void startCall(f)}
                       className="rounded-ctl inline-flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-press text-white text-[0.62rem] uppercase tracking-[0.08em] font-bold px-3 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {calling ? 'Ringing…' : 'Call'}
+                      {calling ? 'Working…' : 'Call'}
                     </button>
                     <button
                       type="button"
@@ -14535,6 +14522,10 @@ function FollowupsTab({
                       Text
                     </button>
                   </div>
+                  <button type="button" disabled={calling} onClick={() => void checkCallStatus(f)}
+                    className="text-xs text-text-sec min-h-[40px] underline disabled:opacity-50">
+                    Check call status
+                  </button>
                   {!hasPhone && (
                     <span className=" text-[0.6rem] uppercase tracking-[0.08em] text-warning-bright">
                       No phone on file
@@ -14632,29 +14623,12 @@ function FollowupsTab({
                 <FollowupLogForm
                   quoteId={f.quote_id}
                   accessToken={accessToken}
+                  preserveChase={isDone}
                   onCancel={() =>
                     setLogFor((s) => ({ ...s, [rowId]: false }))
                   }
-                  onLogged={(evt) => {
-                    const nowIso = new Date().toISOString()
-                    setRows((prev) =>
-                      prev
-                        ? prev.map((r) =>
-                            r.quote_id === f.quote_id
-                              ? {
-                                  ...r,
-                                  followed_up_at: nowIso,
-                                  followup_reason: `Contacted — ${
-                                    (evt.outcome &&
-                                      OUTCOME_LABELS[evt.outcome]) ||
-                                    'logged'
-                                  }`,
-                                  followup_note: evt.note ?? r.followup_note,
-                                }
-                              : r,
-                          )
-                        : prev,
-                    )
+                  onLogged={() => {
+                    void load()
                     setLogFor((s) => ({ ...s, [rowId]: false }))
                     setHistoryOpen((s) => ({ ...s, [rowId]: true }))
                     setHistoryRefresh((s) => ({
@@ -14706,13 +14680,13 @@ function FollowupsTab({
           item={composeFor}
           accessToken={accessToken}
           onClose={() => setComposeFor(null)}
-          onSent={(sentItem, channel) => {
+          onSent={(sentItem) => {
             const id = followupRowId(sentItem)
             setComposeFor(null)
             setRowMsg(
               id,
               'ok',
-              channel === 'whatsapp' ? 'Sent via WhatsApp ✓' : 'Text sent ✓',
+              'Message request accepted; history saved.',
             )
             if (sentItem.kind === 'quote') bumpHistory(id)
           }}
@@ -14763,47 +14737,39 @@ type FollowupEvent = {
 function FollowupLogForm({
   quoteId,
   accessToken,
+  preserveChase,
   onCancel,
   onLogged,
 }: {
   quoteId: string
   accessToken: string | null
+  preserveChase: boolean
   onCancel: () => void
-  onLogged: (evt: FollowupEvent) => void
+  onLogged: () => void
 }) {
+  const operations = useFollowupBrowserOperations(`note:${quoteId}`)
   const [outcome, setOutcome] = useState<string>('spoke')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let current = true
+    void operations.recover('note', { quoteId }).then(operation => {
+      if (current && operation) setErr(operation.message)
+    }).catch(error => { if (current) setErr(error instanceof Error ? error.message : 'Status unavailable.') })
+    return () => { current = false }
+  }, [operations, quoteId])
 
   async function save() {
     if (!accessToken || saving) return
     setSaving(true)
     setErr(null)
     try {
-      const token = (await getAuthToken()) ?? accessToken
-      const res = await fetch('/api/tenant/followups/events', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quoteId,
-          kind: 'note',
-          outcome,
-          note: note.trim() || undefined,
-        }),
-      })
-      const json = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        event?: FollowupEvent
-        error?: string
-      }
-      if (!res.ok || !json.event) {
-        throw new Error(json.error || `HTTP ${res.status}`)
-      }
-      onLogged(json.event)
+      const operation = await operations.submit('note', { quoteId, kind: 'note', outcome,
+        note: note.trim() || undefined, preserveChase })
+      if (operation.status !== 'complete' || !operation.eventId) throw new Error(operation.message)
+      onLogged()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -14831,6 +14797,7 @@ function FollowupLogForm({
               name={`outcome-${quoteId}`}
               value={o.value}
               checked={outcome === o.value}
+              disabled={saving}
               onChange={() => setOutcome(o.value)}
               className="accent-accent"
             />
@@ -14844,6 +14811,7 @@ function FollowupLogForm({
         </span>
         <textarea
           value={note}
+          disabled={saving}
           onChange={(e) => setNote(e.target.value.slice(0, 500))}
           placeholder="e.g. Wants to decide by Friday — call back after 3pm"
           rows={2}
@@ -14859,11 +14827,17 @@ function FollowupLogForm({
           onClick={() => void save()}
           className="bg-accent hover:bg-accent-press text-white text-[0.62rem] uppercase tracking-[0.08em] font-bold px-4 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-60"
         >
-          {saving ? 'Saving…' : 'Save touch'}
+          {saving ? 'Working…' : 'Save touch'}
         </button>
+        <button type="button" disabled={saving} className="text-xs text-text-sec min-h-[40px] underline disabled:opacity-50"
+          onClick={() => {
+            setSaving(true)
+            void operations.recover('note', { quoteId }).then(operation => setErr(operation?.message ?? 'No saved touch request on this browser.'))
+              .catch(error => setErr(error instanceof Error ? error.message : 'Status unavailable.')).finally(() => setSaving(false))
+          }}>Check status</button>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={() => { if (!note.trim() || window.confirm('Discard this unsaved touch note?')) onCancel() }}
           disabled={saving}
           aria-busy={saving}
           className="rounded-card border border-ink-line bg-ink-card hover:bg-ink-deep text-text-sec hover:text-text-pri text-[0.62rem] uppercase tracking-[0.08em] font-bold px-4 py-2 min-h-[40px] transition-colors cursor-pointer disabled:opacity-60"
@@ -15015,13 +14989,11 @@ function FollowupTextModal({
   onClose: () => void
   onSent: (item: FollowupItem, channel: 'sms' | 'whatsapp') => void
 }) {
+  const operations = useFollowupBrowserOperations(`text:${followupRowId(item)}`)
   const firstName = item.customer.first_name || ''
   const jobLabel = fmtJobType(item.job_type)
-  const amount =
-    item.total_inc_gst != null ? fmtAUD(item.total_inc_gst) : null
   const defaultMsg =
-    `Hi ${firstName || 'there'}, just following up on your ${jobLabel} quote` +
-    `${amount ? ` (${amount} inc GST)` : ''}. Happy to answer any questions ` +
+    `Hi ${firstName || 'there'}, just following up on your ${jobLabel} ${item.kind === 'lead' ? 'enquiry' : 'quote'}. Happy to answer any questions ` +
     `or lock in a time — just reply to this message.`
   const [text, setText] = useState(defaultMsg)
   const [sending, setSending] = useState(false)
@@ -15030,41 +15002,27 @@ function FollowupTextModal({
   const trimmed = text.trim()
   const segments = trimmed.length === 0 ? 0 : Math.ceil(trimmed.length / 153)
 
+  useEffect(() => {
+    let current = true
+    const target = item.kind === 'lead' ? { conversationId: item.conversation_id! } : { quoteId: item.quote_id! }
+    void operations.recover('text', target).then(operation => {
+      if (current && operation) setErr(operation.message)
+    }).catch(error => { if (current) setErr(error instanceof Error ? error.message : 'Status unavailable.') })
+    return () => { current = false }
+  }, [operations, item.kind, item.quote_id, item.conversation_id])
+
   async function send() {
     if (!trimmed || sending) return
     setSending(true)
     setErr(null)
     try {
-      // Dual-auth: mint a FRESH token immediately before the fetch. The
-      // `accessToken` prop is captured at mount and Clerk's default session
-      // token expires ~60s later (and is null for Clerk users with no
-      // Supabase session), so reusing it here 401s. Fall back to the prop.
-      const token = (await getAuthToken()) ?? accessToken
-      const res = await fetch('/api/tenant/followups/text', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(
-          item.kind === 'lead'
-            ? { conversationId: item.conversation_id, text: trimmed }
-            : { quoteId: item.quote_id, text: trimmed },
-        ),
+      if (!item.customer.phone) throw new Error('Refresh this customer and review their phone number before sending.')
+      const operation = await operations.submit('text', {
+        ...(item.kind === 'lead' ? { conversationId: item.conversation_id! } : { quoteId: item.quote_id! }),
+        text: trimmed, expectedRecipient: item.customer.phone,
       })
-      const json = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        channel?: 'sms' | 'whatsapp'
-        message?: string
-        error?: string
-      }
-      if (!res.ok || !json.ok) {
-        setErr(
-          json.message || json.error || `Couldn't send (HTTP ${res.status}).`,
-        )
-        return
-      }
-      onSent(item, json.channel ?? 'sms')
+      if (!operation.accepted || operation.history !== 'complete') { setErr(operation.message); return }
+      onSent(item, 'sms')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Network error sending the text.')
     } finally {
@@ -15087,7 +15045,7 @@ function FollowupTextModal({
   const overlay = (
     <div
       className="qm-overlay fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
-      onClick={onClose}
+      onClick={() => { if (!sending && (text === defaultMsg || window.confirm('Discard this unsent message?'))) onClose() }}
     >
       <div
         role="dialog"
@@ -15107,7 +15065,8 @@ function FollowupTextModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => { if (text === defaultMsg || window.confirm('Discard this unsent message?')) onClose() }}
+            disabled={sending}
             className="text-text-dim hover:text-text-pri font-mono text-sm cursor-pointer"
             aria-label="Close"
           >
@@ -15156,10 +15115,17 @@ function FollowupTextModal({
             {segments === 1 ? 'segment' : 'segments'}
           </p>
 
-          <div className="mt-4 flex gap-2 justify-end">
+          <div className="mt-4 flex flex-wrap gap-2 justify-end">
+            <button type="button" disabled={sending} className="text-xs text-text-sec min-h-[44px] underline disabled:opacity-50"
+              onClick={() => {
+                setSending(true)
+                const target = item.kind === 'lead' ? { conversationId: item.conversation_id! } : { quoteId: item.quote_id! }
+                void operations.recover('text', target).then(operation => setErr(operation?.message ?? 'No saved message request on this browser.'))
+                  .catch(error => setErr(error instanceof Error ? error.message : 'Status unavailable.')).finally(() => setSending(false))
+              }}>Check status</button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => { if (text === defaultMsg || window.confirm('Discard this unsent message?')) onClose() }}
               disabled={sending}
               aria-busy={sending}
               className="rounded-card border border-ink-line bg-ink-card hover:bg-ink-deep text-text-pri text-[0.62rem] uppercase tracking-[0.08em] font-bold px-4 py-2.5 min-h-[44px] transition-colors cursor-pointer disabled:opacity-50"
@@ -15173,7 +15139,7 @@ function FollowupTextModal({
               aria-busy={sending}
               className="bg-accent hover:bg-accent-press text-white text-[0.62rem] uppercase tracking-[0.08em] font-bold px-5 py-2.5 min-h-[44px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {sending ? 'Sending…' : 'Send text'}
+              {sending ? 'Working…' : 'Send text'}
             </button>
           </div>
         </div>

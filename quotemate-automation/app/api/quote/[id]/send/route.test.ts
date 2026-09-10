@@ -7,7 +7,7 @@
 // pure policy (canSendQuote / resolveCustomerContact / buildQuoteEmail) and the
 // SMS template run for real.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const h = vi.hoisted(() => {
   type Result = { data: unknown; error: unknown }
@@ -34,12 +34,18 @@ const h = vi.hoisted(() => {
     return builder
   }
 
-  return { tables, seed, client: { from } }
+  const releases = new Map<string,unknown>()
+  const rpc=vi.fn(async (_name:string,args:{p_outbound?:{deliveryKey?:string}})=>{const key=args.p_outbound?.deliveryKey;if(key && !releases.has(key))releases.set(key,args.p_outbound);return {data:{approved:true,outbound:key?releases.get(key):null,outbox_id:key?'out-1':null},error:null}})
+  return { tables, seed, releases, rpc, client: { from,rpc } }
 })
 
+vi.mock('next/server',()=>({after:vi.fn()}))
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.client }))
 vi.mock('@/lib/tenant/from-request', () => ({ resolveTenantRequest: vi.fn() }))
+vi.mock('@/lib/quote/job-quote-operation', () => ({ readQuoteDraftReadiness: vi.fn() }))
 vi.mock('@/lib/sms/send-quote-pdf', () => ({ dispatchQuoteWithPdf: vi.fn() }))
+// Actual origin ownership is covered separately with the approval handlers.
+vi.mock('@/lib/sms/quote-origin-conversation', () => ({ resolveQuoteOriginConversation: async () => null }))
 vi.mock('@/lib/quote/pdf', () => ({
   ensureQuotePdf: vi.fn(),
   quotePdfUrl: (token: string) => `https://www.quotemax.com.au/api/q/${token}/pdf`,
@@ -49,7 +55,10 @@ vi.mock('@/lib/quote/pdf', () => ({
 vi.mock('@/lib/quote/lifecycle', () => ({ advanceQuoteStatus: vi.fn() }))
 vi.mock('@/lib/email/resend', () => ({ sendEmail: vi.fn() }))
 
+import { quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
 import { POST } from './route'
+import { POST as approveQuote } from '../approve/route'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
 import { dispatchQuoteWithPdf } from '@/lib/sms/send-quote-pdf'
 import { ensureQuotePdf, downloadQuotePdf } from '@/lib/quote/pdf'
@@ -69,7 +78,7 @@ function req(body: unknown) {
   return new Request('http://localhost/api/quote/quote-1/send', {
     method: 'POST',
     headers: { authorization: 'Bearer token-1', 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({expected_revision:quoteCustomerReleaseRevision((h.tables.get('quotes')?.[0]?.data ?? {}) as Record<string,unknown>),...(body && typeof body === 'object' ? body : {})}),
   })
 }
 
@@ -100,6 +109,7 @@ const baseQuote = {
 
 const baseIntake = {
   id: 'intake-1',
+  tenant_id: 'tenant-1',
   caller: { name: 'Jon Smith', phone: '+61411111111', email: 'jon@example.com' },
   suburb: 'Penrith',
   job_type: 'reroof',
@@ -126,21 +136,75 @@ function seedHappyPath(overrides?: { quote?: Record<string, unknown>; intake?: R
 }
 
 beforeEach(() => {
-  h.tables.clear()
+  vi.stubEnv('PUBLIC_WEB_ORIGIN', 'https://www.quotemax.com.au')
+  h.tables.clear();h.releases.clear();h.rpc.mockClear();vi.stubEnv('PUBLIC_WEB_ORIGIN','https://www.quotemax.com.au')
   resolveMock.mockReset()
   dispatchMock.mockReset()
   ensurePdfMock.mockReset()
   downloadPdfMock.mockReset()
   advanceMock.mockReset()
   sendEmailMock.mockReset()
+  vi.mocked(readQuoteDraftReadiness).mockReset().mockResolvedValue({ ready: true })
 
   resolveMock.mockResolvedValue({ identity, tenant })
   ensurePdfMock.mockResolvedValue('quote-pdfs/quote-1.pdf')
   downloadPdfMock.mockResolvedValue(Buffer.from('pdfbytes'))
   advanceMock.mockResolvedValue({ advanced: true, from: 'draft', to: 'sent' })
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe('POST /api/quote/[id]/send', () => {
+  it.each(['quote_draft_processing', 'quote_draft_unconfirmed'] as const)('blocks approval and send while readiness reports %s before provider work', async code => {
+    vi.mocked(readQuoteDraftReadiness).mockResolvedValue({ ready: false, code })
+    for (const handler of [POST, approveQuote]) {
+      seedHappyPath({ quote: { status: 'awaiting_tradie_approval', quote_kind: 'initial' } })
+      const response = await handler(req({ channel: 'sms' }), params)
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ ok: false, error: code })
+      expect(h.tables.get('quotes')).toHaveLength(1)
+    }
+    expect(ensurePdfMock).not.toHaveBeenCalled()
+    expect(dispatchMock).not.toHaveBeenCalled()
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(advanceMock).not.toHaveBeenCalled()
+  })
+
+  it('approve and send recover one saved initial intent before and after a lost response', async () => {
+    seedHappyPath({quote:{status:'awaiting_tradie_approval'}})
+    dispatchMock.mockResolvedValue({ok:false,outboxId:'out-1',smsAttempt:{code:'AMBIGUOUS',reason:'network'}} as never)
+    const approved=await approveQuote(req({}),params)
+    expect(approved.status).toBe(202)
+    const first=dispatchMock.mock.calls[0][0]
+    seedHappyPath({quote:{status:'awaiting_tradie_approval'}})
+    dispatchMock.mockResolvedValue({ok:true,outboxId:'out-1',channel:'sms',sid:'SM-original'} as never)
+    expect((await POST(req({channel:'sms'}),params)).status).toBe(200)
+    expect(dispatchMock.mock.calls[1][0].deliveryKey).toBe(first.deliveryKey)
+    expect(dispatchMock.mock.calls[1][0].text).toBe(first.text)
+    expect(h.releases.size).toBe(1)
+    seedHappyPath({quote:{status:'sent'}})
+    expect((await POST(req({channel:'sms',requestId:'33333333-3333-4333-8333-333333333333'}),params)).status).toBe(200)
+    expect(h.releases.size).toBe(2)
+  })
+  it('does not call the carrier when approval and outbox persistence fail', async () => {
+    seedHappyPath()
+    h.rpc.mockResolvedValueOnce({data:null,error:{code:'08006'}} as never)
+    expect((await POST(req({channel:'sms'}),params)).status).toBe(409)
+    expect(dispatchMock).not.toHaveBeenCalled()
+  })
+  it.each([undefined,'0'.repeat(64)])('refuses first release without the exact displayed revision (%s)',async expected_revision=>{
+    for(const handler of [POST,approveQuote]) {
+      seedHappyPath({quote:{status:'awaiting_tradie_approval'}})
+      const response=await handler(req({channel:'sms',expected_revision}),params)
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({error:'quote_review_required',review_url:'/dashboard/quote/tok_abc12345xyz'})
+    }
+    expect(h.rpc).not.toHaveBeenCalled();expect(dispatchMock).not.toHaveBeenCalled()
+  })
+  it('permits a legacy released resend without adding a new review requirement',async()=>{
+    seedHappyPath({quote:{status:'sent'}})
+    dispatchMock.mockResolvedValue({ok:true,channel:'sms',sid:'SM-old'} as never)
+    expect((await POST(req({channel:'sms',expected_revision:undefined}),params)).status).toBe(200)
+  })
   it('401 when the caller has no resolvable tenant', async () => {
     resolveMock.mockResolvedValue(null)
     const res = await POST(req({ channel: 'sms' }), params)
@@ -197,7 +261,7 @@ describe('POST /api/quote/[id]/send', () => {
     expect(advanceMock).toHaveBeenCalledWith(expect.anything(), 'quote-1', 'sent')
   })
 
-  it('502 on dispatch failure and does NOT advance the status or restamp the price hold', async () => {
+  it('saves approval with pending delivery on dispatch failure without claiming sent', async () => {
     seedHappyPath()
     dispatchMock.mockResolvedValue({
       ok: false,
@@ -205,7 +269,9 @@ describe('POST /api/quote/[id]/send', () => {
     } as never)
 
     const res = await POST(req({ channel: 'sms' }), params)
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(202)
+    expect(await res.json()).toMatchObject({approved:true,accepted:false,outboxId:'out-1'})
+    expect(h.rpc).toHaveBeenCalledWith('approve_generic_quote_release',expect.objectContaining({p_quote_id:'quote-1'}))
     expect(advanceMock).not.toHaveBeenCalled()
     // The seeded quotes queue held [load, hold-update]; a failed dispatch must
     // consume only the load — the hold restamp belongs to a successful send.

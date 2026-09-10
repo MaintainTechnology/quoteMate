@@ -1,17 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 // Painting — tradie notification + customer quote send.
 //
-// Since spec painting-auto-send (2026-08-07) a priced residential painting
-// quote AUTO-SENDS: it is released at save time and the customer is texted
-// the full quote immediately. notifyPaintingTradie still fires on every new
-// job — the tradie learns about it, they are simply no longer a gate. The
-// release endpoint stays for the on-site-edit resend and for RETRYING an
-// auto-send that failed.
-//
-// With no tradie in the loop a dropped send is invisible, so the invariant
-// is: released_at means the customer WAS texted. Every send returns { sent },
-// and a first send that failed rolls the stamp back (revertPaintingRelease)
-// rather than leaving a row that looks delivered.
+// A saved draft requires explicit tradie approval before customer release.
+// released_at authorises public prices; quote_sent_at records provider
+// acceptance, and the durable outbox separately tracks carrier delivery.
+// A failed send must preserve that approval and remain available for recovery.
 //
 // Mirrors lib/solar/notify.ts + lib/solar/release.ts: defensive (never
 // throws), and the tradie SMS send is injectable so the routing is unit-
@@ -20,10 +13,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildPaintingTradieNotification } from '@/lib/sms/painting-compose'
-import { sendSms } from '@/lib/sms/twilio'
+import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
+import { deliveryStatus } from '@/lib/sms/durable-outbox'
+import { publicWebOrigin } from '@/lib/sms/public-origin'
 import { composePaintingQuoteDelivery, type PaintingQuoteDispatch } from './quote-dispatch'
 import type { PaintingEstimate } from './types'
-import type { StripeLinks } from '@/lib/stripe/checkout'
 
 type DispatchResultLike = { ok: boolean }
 type DispatchFn = (opts: { to: string; text: string; from?: string }) => Promise<DispatchResultLike>
@@ -149,14 +143,9 @@ export async function revertPaintingRelease(
 }
 
 /**
- * The auto-send both draft-time origins share (spec painting-auto-send R2/R3):
- * the SMS/voice receptionist and the public self-serve form. Compose the full
- * quote once, hand it to the caller's own transport (each resolves a different
- * from-number and persists the thread differently), then record the outcome:
- *   sent    → stamp quote_sent_at (evidence /p trusts)
- *   NOT sent → revert the release so the row is held and retryable
- * Never throws. The caller still owns the customer fallback message and the
- * tradie notification, because those differ per origin.
+ * Legacy compatibility sender: only an already approved quote may be sent.
+ * Acceptance stamps quote_sent_at. Failure cannot revoke the tradie's approval
+ * or make a previously released link unavailable.
  */
 export async function autoSendPaintingQuote(args: {
   supabase: SupabaseClient
@@ -168,6 +157,11 @@ export async function autoSendPaintingQuote(args: {
   /** Deliver one SMS/MMS. True ONLY when the carrier accepted it. */
   send: (text: string, mmsUrl?: string) => Promise<boolean>
 }): Promise<{ sent: boolean }> {
+  // Compatibility adapter for old form callers. Draft creation cannot release
+  // a customer quote; only the authenticated release endpoint stamps this.
+  const { data: approved, error: approvalError } = await args.supabase.from('painting_measurements')
+    .select('released_at').eq('public_token', args.disp.token).eq('tenant_id', args.tenantId).maybeSingle()
+  if (approvalError || !approved?.released_at) return { sent: false }
   let sent = false
   try {
     const { text, mmsUrl } = await composePaintingQuoteDelivery({
@@ -187,7 +181,6 @@ export async function autoSendPaintingQuote(args: {
   }
 
   if (sent) await markPaintingQuoteSent(args.supabase, args.disp.token)
-  else await revertPaintingRelease(args.supabase, args.disp.token)
 
   return { sent }
 }
@@ -202,31 +195,29 @@ export async function autoSendPaintingQuote(args: {
  */
 export async function sendPaintingQuoteToCustomer(
   supabase: SupabaseClient,
-  args: { estimateToken?: string; publicToken?: string; appUrl: string },
-): Promise<{ sent: boolean }> {
+  args: { estimateToken?: string; publicToken?: string; appUrl: string; tenantId?: string; deliveryKey?: string; requestId?: string },
+): Promise<{ sent: boolean; outboxId?: string; status?: string }> {
   try {
     const tokenCol = args.estimateToken ? 'estimate_token' : 'public_token'
     const tokenVal = args.estimateToken ?? args.publicToken
     if (!tokenVal) return { sent: false }
 
-    const { data: row } = await supabase
+    const { data: row, error: rowError } = await supabase
       .from('painting_measurements')
-      .select('public_token, estimate_token, estimate, customer_phone, tenant_id, routing, address')
+      .select('public_token, estimate_token, estimate, customer_phone, tenant_id, routing, address, released_at')
       .eq(tokenCol, tokenVal)
       .maybeSingle()
-    if (!row || !row.customer_phone || !row.estimate) return { sent: false }
+    if (rowError || !row || !row.customer_phone || !row.estimate || !row.released_at) return { sent: false }
 
     const tenantId = (row.tenant_id as string | null) ?? null
-    let fromNumber: string | null = process.env.TWILIO_SMS_NUMBER ?? null
-    if (tenantId) {
-      const { data: tenant } = await supabase
+    if (!tenantId || (args.tenantId && args.tenantId !== tenantId)) return { sent: false }
+    const { data: tenant, error: tenantError } = await supabase
         .from('tenants')
         .select('twilio_sms_number')
         .eq('id', tenantId)
         .maybeSingle()
-      fromNumber = (tenant?.twilio_sms_number as string | null) ?? fromNumber
-    }
-    if (!fromNumber) return { sent: false }
+    const fromNumber = (tenant?.twilio_sms_number as string | null) ?? null
+    if (tenantError || !fromNumber || !/^\+[1-9]\d{7,14}$/.test(fromNumber)) return { sent: false }
 
     const disp = {
       ok: true as const,
@@ -239,22 +230,26 @@ export async function sendPaintingQuoteToCustomer(
       supabase,
       disp,
       address: (row.address as string | null) ?? 'your property',
-      appUrl: args.appUrl,
+      appUrl: publicWebOrigin(),
       tenantId,
     })
     // sendSms RESOLVES on a Twilio rejection ({ ok: false }) — it does not
     // throw. Returning `sent: true` off the bare await was the silent failure
     // this spec exists to close.
-    const res = await sendSms({ to: row.customer_phone as string, from: fromNumber, text, mediaUrl: mmsUrl })
+    const res = await dispatchQuoteMessage({ to: row.customer_phone as string, from: fromNumber, text,
+      mediaUrl: mmsUrl, tenantId, audience: 'customer',
+      deliveryKey: args.deliveryKey ?? `painting:${row.public_token}:${args.requestId ? `resend:${args.requestId}` : 'approved-send'}` })
     if (!res.ok) {
-      console.error('[painting/release] Twilio rejected the customer quote send', res.code, res.reason)
-      return { sent: false }
+      console.error('[painting/release] Customer quote was not accepted', res.smsAttempt.code)
+      return { sent: false, outboxId: res.outboxId,
+        status: !res.outboxId ? 'not_queued'
+          : ['OUTBOX_PENDING', 'OUTBOX_UNAVAILABLE'].includes(res.smsAttempt.code) ? 'recovery_pending' : deliveryStatus(res) }
     }
     // Accepted — record the evidence /p reads (migration 189). Best-effort:
     // the customer already has the quote, so a failed stamp must not turn a
     // real delivery into a reported failure.
     await markPaintingQuoteSent(supabase, row.public_token as string)
-    return { sent: true }
+    return { sent: true, outboxId: res.outboxId, status: deliveryStatus(res) }
   } catch (e) {
     console.error('[painting/release] customer quote send failed (non-fatal)', e instanceof Error ? e.message : e)
     return { sent: false }

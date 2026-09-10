@@ -20,6 +20,7 @@ import {
   resolveLeadTarget,
 } from '@/lib/quote/followup-contact'
 import { normaliseAuMobile } from '@/lib/phone/au'
+import { followupTargetQuery } from '@/lib/quote/followup-operation-contract'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +41,7 @@ async function tenantFromBearer(req: Request) {
 }
 
 export async function GET(req: Request) {
+  try {
   const tenant = await tenantFromBearer(req)
   if (!tenant) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
@@ -49,20 +51,22 @@ export async function GET(req: Request) {
   // SMS lead). Either resolves the destination phone server-side,
   // ownership-guarded — the phone is never trusted from the request.
   const url = new URL(req.url)
-  const quoteId = url.searchParams.get('quoteId')
-  const conversationId = url.searchParams.get('conversationId')
-  if (!quoteId && !conversationId) {
+  const query = followupTargetQuery.safeParse(Object.fromEntries(url.searchParams))
+  if (!query.success ||
+      [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length !== 1)) {
     return Response.json(
       { ok: false, error: 'quoteId or conversationId is required' },
       { status: 400 },
     )
   }
+  const quoteId = query.data.quoteId
+  const conversationId = query.data.conversationId
 
   const target = conversationId
     ? await resolveLeadTarget(supabase, conversationId, tenant.id)
     : await resolveFollowupTarget(supabase, quoteId as string, tenant.id)
   if (!target.ok) {
-    return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
+    return Response.json({ ok: false, error: target.code }, { status: target.code === 'unavailable' ? 503 : 404 })
   }
 
   const rawPhone = target.phone?.trim() ?? ''
@@ -90,61 +94,71 @@ export async function GET(req: Request) {
   // and is scoped by the followup_quote PIN, so match by the pin first, then
   // by the quote's own intake, and only fall back to the phone-level merge
   // for legacy threads / no-quote leads.
-  let convoIds: string[] = []
+  let convoIds: string[] = conversationId ? [conversationId] : []
 
   if (quoteId) {
     // (a) the thread this quote's follow-up was pinned onto (the ground truth)
-    const { data: pinned } = await supabase
+    const { data: pinned, error: pinnedError } = await supabase
       .from('sms_conversations')
       .select('id')
       .eq('tenant_id', tenant.id)
       .eq('followup_quote->>quote_id', quoteId)
       .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+    if (pinnedError) return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 })
     convoIds = (pinned ?? []).map((c) => c.id as string)
 
     // (b) fall back to conversations tied to this quote's own intake
     if (convoIds.length === 0) {
-      const { data: quoteRow } = await supabase
+      const { data: quoteRow, error: quoteError } = await supabase
         .from('quotes')
         .select('intake_id')
         .eq('id', quoteId)
         .eq('tenant_id', tenant.id)
         .maybeSingle()
+      if (quoteError || !quoteRow) return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 })
       const intakeId = (quoteRow?.intake_id as string | null) ?? null
       if (intakeId) {
-        const { data: byIntake } = await supabase
+        const { data: byIntake, error: intakeError } = await supabase
           .from('sms_conversations')
           .select('id')
           .eq('tenant_id', tenant.id)
           .eq('intake_id', intakeId)
           .order('last_message_at', { ascending: false, nullsFirst: false })
+          .order('id', { ascending: false })
+        if (intakeError) return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 })
         convoIds = (byIntake ?? []).map((c) => c.id as string)
       }
     }
   }
 
-  // (c) legacy / lead fallback — merge the customer's phone threads. Only
-  //     reached when no quote-scoped thread exists (or this is a lead).
+  // (c) Legacy quote fallback after successful empty quote-scoped reads.
+  // Leads retain their exact owned conversation; they never merge by phone.
   if (convoIds.length === 0) {
     if (fromCandidates.length === 0) return emptyResponse()
-    const { data: convos } = await supabase
+    const { data: convos, error: conversationError } = await supabase
       .from('sms_conversations')
       .select('id')
       .eq('tenant_id', tenant.id)
       .in('from_number', fromCandidates)
       .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
       .limit(10)
+    if (conversationError) return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 })
     convoIds = (convos ?? []).map((c) => c.id as string)
   }
 
   if (convoIds.length === 0) return emptyResponse()
 
-  const { data: msgs } = await supabase
+  const { data: msgs, error: messagesError } = await supabase
     .from('sms_messages')
     .select('direction, body, created_at')
     .in('conversation_id', convoIds)
+    .eq('tenant_id', tenant.id)
     .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
     .limit(MSG_QUERY_LIMIT)
+  if (messagesError) return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 })
 
   type Msg = { direction: 'inbound' | 'outbound'; body: string; created_at: string }
   const all: Msg[] = (msgs ?? []).map((m) => ({
@@ -169,4 +183,5 @@ export async function GET(req: Request) {
     last_inbound_at: lastInbound,
     last_outbound_at: lastOutbound,
   })
+  } catch { return Response.json({ ok: false, error: 'history_unavailable' }, { status: 503 }) }
 }

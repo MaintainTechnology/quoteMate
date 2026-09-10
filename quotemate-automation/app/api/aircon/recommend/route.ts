@@ -4,12 +4,12 @@
 // /api/painting/estimate. A tenant-linked call also persists the result
 // to aircon_recommendations (the migration-144 TODO, spec quotes-tab-sync
 // Task 3) so it surfaces on the Quotes tab via /api/tenant/trade-jobs and
-// the customer page /q/aircon/[token]. The insert is best-effort — a
-// failure is logged and the recommendation still returns.
+// the customer page /q/aircon/[token]. Priced results require a confirmed
+// save; retries return the recommendation belonging to the saved token.
 
 import { createClient } from '@supabase/supabase-js'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
-import { saveAirconRecommendation, supabaseUserIdFor } from '@/lib/aircon/save-recommendation'
+import { AirconRequestConflict, airconReplayResponse, airconRequestFingerprint, readAirconRequestReplay, saveAirconRecommendation, supabaseUserIdFor } from '@/lib/aircon/save-recommendation'
 import { RecommendRequestSchema } from '@/lib/aircon/request-schema'
 import { climateZoneForPostcode } from '@/lib/aircon/climate'
 import { sizeAircon } from '@/lib/aircon/sizing'
@@ -58,6 +58,13 @@ export async function POST(req: Request) {
   }
 
   const { address, inputs, request_id } = parsed.data
+  const requestFingerprint = airconRequestFingerprint({ kind: 'recommend', address, inputs })
+  try {
+    const previous = await readAirconRequestReplay(supabase, { tenantId: auth.tenantId, requestId: request_id, secret: process.env.SUPABASE_SERVICE_ROLE_KEY, fingerprint: requestFingerprint })
+    if (previous) return Response.json(airconReplayResponse(previous))
+  } catch (error) {
+    return Response.json({ ok: false, error: error instanceof AirconRequestConflict ? 'request_id_conflict' : 'saved_request_unavailable' }, { status: error instanceof AirconRequestConflict ? 409 : 503 })
+  }
 
   const pricing = auth.tenantId
     ? await loadTenantAcPricingContext(supabase, auth.tenantId, auth.primaryTrade)
@@ -89,7 +96,9 @@ export async function POST(req: Request) {
     : recommendAirconUnpriced({ sizing, inputs })
 
   // Persist for the Quotes tab + customer share page (migration 144).
-  const saved =
+  const responseContext = { ok: true, request_id: request_id ?? null, climate_zone: zone, climate_note: note, location }
+  let saved
+  try { saved =
     recommendation.pricing_status === 'priced'
       ? await saveAirconRecommendation(supabase, {
           tenantId: auth.tenantId,
@@ -98,8 +107,13 @@ export async function POST(req: Request) {
           recommendation,
           requestId: request_id,
           idempotencySecret: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          requestFingerprint,
+          responseContext,
         })
       : null
+  } catch (error) {
+    return Response.json({ ok: false, error: error instanceof AirconRequestConflict ? 'request_id_conflict' : 'pricing_persistence_failed' }, { status: error instanceof AirconRequestConflict ? 409 : 503 })
+  }
 
   // A priced customer artefact is authoritative only after the exact priced
   // snapshot has persisted under this tenant. Never expose in-memory money
@@ -113,13 +127,9 @@ export async function POST(req: Request) {
 
   return Response.json(
     {
-      ok: true,
-      request_id: request_id ?? null,
-      climate_zone: zone,
-      climate_note: note,
-      location,
-      recommendation,
-      saved,
+      ...(saved?.requestReceipt?.responseContext ?? responseContext),
+      recommendation: saved?.recommendation ?? recommendation,
+      saved: saved ? { id: saved.id, public_token: saved.public_token } : null,
     },
     { status: 200 },
   )

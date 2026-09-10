@@ -1,55 +1,55 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { repairQuoteLinks } from './dialog'
+import { guardGeneratedQuoteLinks, canonicalQuoteUrl, QUOTE_FAMILIES } from './quote-actions'
 
-// The correct roof link, as sent 4x by the deterministic composer earlier in
-// the thread; the token is a real randomBytes(16).toString('hex').
-const GOOD = 'https://www.quotemax.com.au/q/roof/fd876dcd7b1ea5d527f4f4a28d0c0663?s=1'
-// Sonnet's re-quote of it, with one extra "7" in the token (the live 404).
-const MANGLED = 'https://www.quotemax.com.au/q/roof/fd876dcd77b1ea5d527f4f4a28d0c0663?s=1'
+afterEach(() => vi.unstubAllEnvs())
 
-describe('repairQuoteLinks', () => {
-  it('snaps a token mangled by one character back to the real link (the live bug)', () => {
-    const history = `outbound: Full breakdown + your roof image: ${GOOD}`
-    const reply = `Good one Mark - the next step is a roofer reviewing that estimate. You can also view the full breakdown here: ${MANGLED} - did you want to proceed?`
-    const out = repairQuoteLinks(reply, history)
-    expect(out).toContain(GOOD)
-    expect(out).not.toContain(MANGLED)
+describe('canonical quote URL authority', () => {
+  const known = 'https://quotemax.com.au/q/roof/saved_token_123456'
+  it('rejects a transcript link even if inbound and model agree on the token', () => {
+    expect(repairQuoteLinks(`Here: ${known}`, known)).not.toContain(known)
   })
-
-  it('leaves an already-correct link untouched', () => {
-    const reply = `Here it is: ${GOOD}`
-    expect(repairQuoteLinks(reply, `sent earlier: ${GOOD}`)).toBe(reply)
+  it('does not guess a corrupted token from a similar or lone history link', () => {
+    expect(repairQuoteLinks(`Here: ${known}x`, known, [known])).not.toContain('https://')
   })
-
-  it('picks the nearest token when the thread has several links of the same shape', () => {
-    const a = 'https://www.quotemax.com.au/q/roof/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-    const b = 'https://www.quotemax.com.au/q/roof/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-    // mangled copy of b (one char off) must snap to b, not a
-    const mangledB = 'https://www.quotemax.com.au/q/roof/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc'
-    const out = repairQuoteLinks(`see ${mangledB}`, `${a}\n${b}`)
-    expect(out).toContain(b)
-    expect(out).not.toContain(a)
+  it('permits exactly the server-resolved URL and its trailing punctuation', () => {
+    expect(repairQuoteLinks(`Here: ${known}.`, '', [known])).toBe(`Here: ${known}.`)
   })
-
-  it('does not touch non-quote URLs (tenant site, maps)', () => {
-    const reply = 'Our site https://atomicelectrical.com.au and map https://maps.google.com/?q=x'
-    expect(repairQuoteLinks(reply, GOOD)).toBe(reply)
+  it('strips invented, cross-family, different-host and model-added query URLs', () => {
+    for (const url of [known+'?s=999', known.replace('/roof/','/solar/'), known.replace('quotemax.com.au','evil.example'), known+'x']) {
+      expect(guardGeneratedQuoteLinks(url, [known])).not.toContain('https://')
+    }
   })
-
-  it('leaves a link alone when there is nothing to repair against', () => {
-    const reply = `view here: ${MANGLED}`
-    expect(repairQuoteLinks(reply, 'no links in this thread at all')).toBe(reply)
+  it('builds every family only from a valid persisted reference with no model query', () => {
+    for (const family of QUOTE_FAMILIES) {
+      expect(canonicalQuoteUrl({ family, id: 'saved', token: 'saved_token_12345', label: 'job', stage: 'ready', createdAt: '' }, 'https://quotemax.com.au'))
+        .toBe(`https://quotemax.com.au/q/${family === 'generic' ? '' : family+'/'}saved_token_12345`)
+    }
   })
-
-  it('preserves trailing punctuation around the repaired link', () => {
-    const reply = `here: ${MANGLED}.`
-    const out = repairQuoteLinks(reply, GOOD)
-    expect(out).toBe(`here: ${GOOD}.`)
+  it('rejects encoded paths, invented external destinations and scheme-less links',()=>{
+    for(const url of ['https://quotemax.com.au/%71/other_token','https://invented.example/customer/123','//quotemax.com.au/q/other_token','www.quotemax.com.au/q/other_token']) {
+      expect(guardGeneratedQuoteLinks(url,[known])).not.toContain('quotemax.com.au')
+      expect(guardGeneratedQuoteLinks(url,[known])).not.toContain('invented.example')
+    }
   })
-
-  it('repairs across different token surfaces (solar, generic) too', () => {
-    const solarGood = 'https://www.quotemax.com.au/q/solar/0123456789abcdef0123456789abcdef'
-    const solarBad = 'https://www.quotemax.com.au/q/solar/0123456789abcdef0123456789abcdeff'
-    expect(repairQuoteLinks(`link: ${solarBad}`, solarGood)).toContain(solarGood)
+  it('rejects path traversal and API origins at the canonical builder', () => {
+    // Exercise APP_URL fallback independently of the host's configured website.
+    vi.stubEnv('PUBLIC_WEB_ORIGIN', '')
+    const reference = { family: 'roof' as const, id: 'id', token: '../other', label: 'job', stage: 'ready' as const, createdAt: '' }
+    expect(() => canonicalQuoteUrl(reference, 'https://quotemax.com.au')).toThrow()
+    expect(() => canonicalQuoteUrl({ ...reference, token: 'valid_token_1234' }, 'https://qm-roof-production.up.railway.app')).toThrow()
+  })
+  it('keeps the configured website authoritative when a caller supplies an API fallback', () => {
+    vi.stubEnv('PUBLIC_WEB_ORIGIN', 'https://quotemax.com.au')
+    expect(canonicalQuoteUrl({ family: 'roof', id: 'saved', token: 'valid_token_1234', label: 'job', stage: 'ready', createdAt: '' },
+      'https://qm-roof-production.up.railway.app')).toBe('https://quotemax.com.au/q/roof/valid_token_1234')
+  })
+  it('rejects bare hosts and relative quote paths without altering ordinary text or email', () => {
+    for (const url of ['quotemax.com.au/q/invented_token_12345', 'invented.example/quote/123', '/q/invented_token_12345', '/q/solar/invented_token_12345', '/api/q/invented_token_12345/pdf', '/%71/invented_token_12345', '/r/invented_token_12345/better']) {
+      expect(guardGeneratedQuoteLinks(`Here: ${url}.`, [known])).toBe('Here: [saved link needs verification].')
+    }
+    expect(guardGeneratedQuoteLinks('Email hello@example.com about the 2.5 metre wall.')).toBe('Email hello@example.com about the 2.5 metre wall.')
+    expect(guardGeneratedQuoteLinks('Email hello@company.com.au or sam@trade.example.co.nz.')).toBe('Email hello@company.com.au or sam@trade.example.co.nz.')
+    expect(guardGeneratedQuoteLinks(`Here: <${known}>`, [known])).toBe(`Here: <${known}>`)
   })
 })

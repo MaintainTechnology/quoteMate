@@ -13,6 +13,10 @@
 // unchanged — this is presentation only.
 
 import { createClient } from '@supabase/supabase-js'
+import { notFound } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import type { AcOption } from '@/lib/aircon/types'
 import { parseStoredPricedRecommendation } from '@/lib/aircon/recommendation-schema'
 import {
@@ -49,11 +53,14 @@ export default async function AirconQuotePage(props: { params: Promise<{ token: 
 
   const { data: row, error } = await supabase
     .from('aircon_recommendations')
-    .select('address, postcode, state, recommendation, created_at, tenant_id, tenants:tenant_id(business_name, trade)')
+    .select('address, postcode, state, recommendation, created_at, tenant_id, released_at, tenants:tenant_id(business_name, trade)')
     .eq('public_token', token)
     .maybeSingle()
 
-  if (error || !row || !row.recommendation) return <NotFound />
+  if (error) return <QuoteUnavailable correlationId={quoteReadFailure('aircon', error)} />
+  if (!row) notFound()
+  if (!row.released_at) return <QuoteAwaitingReview />
+  if (!row.recommendation) return <QuoteUnavailable correlationId={quoteReadFailure('aircon', { code: 'MISSING_RECOMMENDATION' })} />
 
   const tenantId = (row as { tenant_id?: string | null }).tenant_id ?? null
   const rec = parseStoredPricedRecommendation(row.recommendation)
@@ -195,26 +202,6 @@ export default async function AirconQuotePage(props: { params: Promise<{ token: 
 function round1(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
   return (Math.round(n * 10) / 10).toString()
-}
-
-function NotFound() {
-  return (
-    <QuoteChrome trade={{ label: 'Air-con', icon: tradeIcon('aircon') }}>
-      <QuoteSheet label="Air-con recommendation">
-        <section style={{ padding: '40px 24px', borderBottom: '1px solid var(--ink-line)', background: 'var(--ink-card)' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--warning-bright)' }}>
-            Invalid link
-          </div>
-          <h1 style={{ margin: '14px 0 0', fontFamily: 'var(--font-sans)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '-0.02em', fontSize: 28, lineHeight: 1.02, color: 'var(--text-pri)' }}>
-            Recommendation not found
-          </h1>
-          <p style={{ margin: '16px 0 0', fontSize: 14.5, lineHeight: 1.55, color: 'var(--text-sec)' }}>
-            This link is invalid or has expired. Get in touch if you need it re-sent.
-          </p>
-        </section>
-      </QuoteSheet>
-    </QuoteChrome>
-  )
 }
 
 function PricingUnavailable() {

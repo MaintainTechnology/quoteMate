@@ -10,8 +10,8 @@
 //                  ("fill this in, or reply here and I'll ask a few
 //                  questions").
 //   • await_form — customer chose the form → acknowledge and wait. The
-//                  form POST produces the quote out-of-band ("your quote is
-//                  on its way"); a later text switches them to Q&A.
+//                  form POST prepares a draft for painter review; a later
+//                  text switches them to Q&A.
 //   • ask        — fold the answer in, send the next question (dropdown
 //                  options are inlined in the question text by the intake).
 //   • estimate   — enough gathered cleanly → run estimatePainting + send.
@@ -46,6 +46,7 @@ import { consumeAddressMiss, consumeAddressRejection } from './verify-address'
  *  the electrical/plumbing conversation_state.slots and the roofing_state. */
 export type PaintingConversationState = {
   slots: PaintingSlots
+  workflow_stage?: 'awaiting_review' | 'ready' | 'send_failed'
   /** The step we asked the customer about last turn (null on the opener). */
   last_step?: PaintingStep | null
   /** Token of the self-serve form request we minted (the unique-hash link). */
@@ -95,7 +96,7 @@ export type PaintingTurnDecision =
   | { action: 'passthrough'; slots: PaintingSlots; close?: boolean }
 
 const AWAIT_FORM_ACK =
-  "Great — fill that in whenever you're ready and I'll text your quote straight over. Or just reply here anytime and I'll ask a few quick questions instead."
+  "Great — fill that in whenever you're ready. We'll prepare a draft for the painter to review before sending your quote. Or reply here and I'll ask a few quick questions instead."
 // ponytail: the address re-ask wording moved to verify-address.ts
 // (ADDRESS_REASK_REPLY) so the string and its budget live together.
 

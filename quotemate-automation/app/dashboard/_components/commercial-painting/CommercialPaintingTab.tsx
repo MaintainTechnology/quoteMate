@@ -9,6 +9,7 @@
 // history rail rather than losing work.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '@clerk/nextjs'
 import {
   ChevronRight,
   Eye,
@@ -36,6 +37,10 @@ import { PaintPreviewPanel } from './PaintPreviewPanel'
 import { PaginationControls, usePagination } from '../Pagination'
 import { StatusPill, type Tone } from '../quote-ui'
 import { getAuthToken } from '@/lib/auth/client-token'
+import { browserPaintSaveReceiptStore, PaintSavePassSchema, PaintSaveScopeSchema, readPaintRecoveryResult,
+  readSavedPaintResult, samePaintSaveScope, type PaintSaveReceipt, type PaintSaveScope, type SavedPaintResult } from '@/lib/commercial-painting/browser-save-receipt'
+import { PaintCorrectionInputSchema, PaintCorrectionSizeError, PaintEditSnapshotSchema, paintEditSnapshotMatchesView, type PaintEditSnapshot } from '@/lib/commercial-painting/correction-contract'
+import { usePaintCorrections } from '@/lib/commercial-painting/use-paint-corrections'
 
 const API = '/api/tenant/commercial-painting'
 
@@ -106,7 +111,39 @@ type ExtractionState = {
   hasCorrections: boolean
 }
 
+async function paintScopeRequest(expected?: PaintSaveScope) {
+  const token = await getAuthToken()
+  if (!token) throw new Error('Sign in again to verify quote recovery.')
+  const init = { headers: { authorization: `Bearer ${token}` }, cache: 'no-store' as const }
+  const res = await fetch(`${API}/save-quote?scope=1`, { ...init, signal: AbortSignal.timeout(10000) })
+  const body = await res.json()
+  if (!res.ok || !body?.ok) throw new Error('The active account could not be verified. Quote recovery is retained.')
+  const scope = PaintSaveScopeSchema.parse({ userId: body.userId, tenantId: body.tenantId })
+  if (expected && !samePaintSaveScope(scope, expected)) throw new Error('The active account changed. Reopen commercial painting to continue.')
+  return { scope, init }
+}
+
 export default function CommercialPaintingTab({ accessToken }: { accessToken: string | null }) {
+  const { userId, isLoaded } = useAuth()
+  const [identity, setIdentity] = useState<{ key: string; scope: PaintSaveScope } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
+  const key = userId ?? accessToken ?? 'signed-out'
+  useEffect(() => {
+    if (!isLoaded) return
+    let current = true
+    void paintScopeRequest().then(({ scope }) => {
+      if (current && (!userId || userId === scope.userId)) { setIdentity({ key, scope }); setError(null) }
+      else if (current) setError('The active account changed. Sign in again to continue.')
+    }).catch(e => { if (current) setError(e instanceof Error ? e.message : 'The active account could not be verified.') })
+    return () => { current = false }
+  }, [isLoaded, key, userId, retry])
+  if (!identity || identity.key !== key) return <div role="status">{error ?? 'Verifying saved quote recovery…'}
+    {error && <button type="button" onClick={() => setRetry(value => value + 1)}>Check account again</button>}</div>
+  return <CommercialPaintingWorkspace key={`${identity.scope.userId}:${identity.scope.tenantId}`} accessToken={accessToken} scope={identity.scope} />
+}
+
+export function CommercialPaintingWorkspace({ accessToken, scope }: { accessToken: string | null; scope: PaintSaveScope }) {
   const [runId, setRunId] = useState<string | null>(null)
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [statusNote, setStatusNote] = useState<string | null>(null)
@@ -125,13 +162,32 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
   } = usePagination(recentRuns, { urlKey: 'cpaint_page' })
 
   const [extraction, setExtraction] = useState<ExtractionState | null>(null)
+  const [editorRevision, setEditorRevision] = useState(0)
+  const [editSnapshot, setEditSnapshot] = useState<PaintEditSnapshot | null>(null)
   const [bom, setBom] = useState<PricedPaintBom | null>(null)
+  const [pricingProof, setPricingProof] = useState<{ runId: string; extractionId: string; digest: string; pricedAt: string } | null>(null)
+  const pricingGeneration = useRef(0)
+  function invalidatePricing() {
+    pricingGeneration.current += 1
+    setPricingProof(null)
+    setSavedQuote(null)
+  }
+  useEffect(() => () => { pricingGeneration.current += 1 }, [])
 
   const [uploading, setUploading] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [extractStep, setExtractStep] = useState(0)
   const [pricing, setPricing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [pendingSave, setPendingSave] = useState<PaintSaveReceipt | null>(null)
+  const [recoveryReady, setRecoveryReady] = useState(false)
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const [recoveredQuote, setRecoveredQuote] = useState<SavedPaintResult | null>(null)
+  const verifyCorrectionScope = useCallback(() => paintScopeRequest(scope), [scope])
+  const corrections = usePaintCorrections(scope, verifyCorrectionScope)
+  const saveBusy = useRef(false)
+  const active = useRef(true)
+  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   const [savedQuote, setSavedQuote] = useState<{
     quoteViewUrl: string
     pdfUrl: string | null
@@ -199,18 +255,31 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
 
   const loadRun = useCallback(
     async (id: string) => {
+      const generation = ++pricingGeneration.current
+      setPricingProof(null)
       setErrMsg(null)
-      const res = await fetch(`${API}/run/${id}`, await authed())
+      try {
+      const { init } = await paintScopeRequest(scope)
+      if (!active.current || generation !== pricingGeneration.current) return null
+      const res = await fetch(`${API}/run/${id}`, init)
       const body = await res.json()
-      if (!body?.ok) {
+      const baselineResponse = await fetch(`${API}/run/${id}/corrections`, init)
+      const baselineBody = await baselineResponse.json()
+      if (!active.current || generation !== pricingGeneration.current) return null
+      const baseline = PaintEditSnapshotSchema.safeParse(baselineBody.snapshot)
+      if (!res.ok || !body?.ok || body.run?.id !== id || !baselineResponse.ok || !baselineBody.ok || !baseline.success || baseline.data.runId !== id ||
+        baseline.data.extractionId !== (body.extraction?.id ?? null)) {
         setErrMsg('Could not load that run.')
-        return
+        return null
       }
+      await paintScopeRequest(scope)
+      if (!active.current || generation !== pricingGeneration.current) return null
+      setEditSnapshot(baseline.data)
       setRunId(body.run.id)
       setRunStatus((body.run.status as string) ?? null)
       setStatusNote((body.run.status_note as string) ?? null)
-      setJobName(body.run.job_name ?? '')
-      setSiteAddress(body.run.site_address ?? '')
+      setJobName(baseline.data.job_name ?? '')
+      setSiteAddress(baseline.data.site_address ?? '')
       setSavedQuote(null)
       setViewer(null)
       setUploads(
@@ -220,19 +289,20 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
         })),
       )
       if (body.extraction) {
+        setEditorRevision(previous => previous + 1)
         const sheets = (body.extraction.sheets_used ?? {}) as {
           finishes_schedule?: ExtractionState['finishesSchedule']
           flags?: ReconcileFlag[]
           measurement_line_count?: number
           measurement_parse_failed?: boolean
         }
-        const corrected = body.extraction.corrected_items as PaintTakeoffItem[] | null
+        const corrected = baseline.data.corrected_items as PaintTakeoffItem[] | null
         setExtraction({
           id: body.extraction.id,
           items:
             Array.isArray(corrected) && corrected.length > 0
               ? corrected
-              : ((body.extraction.items ?? []) as PaintTakeoffItem[]),
+              : (baseline.data.items as PaintTakeoffItem[]),
           flags: sheets.flags ?? [],
           finishesSchedule: sheets.finishes_schedule ?? [],
           overallNote: body.extraction.overall_note ?? '',
@@ -240,13 +310,24 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
           measurementParseFailed: sheets.measurement_parse_failed === true,
           hasCorrections: Array.isArray(corrected) && corrected.length > 0,
         })
-        setBom((body.extraction.priced_bom as PricedPaintBom | null) ?? null)
+        const matchingSource = paintEditSnapshotMatchesView(baseline.data, body.run, body.extraction)
+        setBom(matchingSource ? (body.extraction.priced_bom as PricedPaintBom | null) ?? null : null)
+        const review = PaintSavePassSchema.safeParse({ paintRunId: body.run.id, extractionId: body.extraction.id,
+          pricingProof: body.extraction.pricing_review?.pricingProof, pricedAt: body.extraction.pricing_review?.pricedAt })
+        setPricingProof(matchingSource && review.success
+          ? { runId: review.data.paintRunId, extractionId: review.data.extractionId, digest: review.data.pricingProof, pricedAt: review.data.pricedAt } : null)
+        if (!matchingSource) setErrMsg('The saved takeoff changed while opening this run. Review the current quantities and price again.')
       } else {
         setExtraction(null)
         setBom(null)
       }
+      return baseline.data
+      } catch {
+        if (active.current && generation === pricingGeneration.current) setErrMsg('Could not load the current saved run. Your working copy has been retained.')
+        return null
+      }
     },
-    [authed],
+    [scope, setSavedQuote],
   )
 
   // ── Stage 1: documents ─────────────────────────────────────────────
@@ -255,6 +336,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
   // ~4.5 MB, so files can't go through the API), then complete
   // (classify + register).
   async function uploadFiles(files: FileList | File[]) {
+    if (corrections.blocked || pendingSave || saveBusy.current) return
     const list = [...files]
     if (list.length === 0) return
     setUploading(true)
@@ -328,6 +410,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
           doc_type: u.doc_type as PaintDocType,
         })),
       ])
+      await loadRun(body.paintRunId)
     } catch {
       setErrMsg('Upload failed. Please try again.')
     } finally {
@@ -336,6 +419,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
   }
 
   async function setDocType(uploadId: string, docType: PaintDocType) {
+    if (corrections.blocked || pendingSave || saveBusy.current) return
     setUploads((prev) => prev.map((u) => (u.id === uploadId ? { ...u, doc_type: docType } : u)))
     await fetch(`${API}/upload/${uploadId}`, await authed({
       method: 'PATCH',
@@ -388,6 +472,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
   }
 
   async function removeUpload(uploadId: string) {
+    if (corrections.blocked || pendingSave || saveBusy.current) return
     try {
       const res = await fetch(`${API}/upload/${uploadId}`, await authed({ method: 'DELETE' }))
       const body = await res.json().catch(() => null)
@@ -414,28 +499,28 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
 
   // ── Stage 2: AI takeoff ────────────────────────────────────────────
   async function runTakeoff() {
-    if (!runId) return
+    if (!runId || !editSnapshot || pendingSave || saveBusy.current || !recoveryReady || corrections.blocked) return
     setExtracting(true)
+    const generation = ++pricingGeneration.current
+    setPricingProof(null)
     setExtractStep(0)
     setErrMsg(null)
     setBom(null)
     setSavedQuote(null)
     try {
-      // Persist job facts typed after the upload, so they reach the
-      // saved quote + tender PDF.
-      if (jobName.trim() || siteAddress.trim()) {
-        await fetch(`${API}/run/${runId}`, await authed({
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ job_name: jobName, site_address: siteAddress }),
-        })).catch(() => {})
-      }
-      const res = await fetch(`${API}/extract`, await authed({
+      const applied = await corrections.save(runId, PaintCorrectionInputSchema.parse({ operationId: crypto.randomUUID(),
+        expectedRevision: editSnapshot.revision, extractionId: editSnapshot.extractionId, job_name: jobName, site_address: siteAddress }), null)
+      if (!applied || !active.current || !await corrections.acknowledge(applied.copy, applied.result)) return
+      setEditSnapshot({ ...editSnapshot, revision: applied.result.revision, job_name: jobName.trim() || null, site_address: siteAddress.trim() || null })
+      const extractInit = await authed({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ paintRunId: runId }),
-      }))
+      })
+      if (!active.current || generation !== pricingGeneration.current) return
+      const res = await fetch(`${API}/extract`, extractInit)
       const body = await res.json()
+      if (!active.current || generation !== pricingGeneration.current) return
       if (!res.ok || !body.ok) {
         setErrMsg(
           body?.error === 'plan_set_required'
@@ -463,6 +548,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
       })
       if (body.job?.name && !jobName) setJobName(body.job.name)
       if (body.job?.address && !siteAddress) setSiteAddress(body.job.address)
+      await loadRun(runId)
     } catch {
       setErrMsg('The takeoff failed or the connection dropped — reopen the run from “Recent runs” in a few minutes to check for a result before retrying.')
     } finally {
@@ -472,80 +558,150 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
 
   // ── Stage 2→3: confirm + price ─────────────────────────────────────
   async function confirmAndPrice(items: PaintTakeoffItem[], labourRatePerHr: number | null) {
-    if (!runId || !extraction) return
+    if (!runId || !extraction || !editSnapshot || editSnapshot.extractionId !== extraction.id || pendingSave || saveBusy.current || !recoveryReady || corrections.blocked) return
+    invalidatePricing()
+    const generation = pricingGeneration.current
     setPricing(true)
     setErrMsg(null)
     // Edits invalidate the previous pricing AND any quote saved from it.
     setBom(null)
     setSavedQuote(null)
+    let correctionConfirmed = false
     try {
-      const save = await fetch(`${API}/run/${runId}`, await authed({
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ extractionId: extraction.id, corrected_items: items }),
-      }))
-      const saveBody = await save.json()
-      if (!save.ok || !saveBody.ok) {
-        setErrMsg('Saving the confirmed takeoff failed. Please try again.')
-        return
-      }
+      const applied = await corrections.save(runId, PaintCorrectionInputSchema.parse({ operationId: crypto.randomUUID(),
+        expectedRevision: editSnapshot.revision, extractionId: extraction.id, corrected_items: items, job_name: jobName, site_address: siteAddress }), labourRatePerHr)
+      if (!applied || !active.current || generation !== pricingGeneration.current) return
+      correctionConfirmed = true
+      if (!await corrections.acknowledge(applied.copy, applied.result)) return
+      setEditSnapshot({ ...editSnapshot, revision: applied.result.revision, corrected_items: items,
+        job_name: jobName.trim() || null, site_address: siteAddress.trim() || null })
       setExtraction((prev) => (prev ? { ...prev, items, hasCorrections: true } : prev))
-      const res = await fetch(`${API}/price`, await authed({
+      const priceInit = await authed({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           paintRunId: runId,
           extractionId: extraction.id,
+          expectedRevision: applied.result.revision,
           ...(labourRatePerHr != null ? { labourRatePerHr } : {}),
         }),
-      }))
+      })
+      if (!active.current || generation !== pricingGeneration.current) return
+      const res = await fetch(`${API}/price`, priceInit)
       const body = await res.json()
+      if (generation !== pricingGeneration.current) return
       if (!res.ok || !body.ok) {
         setErrMsg('Pricing failed. The takeoff is saved — try pricing again.')
         return
       }
       setBom(body.bom as PricedPaintBom)
-    } catch {
-      setErrMsg('Pricing failed. The takeoff is saved — try pricing again.')
+      const review = PaintSavePassSchema.safeParse({ paintRunId: runId, extractionId: extraction.id, pricingProof: body.pricingProof, pricedAt: body.pricedAt })
+      setPricingProof(review.success ? { runId, extractionId: extraction.id, digest: review.data.pricingProof, pricedAt: review.data.pricedAt } : null)
+    } catch (error) {
+      setErrMsg(error instanceof PaintCorrectionSizeError ? error.message : correctionConfirmed ? 'Pricing failed after the correction was confirmed saved. Review the takeoff before pricing again.'
+        : 'The correction was not confirmed saved. Review the fields and check retained recovery before trying again.')
     } finally {
       setPricing(false)
     }
   }
 
   async function saveAsQuote() {
-    if (!runId || !extraction) return
+    if (saveBusy.current || pendingSave || corrections.blocked || !recoveryReady || recoveryError || !runId || !extraction || pricingProof?.runId !== runId || pricingProof.extractionId !== extraction.id) return
+    const generation = pricingGeneration.current
+    const pass = PaintSavePassSchema.parse({ paintRunId: runId, extractionId: extraction.id, pricingProof: pricingProof.digest, pricedAt: pricingProof.pricedAt })
+    saveBusy.current = true
     setSaving(true)
     setErrMsg(null)
     try {
-      const res = await fetch(`${API}/save-quote`, await authed({
+      const { init } = await paintScopeRequest(scope)
+      if (!active.current || generation !== pricingGeneration.current) return
+      const store = browserPaintSaveReceiptStore(scope)
+      const receipt = await store.begin(pass)
+      if (!active.current || generation !== pricingGeneration.current) { await store.complete(pass); return }
+      setPendingSave(receipt)
+      const res = await fetch(`${API}/save-quote`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...init.headers, 'content-type': 'application/json' },
         body: JSON.stringify({
-          paintRunId: runId,
-          extractionId: extraction.id,
+          ...pass,
           ...(customerPhone.trim() ? { customerPhone: customerPhone.trim() } : {}),
           ...(customerName.trim() ? { customerName: customerName.trim() } : {}),
         }),
-      }))
+      })
       const body = await res.json()
+      if (!active.current) return
       if (!res.ok || !body.ok) {
-        setErrMsg('Saving the quote failed. The pricing is kept — try again.')
+        const rejected = (res.status === 400 && ['invalid_json', 'invalid_request', 'invalid_customer_phone'].includes(body.error)) ||
+          (res.status === 404 && ['run_not_found', 'extraction_not_found'].includes(body.error)) ||
+          (res.status === 409 && ['pricing_changed', 'pricing_review_required', 'pricing_proof_required', 'released_quote_immutable'].includes(body.error)) ||
+          (res.status === 422 && ['not_priced', 'no_items', 'invalid_takeoff', 'invalid_pricing', 'tenant_pricing_required', 'inspection_required'].includes(body.error))
+        if (rejected) {
+          await paintScopeRequest(scope)
+          if (!active.current) return
+          await store.complete(pass)
+          if (!active.current) return
+          setPendingSave(null); setPricingProof(null)
+          setErrMsg(body.error === 'invalid_customer_phone' ? 'Check the customer mobile, then review and re-price before saving.' : 'The save was rejected before a quote was created. Review and re-price before saving.')
+        } else setRecoveryError('Saving could not be confirmed. Check the previous save before another quote save.')
         return
       }
-      setSavedQuote({
-        quoteViewUrl: body.quoteViewUrl,
-        pdfUrl: body.pdfUrl ?? null,
-        delivery: body.delivery ?? undefined,
-      })
-    } catch {
-      setErrMsg('Saving the quote failed. The pricing is kept — try again.')
+      const result = readSavedPaintResult(body, pass)
+      await paintScopeRequest(scope)
+      if (!active.current) return
+      await store.complete(pass)
+      if (!active.current) return
+      setPendingSave(null); setRecoveryError(null); setRecoveredQuote(result)
+      if (generation === pricingGeneration.current) setSavedQuote(result)
+    } catch (e) {
+      if (active.current) {
+        try { setPendingSave(browserPaintSaveReceiptStore(scope).read()) } catch { /* preserve the storage failure below */ }
+        setRecoveryError(e instanceof Error ? e.message : 'Saving could not be confirmed. Check the previous save before trying again.')
+      }
     } finally {
-      setSaving(false)
+      saveBusy.current = false
+      if (active.current) setSaving(false)
     }
   }
 
+  const checkPreviousSave = useCallback(async (receipt: PaintSaveReceipt) => {
+    if (saveBusy.current) return
+    saveBusy.current = true; setSaving(true); setRecoveryError(null)
+    try {
+      const { init } = await paintScopeRequest(scope)
+      if (!active.current) return
+      const params = new URLSearchParams(receipt.pass)
+      const res = await fetch(`${API}/save-quote?${params}`, init)
+      const body = await res.json()
+      if (!active.current) return
+      if (!res.ok) throw new Error('The previous save could not be verified. Its recovery receipt is retained.')
+      const result = readPaintRecoveryResult(body, receipt.pass)
+      if (!result) { setRecoveryError('No saved result is visible yet. The previous request may still complete; check again before another save.'); return }
+      await paintScopeRequest(scope)
+      if (!active.current) return
+      await browserPaintSaveReceiptStore(scope).complete(receipt.pass)
+      if (!active.current) return
+      setPendingSave(null); setRecoveredQuote(result); setRecoveryError(null)
+    } catch (e) {
+      if (active.current) setRecoveryError(e instanceof Error ? e.message : 'The previous save could not be verified.')
+    } finally { saveBusy.current = false; if (active.current) setSaving(false) }
+  }, [scope, setPendingSave, setRecoveredQuote, setRecoveryError, setSaving])
+  useEffect(() => {
+    let current = true
+    // Reading browser storage after hydration also keeps the server render free
+    // of private account state. Opening a retained attempt only performs GETs.
+    void Promise.resolve().then(() => browserPaintSaveReceiptStore(scope).read()).then(receipt => {
+      if (!current) return
+      setPendingSave(receipt); setRecoveryReady(true)
+      if (receipt) void checkPreviousSave(receipt)
+    }).catch(e => { if (current) setRecoveryError(e instanceof Error ? e.message : 'Quote recovery storage is unavailable.') })
+    return () => { current = false }
+  }, [scope, checkPreviousSave])
+
   function resetRun() {
+    if (pendingSave || saveBusy.current || corrections.blocked) return
+    invalidatePricing()
     setRunId(null)
+    setEditSnapshot(null)
     setRunStatus(null)
     setStatusNote(null)
     setJobName('')
@@ -574,11 +730,45 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
 
   return (
     <div className="space-y-8">
+      {(!corrections.ready || corrections.copy || corrections.error) && <div role="status" className="rounded-card border border-warning-bright/40 bg-ink-card px-4 py-3 text-sm text-text-sec">
+        <p>{corrections.outcome ? 'The retained correction is saved. Review the current saved run before pricing.' : corrections.error ??
+          (corrections.copy?.rejected ? 'The correction was rejected without saving. Your working copy is retained.' : corrections.copy ? 'A previous correction needs verification. Its exact working copy is encrypted in this browser.' : 'Loading encrypted correction recovery…')}</p>
+        {corrections.copy && <>
+          <details className="mt-3"><summary>Retained correction working copy</summary>
+            <p>Job: {corrections.copy.input.job_name || 'Untitled'} · Address: {corrections.copy.input.site_address || 'Unspecified'}</p>
+            <p>Labour: {corrections.copy.labourRatePerHr == null ? 'Use saved tenant rate' : `$${corrections.copy.labourRatePerHr}/hr`}</p>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap">{JSON.stringify(corrections.copy.input.corrected_items ?? [], null, 2)}</pre>
+          </details>
+          {!corrections.copy.rejected && !corrections.outcome && <>
+            <button type="button" disabled={corrections.busy} onClick={() => void corrections.check(corrections.copy!)} className="mt-3 mr-5 text-accent">Check previous correction</button>
+            <button type="button" disabled={corrections.busy} onClick={() => void corrections.retry()} className="mt-3 text-accent">Retry exact correction</button>
+          </>}
+          {(corrections.copy.rejected || corrections.outcome) && <button type="button" disabled={corrections.busy} className="mt-3 text-accent" onClick={() => {
+            const retained = corrections.copy!
+            void loadRun(retained.runId).then(async baseline => { if (baseline) await corrections.acknowledge(retained) })
+              .catch(() => setErrMsg('The current run could not be read. Your retained working copy is still available.'))
+          }}>{corrections.copy.rejected ? 'Discard retained copy and reload latest saved data' : 'Review saved corrections'}</button>}
+        </>}
+        {!corrections.copy && corrections.error && <button type="button" onClick={() => void corrections.reloadStorage()} className="mt-3 text-accent">Check correction storage</button>}
+      </div>}
+      {(pendingSave || recoveryError || !recoveryReady) && <div role="status" className="rounded-card border border-warning-bright/40 bg-ink-card px-4 py-3 text-sm text-text-sec">
+        <p>{recoveryError ?? (pendingSave ? 'A previous quote save needs verification. Its reviewed pricing pass is retained in this browser.' : 'Loading quote recovery…')}</p>
+        {pendingSave && <button type="button" disabled={saving} onClick={() => void checkPreviousSave(pendingSave)} className="mt-3 font-semibold text-accent">Check previous save</button>}
+        {!pendingSave && recoveryError && <button type="button" disabled={saving} onClick={() => {
+          try { setPendingSave(browserPaintSaveReceiptStore(scope).read()); setRecoveryReady(true); setRecoveryError(null) }
+          catch (e) { setRecoveryError(e instanceof Error ? e.message : 'Quote recovery storage is unavailable.') }
+        }} className="mt-3 font-semibold text-accent">Check recovery storage</button>}
+      </div>}
+      {recoveredQuote && <div role="status" className="rounded-card border border-ink-line bg-ink-card px-4 py-3 text-sm text-text-sec">
+        Previous quote save verified. <a href={recoveredQuote.quoteViewUrl} target="_blank" rel="noreferrer" className="text-accent">Open saved quote ↗</a>
+        {recoveredQuote.pdfUrl && <> · <a href={recoveredQuote.pdfUrl} target="_blank" rel="noreferrer" className="text-accent">Tender PDF ↗</a></>}
+      </div>}
       {errMsg && (
         <p role="alert" className="rounded-card border border-warning-bright/40 bg-ink-card px-4 py-3 text-sm text-text-sec">
           {errMsg}
         </p>
       )}
+      <fieldset disabled={corrections.blocked || !!pendingSave || saving} className="min-w-0 space-y-8">
 
       {/* Run-status banners — a resumed run must explain itself. */}
       {runStatus === 'failed' && !extracting && (
@@ -622,11 +812,11 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className=" text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-text-dim">Job name</span>
-                <input value={jobName} onChange={(e) => setJobName(e.target.value)} placeholder="IGA Swan Street fit-out" className={`mt-1 ${inputClass}`} />
+                <input value={jobName} onChange={(e) => { invalidatePricing(); setJobName(e.target.value) }} placeholder="IGA Swan Street fit-out" className={`mt-1 ${inputClass}`} />
               </label>
               <label className="block">
                 <span className=" text-[0.62rem] font-semibold uppercase tracking-[0.08em] text-text-dim">Site address</span>
-                <input value={siteAddress} onChange={(e) => setSiteAddress(e.target.value)} placeholder="480 Swan St, Richmond VIC" className={`mt-1 ${inputClass}`} />
+                <input value={siteAddress} onChange={(e) => { invalidatePricing(); setSiteAddress(e.target.value) }} placeholder="480 Swan St, Richmond VIC" className={`mt-1 ${inputClass}`} />
               </label>
             </div>
 
@@ -733,7 +923,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
               <button
                 type="button"
                 onClick={() => void runTakeoff()}
-                disabled={!hasPlanSet || uploading || extracting}
+                disabled={!hasPlanSet || uploading || extracting || !!pendingSave || saving || !recoveryReady}
                 aria-busy={uploading || extracting}
                 className="rounded-ctl inline-flex cursor-pointer items-center gap-2.5 bg-accent px-5 py-3 text-sm font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -758,7 +948,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
                 <span className="text-sm text-text-dim">A full drawing set takes 2–4 minutes.</span>
               )}
               {runId && !extracting && (
-                <button type="button" onClick={resetRun} className="inline-flex cursor-pointer items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-text-dim transition-colors hover:text-text-sec">
+                <button type="button" disabled={!!pendingSave || saving} onClick={resetRun} className="inline-flex cursor-pointer items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-text-dim transition-colors hover:text-text-sec disabled:opacity-50">
                   <Plus className="h-3.5 w-3.5" aria-hidden /> New run
                 </button>
               )}
@@ -811,14 +1001,16 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
               )}
 
               <PaintTakeoffEditor
-                key={extraction.id}
+                key={`${extraction.id}:${editorRevision}`}
                 initialItems={extraction.items}
                 flags={extraction.flags}
                 finishesSchedule={extraction.finishesSchedule}
                 overallNote={extraction.overallNote}
                 pricing={pricing}
+                disabled={!!pendingSave || saving || !recoveryReady}
                 defaultLabourRate={bom?.labour.ratePerHr ?? null}
                 onConfirm={(items, labourRatePerHr) => void confirmAndPrice(items, labourRatePerHr)}
+                onDirty={invalidatePricing}
               />
             </div>
           </div>
@@ -838,12 +1030,14 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
                   same send path as the electrical/plumbing/solar SMS quotes. */}
               <div className="mt-6 border-t border-ink-line pt-5">
                 <p className=" text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-text-dim">
-                  Text the quote to the customer (optional)
+                  Customer details (optional)
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <input
                     type="text"
                     value={customerName}
+                    maxLength={120}
+                    disabled={saving || !!pendingSave}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder="Customer name (optional)"
                     className={inputClass}
@@ -852,21 +1046,22 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
                     type="tel"
                     inputMode="tel"
                     value={customerPhone}
+                    maxLength={30}
+                    disabled={saving || !!pendingSave}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     placeholder="Customer mobile e.g. 0412 345 678"
                     className={inputClass}
                   />
                 </div>
                 <p className="mt-2 text-xs text-text-dim">
-                  Enter a mobile to send an SMS + the tender PDF (as an MMS) the moment you save.
-                  Leave blank to just create the quote and share the link yourself.
+                  Save creates a private draft. Review the saved quote before choosing a separate customer send action.
                 </p>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-4">
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || pricing || !!pendingSave || !recoveryReady || !!recoveryError || !!savedQuote || pricingProof?.runId !== runId || pricingProof.extractionId !== extraction.id}
                   aria-busy={saving}
                   onClick={() => void saveAsQuote()}
                   className="rounded-ctl inline-flex cursor-pointer items-center gap-2.5 bg-accent px-5 py-3 text-sm font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-50"
@@ -877,9 +1072,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
                       Saving quote…
                     </>
                   ) : savedQuote ? (
-                    'Save again'
-                  ) : customerPhone.trim() ? (
-                    'Save & text quote'
+                    'Quote saved'
                   ) : (
                     'Save as quote'
                   )}
@@ -905,6 +1098,9 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
                   </span>
                 )}
               </div>
+              {(!pricingProof || pricingProof.runId !== runId || pricingProof.extractionId !== extraction.id) && (
+                <p role="status" className="mt-3 text-sm text-warning">Review and re-price the takeoff before saving this quote.</p>
+              )}
 
               <PaintPreviewPanel
                 accessToken={accessToken}
@@ -1033,6 +1229,7 @@ export default function CommercialPaintingTab({ accessToken }: { accessToken: st
           />
         </section>
       )}
+      </fieldset>
     </div>
   )
 }

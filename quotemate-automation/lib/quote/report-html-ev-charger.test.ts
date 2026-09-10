@@ -331,7 +331,7 @@ describe('buildEvChargerEstimateHtml — optional upgrades and terms', () => {
     const html = buildEvChargerEstimateHtml(
       baseInput({ optionalUpsells: [{ name: 'Surge protection device', price_ex_gst: 360 }] }),
     )
-    expect(html).toContain('$396 inc GST')
+    expect(html).toContain('$396.00 inc GST')
   })
 
   it('prints the five terms, with the deposit and include-GST lines replaced', () => {

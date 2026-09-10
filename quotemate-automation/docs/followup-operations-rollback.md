@@ -1,0 +1,11 @@
+# Follow-up operation release and rollback
+
+Migration 220 is additive and has not been applied by this task. Deploy it through the approved database workflow before enabling the paired web/native callers. Old callers without `requestId` receive a controlled rejection; do not restore their unsafe send behavior as a compatibility fallback.
+
+To stop new text/call/manual-log actions, set `FOLLOWUP_MUTATIONS_DISABLED=true` in the deployed backend and redeploy that same compatible release. All three POST handlers return 503 after authentication; GET operation status and existing event/thread reads remain available. Verify this state before changing clients or database code. In-flight operations can still finish: inspect their saved operations/outbox status, and never infer that a client timeout or deployment interruption prevented provider acceptance.
+
+Retain `followup_operations`, its unique tenant/request identity, all existing outbox rows, provider evidence, event/transcript rows, and migration 220's acceptance/history functions and trigger. They allow accepted messages and callbacks to finish/reconcile after producers stop. There is deliberately no destructive down migration or expiry-based cleanup: dropping this evidence could turn an uncertain call/message into a new send. Do not restore the pre-220 text/call/events POST implementations. If an application rollback is required, carry the paused POST handlers and GET reconciliation implementation into that release.
+
+Before re-enabling, fix forward, run the focused C11 SQL/handler and browser-receipt suites, then independently verify the migration/function bodies, producer pause, duplicate fence, tenant isolation, and accepted-history repair. Set `FOLLOWUP_MUTATIONS_DISABLED=false` only when those checks and the approved release procedure pass. No step here authorizes a production migration, provider send, or deployment.
+
+Offline verification: `node node_modules/vitest/vitest.mjs run tests/followup-operations.test.ts lib/quote/followup-browser-operation.test.ts --maxWorkers=1`. The fixture executes SQL198/199/039/220, tests paused producers with readable retained receipts, actual POST/GET handlers, and accepted history repair. It is not a production multi-connection, RLS-role, native-device, or provider certification.

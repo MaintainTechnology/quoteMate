@@ -4,6 +4,7 @@
 // contract of POST /api/quote/[id]/edit (spec R2/R3 + edge cases).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+vi.mock('@/lib/quote/job-quote-operation', () => ({ readQuoteDraftReadiness: vi.fn(async () => ({ ready: true })) }))
 
 type Row = unknown
 const state: {
@@ -76,6 +77,9 @@ vi.mock('@/lib/quote/chat-edit', () => ({
 }))
 
 import { POST } from './route'
+import { quoteEditRevision } from '@/lib/quote/edit-authority'
+import { proposeQuoteEdit } from '@/lib/quote/chat-edit'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
 
 const params = { params: Promise.resolve({ id: 'q1' }) }
 
@@ -92,6 +96,13 @@ function req(body?: unknown, bearer?: string) {
 
 const VALID_BODY = { instruction: 'add a downlight to better' }
 
+it.each(['quote_draft_processing', 'quote_draft_unconfirmed'] as const)('blocks %s before model proposal', async code => {
+  vi.mocked(readQuoteDraftReadiness).mockResolvedValueOnce({ ready: false, code })
+  expect(await (await POST(req(VALID_BODY, 'tok'), params)).json()).toMatchObject({ error: code })
+  expect(proposeQuoteEdit).not.toHaveBeenCalled()
+  expect(mutated.called).toBe(false)
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   mutated.called = false
@@ -104,13 +115,15 @@ beforeEach(() => {
     paid_at: null,
     needs_inspection: false,
     good: null,
-    better: { label: 'Better', line_items: [] },
+    better: { label: 'Better', subtotal_ex_gst: 100, line_items: [] },
+    total_inc_gst: 110,
     best: null,
     scope_of_works: null,
     assumptions: null,
   }
   state.tenant = { id: 't1', owner_user_id: 'owner-1' }
   state.pricingBook = {
+    id: 'pb1', tenant_id: 't1', gst_registered: true,
     trade: 'electrical',
     hourly_rate: 110,
     apprentice_rate: 75,
@@ -120,7 +133,7 @@ beforeEach(() => {
     min_labour_hours: 2,
     after_hours_multiplier: null,
   }
-  state.intake = { trade: 'electrical' }
+  state.intake = { tenant_id: 't1', trade: 'electrical' }
 })
 
 describe('POST /api/quote/[id]/chat-edit — guards', () => {
@@ -173,7 +186,7 @@ describe('POST /api/quote/[id]/chat-edit — guards', () => {
     state.pricingBook = { trade: 'electrical', hourly_rate: null, default_markup_pct: null }
     const res = await POST(req(VALID_BODY, 'tok'), params)
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe('pricing_book_misconfigured')
+    expect((await res.json()).error).toBe('quote_pricing_review_required')
   })
 
   it('200 and ok:true on the happy path, and persists nothing', async () => {
@@ -185,5 +198,58 @@ describe('POST /api/quote/[id]/chat-edit — guards', () => {
     expect(body).toHaveProperty('proposedTiers')
     // DoD: no DB write occurs on a chat-edit request.
     expect(mutated.called).toBe(false)
+  })
+})
+
+describe('chat proposal source and identity boundary', () => {
+  it.each([null, '', ' '])('rejects stored missing/blank money %j without model work', async (value) => {
+    for (const field of ['quantity', 'unit_price_ex_gst']) {
+      Object.assign(state.quote as object, { better: { label: 'Better', subtotal_ex_gst: 100, line_items: [
+        { description: 'Valid work', quantity: 1, unit_price_ex_gst: 100 },
+        { description: 'Invalid stored price', quantity: 1, unit_price_ex_gst: 10, [field]: value },
+      ] } })
+      expect((await POST(req(VALID_BODY, 'tok'), params)).status).toBe(409)
+    }
+    expect(proposeQuoteEdit).not.toHaveBeenCalled()
+  })
+  it('retains an explicit stored zero in the model input', async () => {
+    Object.assign(state.quote as object, { better: { label: 'Better', subtotal_ex_gst: 100, line_items: [
+      { description: 'Included service', quantity: 1, unit_price_ex_gst: 0 },
+    ] } })
+    expect((await POST(req(VALID_BODY, 'tok'), params)).status).toBe(200)
+    expect(vi.mocked(proposeQuoteEdit).mock.calls[0][0].currentTiers.better?.line_items[0].unit_price_ex_gst).toBe(0)
+  })
+  it.each([null, '', ' ', true])('rejects missing/invalid numeric current-tier values %j before model work', async (value) => {
+    const response = await POST(req({ ...VALID_BODY, currentTiers: { better: { label: 'Better', line_items: [
+      { description: 'Existing work', quantity: 1, unit_price_ex_gst: value },
+    ] } } }, 'tok'), params)
+    expect(response.status).toBe(400)
+    expect(proposeQuoteEdit).not.toHaveBeenCalled()
+  })
+  it('passes stored supplier and safety provenance with exact line index to the proposer', async () => {
+    const quote = state.quote as Record<string, unknown>
+    quote.better = { label: 'Better', subtotal_ex_gst: 100, line_items: [
+      { description: 'Customer fitting', quantity: 1, unit: 'ea', unit_price_ex_gst: 100,
+        source: 'material:owned-id', supplied_by: 'customer', safety_note: 'AU certified only.' },
+    ] }
+    const response = await POST(req(VALID_BODY, 'tok'), params)
+    expect(response.status).toBe(200)
+    expect(vi.mocked(proposeQuoteEdit).mock.calls[0][0].currentTiers.better?.line_items[0]).toMatchObject({
+      original_line_index: 0, supplied_by: 'customer', safety_note: 'AU certified only.', source: 'material:owned-id',
+    })
+    expect(await response.json()).toMatchObject({ edit_revision: quoteEditRevision(quote) })
+    expect(mutated.called).toBe(false)
+  })
+  it('rejects stale currentTiers before candidate or model work', async () => {
+    const response = await POST(req({ ...VALID_BODY, expected_revision: 'a'.repeat(64) }, 'tok'), params)
+    expect(response.status).toBe(409)
+    expect(proposeQuoteEdit).not.toHaveBeenCalled()
+  })
+  it('rejects injected supplier metadata instead of passing it to the proposer', async () => {
+    const response = await POST(req({ ...VALID_BODY, currentTiers: { better: {
+      label: 'Better', line_items: [{ description: 'Invented fitting', quantity: 1, unit: 'ea', unit_price_ex_gst: 100, supplied_by: 'customer' }],
+    } } }, 'tok'), params)
+    expect(response.status).toBe(409)
+    expect(proposeQuoteEdit).not.toHaveBeenCalled()
   })
 })

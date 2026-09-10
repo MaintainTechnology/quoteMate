@@ -188,6 +188,27 @@ describe('GET /api/tenant/me — quote customer contact', () => {
 })
 
 describe('GET /api/tenant/me — quotes query', () => {
+  it.each(['site_conditions', 'model_declared', 'grounding_failed', null])(
+    'selects and returns delivery, chain and inspection metadata without inferred causes (%s)', async (inspectionCause) => {
+      const quote = {
+        id: 'q-final', intake_id: null, sent_at: '2026-09-08T02:00:00Z',
+        inspection_cause: inspectionCause, estimate_number: 'EV-000123',
+        quote_kind: 'final', parent_quote_id: 'q-initial', paid_tier: 'good',
+        paid_at: '2026-09-08T03:00:00Z',
+      }
+      h.resultsByTable.quotes = [{ data: [quote], error: null }]
+      const response = await GET(req())
+      expect(response.status).toBe(200)
+      expect((await response.json()).quotes[0]).toMatchObject(quote)
+      const query = h.queries.find((entry) => entry.table === 'quotes')!
+      const fields = String(query.ops.find((op) => op.op === 'select')!.args[0]).split(',').map((field) => field.trim())
+      expect(fields).toEqual(expect.arrayContaining([
+        'sent_at', 'inspection_cause', 'estimate_number', 'quote_kind', 'parent_quote_id', 'paid_tier', 'paid_at',
+      ]))
+      expect(query.ops).toContainEqual({ op: 'eq', args: ['tenant_id', 'tenant-1'] })
+    },
+  )
+
   it('fetches up to 100 quotes, tenant-scoped, newest-first', async () => {
     const res = await GET(req())
     expect(res.status).toBe(200)

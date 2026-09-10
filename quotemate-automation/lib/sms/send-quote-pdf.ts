@@ -18,6 +18,7 @@
 // quote-pdfs bucket, signPlanPdfUrl for plan-pdfs).
 
 import { dispatchQuoteMessage, type DispatchResult } from './dispatch'
+import type { OutboundOptions } from './durable-outbox'
 
 // RC-7 — Twilio's hard MMS media limit. The canonical stored quote PDF is now
 // the FULL-image document (so dashboard-download + the /api/q/[token]/pdf link
@@ -49,11 +50,7 @@ export function quotePdfMmsEnabled(): boolean {
   return process.env.SMS_QUOTE_PDF_MMS === '1'
 }
 
-export async function dispatchQuoteWithPdf(opts: {
-  to: string
-  text: string
-  /** SMS sender override (defaults handled by dispatchQuoteMessage). */
-  from?: string
+export async function dispatchQuoteWithPdf(opts: Omit<OutboundOptions, 'mediaUrl' | 'mediaKey'> & {
   /** Storage path of the rendered PDF, or null when none was produced
    *  (Gotenberg unconfigured, inspection-routed, render failed). */
   pdfPath: string | null
@@ -61,10 +58,11 @@ export async function dispatchQuoteWithPdf(opts: {
    *  Only called when pdfPath is non-null; a throw degrades to plain SMS. */
   signMediaUrl: (path: string) => Promise<string>
 }): Promise<DispatchResult> {
+  const { pdfPath, signMediaUrl, ...delivery } = opts
   let mediaUrl: string | undefined
-  if (opts.pdfPath && quotePdfMmsEnabled()) {
+  if (pdfPath && quotePdfMmsEnabled()) {
     try {
-      mediaUrl = await opts.signMediaUrl(opts.pdfPath)
+      mediaUrl = await signMediaUrl(pdfPath)
     } catch (e) {
       console.warn(
         '[send-quote-pdf] MMS media sign failed — sending plain SMS (body link still carries the PDF)',
@@ -75,9 +73,9 @@ export async function dispatchQuoteWithPdf(opts: {
   }
 
   return dispatchQuoteMessage({
-    to: opts.to,
-    text: opts.text,
-    from: opts.from,
+    ...delivery,
+    // Remains stable when the signed URL is renewed or signing degrades to SMS.
+    ...(pdfPath ? { mediaKey: pdfPath } : {}),
     ...(mediaUrl ? { mediaUrl } : {}),
   })
 }

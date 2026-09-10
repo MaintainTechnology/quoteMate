@@ -12,32 +12,20 @@ async function findBookForTrade(
   tenantId: string,
   trade: string,
 ): Promise<CommercialPaintPricingBook | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from('pricing_book')
-    .select('id, gst_registered')
+    .select('id, tenant_id, trade, gst_registered')
     .eq('tenant_id', tenantId)
     .eq('trade', trade)
     .maybeSingle()
-  return (data as CommercialPaintPricingBook | null) ?? null
+  if (error) throw new Error('Commercial painting tax basis unavailable')
+  if (!data || data.tenant_id !== tenantId || data.trade !== trade || typeof data.gst_registered !== 'boolean') return null
+  return { id: data.id, gst_registered: data.gst_registered }
 }
 
 export async function findCommercialPaintPricingBook(
   db: PricingClient,
   tenant: { id: string; trade?: string | null },
 ): Promise<CommercialPaintPricingBook | null> {
-  const selected = await findBookForTrade(db, tenant.id, 'commercial_painting')
-  if (selected) return selected
-
-  if (tenant.trade && tenant.trade !== 'commercial_painting') {
-    const primary = await findBookForTrade(db, tenant.id, tenant.trade)
-    if (primary) return primary
-  }
-
-  const { data } = await db
-    .from('pricing_book')
-    .select('id, gst_registered')
-    .eq('tenant_id', tenant.id)
-    .limit(1)
-    .maybeSingle()
-  return (data as CommercialPaintPricingBook | null) ?? null
+  return findBookForTrade(db, tenant.id, 'commercial_painting')
 }

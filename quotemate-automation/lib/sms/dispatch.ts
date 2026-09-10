@@ -19,10 +19,10 @@
 // throttled send waits a beat and goes through cleanly.
 
 import { sendSms, sendWhatsApp, type TwilioSendResult } from './twilio'
-import { isRetryableSendError } from './send-reliability'
-import { recordTradieSend } from './tradie-log'
+import { dispatchDurably, recoverOutbound, type OutboundOptions } from './durable-outbox'
 
 export type DispatchOk = {
+  outboxId?: string
   ok: true
   channel: 'sms' | 'whatsapp'
   sid: string
@@ -39,6 +39,7 @@ export type DispatchOk = {
 }
 
 export type DispatchFail = {
+  outboxId?: string
   ok: false
   /** SMS attempt result (last attempt's code/reason) */
   smsAttempt: { code: string; reason: string }
@@ -52,23 +53,9 @@ export type DispatchFail = {
 
 export type DispatchResult = DispatchOk | DispatchFail
 
-// Codes we'll retry on. Anything not on this list is treated as a
-// permanent failure (e.g. 21408 invalid recipient, 21610 STOP'd, 21612
-// blocked) and we move straight to WhatsApp fallback rather than burning
-// retry budget on a request that'll never succeed.
-//
-//   - NETWORK:  fetch threw before reaching Twilio
-//   - 429:      Twilio rate limit — back off and retry
-//   - 5xx:      Twilio server error — back off and retry
-//   - 14107 / 14101: messaging-service rate limits (Twilio internal)
-//
-// R46-sends: delegate the classification to the shared `isRetryableSendError`
-// in send-reliability.ts so dispatch and the route-level retry agree on
-// exactly one policy. A Twilio failed-result is `{ ok:false, code }`, which
-// `isRetryableSendError` understands directly; this keeps the historical
-// NETWORK/429/5xx/14107/14101 set retryable and everything else terminal.
+// Retry only explicit provider rejections. A timeout or 5xx cannot prove non-acceptance.
 function isRetryable(result: Extract<TwilioSendResult, { ok: false }>): boolean {
-  return isRetryableSendError(result)
+  return ['429', '14107', '14101'].includes(result.code)
 }
 
 const RETRY_DELAYS_MS = [500, 1500, 3500] // total max ~5.5s before falling back
@@ -83,19 +70,12 @@ export function whatsappFallbackAllowed(from: string | undefined): boolean {
   return from === process.env.TWILIO_SMS_NUMBER || from === process.env.TWILIO_PHONE_NUMBER
 }
 
-// Map a thrown error from sendSms (AbortError / TimeoutError / generic
-// network throw that escaped postTwilioMessage's own try) into a synthetic
-// failed TwilioSendResult so the retry/fallback loop below has ONE code path.
-// Without this, a thrown AbortError would bubble out of sendSmsWithRetry and
-// (a) skip the WhatsApp fallback and (b) skip retrying a transient timeout —
-// the first-class case send-reliability.ts was built to close.
+// A thrown transport failure may happen after acceptance. Stop automatic resend.
 function thrownToResult(e: unknown): Extract<TwilioSendResult, { ok: false }> {
-  const name = e instanceof Error ? e.name : undefined
   const reason = e instanceof Error ? e.message : String(e)
   // Preserve the thrown error's name as the `code` so isRetryableSendError
   // classifies AbortError/TimeoutError as retryable; otherwise tag NETWORK.
-  const code = name === 'AbortError' || name === 'TimeoutError' ? name : 'NETWORK'
-  return { ok: false, code, reason, raw: null }
+  return { ok: false, code: 'AMBIGUOUS', reason, raw: null }
 }
 
 async function sendSmsWithRetry(opts: {
@@ -103,6 +83,7 @@ async function sendSmsWithRetry(opts: {
   text: string
   from?: string
   mediaUrl?: string | string[]
+  statusCallback?: string
 }): Promise<{ result: TwilioSendResult; attempts: number }> {
   let attempts = 0
   let last: TwilioSendResult | null = null
@@ -147,19 +128,14 @@ async function sendSmsWithRetry(opts: {
  * lib/sms/tradie-log.ts.
  */
 export async function dispatchQuoteMessage(
-  opts: Parameters<typeof sendQuoteMessage>[0],
+  opts: OutboundOptions,
 ): Promise<DispatchResult> {
-  const result = await sendQuoteMessage(opts)
-  if (opts.audience === 'tradie') {
-    await recordTradieSend({
-      to: opts.to,
-      body: opts.text,
-      ok: result.ok,
-      sid: result.ok ? result.sid : null,
-      tenantId: opts.tenantId ?? null,
-    }).catch(() => {})
-  }
-  return result
+  return dispatchDurably(opts, sendQuoteMessage)
+}
+
+/** Called by website cron and exported service workers; safe under overlapping workers. */
+export async function recoverSmsOutbox(limit = 10) {
+  return recoverOutbound(sendQuoteMessage, limit)
 }
 
 async function sendQuoteMessage(opts: {
@@ -185,6 +161,7 @@ async function sendQuoteMessage(opts: {
   /** Stamped on the audit row for an audience:'tradie' send, so alerts can be
    *  read back per tenant. Optional — the row is still written without it. */
   tenantId?: string | null
+  statusCallback?: string
 }): Promise<DispatchResult> {
   let mediaDropped = false
   let attempt = await sendSmsWithRetry({
@@ -192,14 +169,19 @@ async function sendQuoteMessage(opts: {
     text: opts.text,
     from: opts.from,
     mediaUrl: opts.mediaUrl,
+    statusCallback: opts.statusCallback,
   })
+
+  if (!attempt.result.ok && ['AMBIGUOUS','21610'].includes(attempt.result.code)) {
+    return { ok: false, smsAttempt: { code: attempt.result.code, reason: attempt.result.reason }, smsAttempts: attempt.attempts }
+  }
 
   // MMS attempt failed — fall back to a plain SMS (the link is in the body)
   // before resorting to WhatsApp.
   if (!attempt.result.ok && opts.mediaUrl) {
     console.warn(`[dispatch] MMS send failed (code=${attempt.result.code}) to ${opts.to} — retrying as plain SMS`)
     mediaDropped = true
-    attempt = await sendSmsWithRetry({ to: opts.to, text: opts.text, from: opts.from })
+    attempt = await sendSmsWithRetry({ to: opts.to, text: opts.text, from: opts.from, statusCallback: opts.statusCallback })
   }
 
   const { result: smsResult, attempts: smsAttempts } = attempt
@@ -217,6 +199,7 @@ async function sendQuoteMessage(opts: {
   }
 
   const smsAttempt = { code: smsResult.code, reason: smsResult.reason }
+  if (['AMBIGUOUS','21610'].includes(smsResult.code)) return { ok: false, smsAttempt, smsAttempts }
 
   // US-008 (audit 2026-07-23): WhatsApp always sends from the global
   // TWILIO_WHATSAPP_FROM — a WA sender can't be a tenant long code. On a
@@ -233,7 +216,7 @@ async function sendQuoteMessage(opts: {
   // DispatchResult, never throwing), so degrade a throw to a failed result.
   let waResult: TwilioSendResult
   try {
-    waResult = await sendWhatsApp({ to: opts.to, text: opts.text })
+    waResult = await sendWhatsApp({ to: opts.to, text: opts.text, statusCallback: opts.statusCallback })
   } catch (e) {
     waResult = thrownToResult(e)
   }

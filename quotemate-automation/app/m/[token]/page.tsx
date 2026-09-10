@@ -32,6 +32,7 @@ import {
 import { loadTenantIdentity, contactDisplayName } from '@/lib/quote/tenant-identity'
 import { QuoteSheet, Letterhead } from '../../q/_chrome/parts'
 import { BrandMark } from '@/app/_components/BrandMark'
+import { roofMeasurementVersion } from '@/lib/roofing/measurement-version'
 import { MeasurementReview } from './MeasurementReview'
 import { RoofLayoutSection } from './RoofLayoutSection'
 import { Roof3DModelSection } from './Roof3DModelSection'
@@ -412,6 +413,7 @@ export default async function MeasurementResultsPage({
       />
 
       <MeasurementReview
+              measurementVersion={roofMeasurementVersion(row)}
         measureToken={row.measure_token}
         publicToken={row.public_token}
         routing={row.routing}

@@ -8,6 +8,8 @@ import { after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { ensurePaintingPdf, downloadQuotePdf } from '@/lib/quote/pdf'
 import { archiveQuoteOnDownload } from '@/lib/filestore/archive-on-download'
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -18,17 +20,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
 
-  const { data: row } = await supabase
+  const { data: row, error: readError } = await supabase
     .from('painting_measurements')
-    .select('public_token, pdf_path, routing')
+    .select('public_token, tenant_id, released_at, pdf_path, routing')
     .eq('public_token', token)
     .maybeSingle()
 
+  if (readError) return Response.json({ ok: false, error: 'Quote temporarily unavailable' }, { status: 503 })
   if (!row) {
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
+  }
+  if (!row.released_at) {
+    const owner = await resolveTenantRequest(supabase, req, 'id')
+    const owned = Boolean(row.tenant_id) && (owner?.tenant?.id === row.tenant_id || await isQuotePageOwner(supabase, row.tenant_id))
+    if (!owned) return Response.json({ ok: false, error: 'Quote awaiting tradie review' }, { status: 409 })
   }
   if (row.routing === 'inspection_required') {
     return Response.json(

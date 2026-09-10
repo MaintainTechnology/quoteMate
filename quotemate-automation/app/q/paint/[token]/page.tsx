@@ -30,6 +30,9 @@
 
 import type { CSSProperties, ReactNode } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { notFound } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import type { PaintingEstimate, PaintScope, PaintingPriceTier } from '@/lib/painting/types'
 import { composePaintLocation } from '@/lib/painting/paint-after'
 import { customerTakeoff } from '@/lib/painting/takeoff'
@@ -116,14 +119,17 @@ export default async function PaintingQuotePage(props: {
   const sp = await props.searchParams
   const noSlots = sp.slots === '0'
 
-  const { data: row } = await supabase
+  const { data: row, error: quoteError } = await supabase
     .from('painting_measurements')
     .select(
-      'address, postcode, state, scopes, confidence, routing, estimate, public_token, customer_name, created_at, tenant_id, preview_status, tenants:tenant_id(business_name)',
+      'address, postcode, state, scopes, confidence, routing, estimate, public_token, customer_name, created_at, tenant_id, preview_status, released_at, paid_at, paid_tier, scheduled_at, scheduled_window, tenants:tenant_id(business_name)',
     )
     .eq('public_token', token)
     .maybeSingle()
 
+  if (quoteError) return <QuoteUnavailable correlationId={quoteReadFailure('paint', quoteError)} />
+  if (!row) notFound()
+  if (!row.estimate) return <QuoteUnavailable correlationId={quoteReadFailure('paint', { code: 'MISSING_ESTIMATE' })} />
   if (!row || !row.estimate) {
     return (
       <QuoteChrome trade={{ label: 'Paint', icon: tradeIcon('paint') }} sticky={null}>
@@ -194,32 +200,14 @@ export default async function PaintingQuotePage(props: {
   })
   const visibleTiers = tiers.filter((t) => visibleTierKeys.includes(t.tier))
 
-  // Payment/release state (migrations 156/167). Read in a SEPARATE,
-  // best-effort query so this LIVE page never breaks if the code deploys
-  // before a migration applies (the columns simply aren't selected then →
-  // payErr set → the safe defaults hold). A paid quote shows a confirmed
-  // state instead of re-charging; the only payable link this page renders is
-  // the $99 site-visit mint (spec painting-site-visit-first R1).
-  let paid = false
-  let paidTier: string | null = null
-  let paintScheduledAt: string | null = null
-  let paintScheduledWindow: string | null = null
-  // `released` defaults TRUE so a pre-migration deploy and every dashboard-saved
-  // quote (released at save) keep showing prices; only a HELD SMS/self-serve
-  // draft (released_at null) gates them until the tradie clicks Send.
-  let released = true
-  const { data: payRow, error: payErr } = await supabase
-    .from('painting_measurements')
-    .select('paid_at, paid_tier, released_at, scheduled_at, scheduled_window')
-    .eq('public_token', token)
-    .maybeSingle()
-  if (!payErr && payRow) {
-    paid = !!(payRow.paid_at as string | null)
-    paidTier = (payRow.paid_tier as string | null) ?? null
-    paintScheduledAt = (payRow.scheduled_at as string | null) ?? null
-    paintScheduledWindow = (payRow.scheduled_window as string | null) ?? null
-    released = (payRow.released_at as string | null) != null
-  }
+  // Release is required authority for the saved price, so it shares the
+  // checked estimate read above. A missing column or failed read cannot
+  // turn a held draft into a customer-visible offer.
+  const paid = !!row.paid_at
+  const paidTier = (row.paid_tier as string | null) ?? null
+  const paintScheduledAt = (row.scheduled_at as string | null) ?? null
+  const paintScheduledWindow = (row.scheduled_window as string | null) ?? null
+  const released = row.released_at != null
 
   // Self-serve visit booking (mig 167) now happens on /q/paint/<token>/book,
   // which loads the painter's open windows itself — this page only links to it,
@@ -884,7 +872,7 @@ export default async function PaintingQuotePage(props: {
           // CTA, no PDF link. TierCards is unreachable from here.
           <div style={blockBody}>
             <div>
-              <p style={subHeading}>Quote being finalised</p>
+              <p style={subHeading}>Awaiting painter review</p>
               <p style={{ margin: '12px 0 0', fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-sec)' }}>
                 {priceGate.reason}
               </p>
@@ -931,10 +919,10 @@ export default async function PaintingQuotePage(props: {
           heldView ? (
             <div style={{ display: 'grid', gap: 10, maxWidth: 480 }}>
               <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-sec)' }}>
-                Nothing to do right now — {tradieName} is finalising your quote. We&apos;ll
-                text you the moment it&apos;s ready, and you can book from this same link.
+                Your draft is saved. {tradieName} needs to review and approve it before
+                the prices and booking options can be shared.
               </p>
-              <span style={microNote}>Usually within a business day</span>
+              <span style={microNote}>Awaiting painter approval</span>
             </div>
           ) : paid && paintScheduledAt ? (
             <div style={{ display: 'grid', gap: 16, maxWidth: 480 }}>
@@ -1093,7 +1081,7 @@ export default async function PaintingQuotePage(props: {
             </p>
           </SheetSection>
         ) : !priceGate.showPrices ? (
-          <SheetSection eyebrow="Quote being finalised" eyebrowAccent>
+          <SheetSection eyebrow="Awaiting painter review" eyebrowAccent>
             <p style={{ margin: '12px 0 0', fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-sec)' }}>
               {priceGate.reason}
             </p>

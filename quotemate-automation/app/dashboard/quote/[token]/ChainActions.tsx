@@ -16,12 +16,10 @@
 //     be tapped on the job, on a phone, which is why it reports the SMS
 //     outcome inline rather than relying on a page refresh.
 //
-// Both routes are idempotent at the DATABASE (a partial unique index on
-// (parent_quote_id, quote_kind) where the child is unpaid), so a double-tap
-// returns the existing child instead of creating a second one. The UI still
-// disables while in flight — but correctness does not depend on that.
+// Balance requests use an atomic preparation and a fixed initial SMS intent.
+// After any dispatched request this mounted panel performs status reads only.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAuthToken } from '@/lib/auth/client-token'
 
@@ -46,28 +44,43 @@ const REASONS: Record<string, string> = {
   send_failed: 'The payment link could not be texted. Try again.',
 }
 
-export default function ChainActions(props: {
+type ChainActionProps = {
   quoteId: string
   /** 'issue-final' on the paid site-visit row; 'request-balance' on the final row. */
   action: 'issue-final' | 'request-balance'
-}) {
+}
+export default function ScopedChainActions(props: ChainActionProps) {
+  return <ChainActions key={props.quoteId + ':' + props.action} {...props} />
+}
+function ChainActions(props: ChainActionProps) {
   const router = useRouter()
   const [state, setState] = useState<State>(IDLE)
+  const [requested, setRequested] = useState(false)
+  const [balanceToken, setBalanceToken] = useState<string | null>(null)
+  const currentScope = useRef(true)
+  useEffect(() => {
+    currentScope.current = true
+    return () => { currentScope.current = false }
+  }, [])
 
   const isIssue = props.action === 'issue-final'
   const label = isIssue ? 'Issue final quote' : 'Request final payment'
 
   async function run() {
+    if (!isIssue && !requested && !window.confirm('Request the remaining payment and text the customer their payment link?')) return
     setState({ pending: true, ok: null, err: null })
     try {
       const token = await getAuthToken()
+      if (!currentScope.current) return
       if (!token) {
         setState({ pending: false, ok: null, err: 'Sign in as the quote owner.' })
         return
       }
       const path = isIssue ? 'issue-final' : 'request-final-payment'
+      const reading = !isIssue && requested
+      if (!isIssue) setRequested(true)
       const res = await fetch(`/api/quote/${props.quoteId}/${path}`, {
-        method: 'POST',
+        method: reading ? 'GET' : 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
       const body = (await res.json().catch(() => ({}))) as {
@@ -77,8 +90,13 @@ export default function ChainActions(props: {
         share_token?: string
         already?: boolean
         sent?: boolean
+        accepted?: boolean
+        already_actioned?: boolean
+        status?: string
+        balancePaid?: boolean
       }
 
+      if (!currentScope.current) return
       if (res.status === 401 || res.status === 403) {
         setState({ pending: false, ok: null, err: 'Sign in as the quote owner.' })
         return
@@ -98,6 +116,25 @@ export default function ChainActions(props: {
         router.push(`/dashboard/quote/${body.share_token}`)
         return
       }
+      if (!isIssue) {
+        if (body.share_token) setBalanceToken(body.share_token)
+        const message = body.balancePaid || body.status === 'balance_already_paid'
+          ? 'The balance is already paid. No new payment was requested.'
+          : body.status === 'delivered'
+            ? 'The carrier confirmed delivery of the payment link.'
+            : body.accepted === true || body.status === 'accepted' || body.status === 'provider_accepted'
+              ? 'The provider accepted the payment link. Customer delivery is not yet confirmed.'
+              : ['pending', 'retry'].includes(body.status ?? '')
+                ? 'The payment link is queued. Check delivery status before another action.'
+                : ['failed', 'undelivered'].includes(body.status ?? '')
+                  ? 'The payment link was not delivered. Review the original message in SMS delivery.'
+                  : body.status === 'legacy_delivery_review_required'
+                    ? 'A previous balance request exists. Open it to review its delivery history.'
+                    : 'The delivery outcome is unconfirmed. Check status; this action does not send again.'
+        setState({ pending: false, ok: message, err: null })
+        router.refresh()
+        return
+      }
       setState({
         pending: false,
         // Never claim a send that did not happen. The route answers ok:true
@@ -112,7 +149,9 @@ export default function ChainActions(props: {
       })
       router.refresh()
     } catch {
-      setState({ pending: false, ok: null, err: 'Network error — try again.' })
+      if (!currentScope.current) return
+      setState({ pending: false, ok: null, err: isIssue ? 'Network error — try again.'
+        : 'The delivery outcome is unconfirmed. Check delivery status before taking another action.' })
     }
   }
 
@@ -124,8 +163,9 @@ export default function ChainActions(props: {
         disabled={state.pending}
         className="rounded-ctl inline-flex min-h-[40px] items-center gap-2 bg-accent px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-accent-press disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
       >
-        {state.pending ? 'Working…' : label}
+        {state.pending ? 'Working…' : !isIssue && requested ? 'Check delivery status' : label}
       </button>
+      {balanceToken && <a className="text-xs underline" href={`/dashboard/quote/${encodeURIComponent(balanceToken)}`}>Open balance request</a>}
       {state.err && (
         <p className="max-w-[36ch] text-right text-[0.6rem] uppercase tracking-[0.08em] text-warning">
           {state.err}

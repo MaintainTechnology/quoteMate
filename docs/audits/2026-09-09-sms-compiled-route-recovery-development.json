@@ -1,0 +1,1889 @@
+{
+  "generatedAt": "2026-09-08T22:22:34.563Z",
+  "scope": "Development proof for actual compiled electrical and painting handler recovery",
+  "allDistinctScenariosPassed": false,
+  "singleFrozenRun": false,
+  "finalAcceptance": false,
+  "readiness": {
+    "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\final-ready.json",
+    "sha256": "3f70e3787b5834845294b9153988139d73f86c869f2982a669623cb3208f8303",
+    "readyUtc": "2026-09-08T21:24:12.0345853Z"
+  },
+  "byTrade": [
+    {
+      "trade": "electrical",
+      "scenarios": 10,
+      "kills": 6,
+      "bursts": 4,
+      "jobs": 64,
+      "inboundSids": 42,
+      "children": 156,
+      "intents": 73
+    },
+    {
+      "trade": "painting",
+      "scenarios": 10,
+      "kills": 6,
+      "bursts": 4,
+      "jobs": 52,
+      "inboundSids": 52,
+      "children": 186,
+      "intents": 62
+    }
+  ],
+  "sources": [
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "attempt": 17,
+      "wholeAttemptExit": 1,
+      "key": "completedResults"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "attempt": 18,
+      "wholeAttemptExit": 1,
+      "key": "completedResults"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-history.json",
+      "sha256": "4e23f93fe85feac2870865686f5fb1c0aedc09e47ac7f10ebbb5af898632b590",
+      "attempt": 19,
+      "wholeAttemptExit": 0,
+      "key": "results"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-after-history.json",
+      "sha256": "3ddceae482aac5ae98d4efef381d826bbfd571a82036769aa38aa720d880adde",
+      "attempt": 19,
+      "wholeAttemptExit": 0,
+      "key": "results"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-result-save.json",
+      "sha256": "0e84dbdeb424ceb416887fd311b2b915558dd4c34920ad5bda7f52a99690d240",
+      "attempt": 19,
+      "wholeAttemptExit": 0,
+      "key": "results"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-unlock.json",
+      "sha256": "f3f0f2cd642ec4854898a5a8e8c4328299fdd735259656c7c9957c7a1eef0320",
+      "attempt": 19,
+      "wholeAttemptExit": 0,
+      "key": "results"
+    },
+    {
+      "path": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical-burst-before-unlock.json",
+      "sha256": "fc22ba89201fe9a91590b67dfb5581dc5af72a194ea93249a1009e8b09765082",
+      "attempt": 19,
+      "wholeAttemptExit": 0,
+      "key": "results"
+    }
+  ],
+  "archives": [
+    "route-journey-harness-recovery-attempt17",
+    "route-journey-harness-recovery-attempt18",
+    "route-journey-harness-recovery-attempt19"
+  ],
+  "limitations": [
+    "Attempts17 and18 exited1 after nine/six passing cases; their exact completedResults and failed-state evidence are preserved, not relabelled as successful whole runs. Attempt19 exited0 for the remaining five cases.",
+    "Candidates are the earlier schema-readiness-refresh snapshot. New canonical website/tool/approval/copy edits require rebuilt attested candidates and a new complete20-case run plus normal5.",
+    "Actual route-assigned serial keys, compiled handlers/pricers, real durable SQL and process kills execute; database transport, model decisions, Google and carrier responses are offline fixtures.",
+    "Correction means first-name Alex persisted in owned conversation slots; no address/scope repricing proof.",
+    "Two electrical burst timings produce one exact validated correction-SID intake wakeup, with same intake/result and no additional model/pricing/task/send/publication.",
+    "This covers two representative trades, not actual business-handler kill/burst execution for all five; PGlite serialises fixture database access and abandoned lease deadlines advance only after confirmed child exit."
+  ],
+  "results": [
+    {
+      "trade": "electrical",
+      "scenario": "kill:before-history",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 6,
+      "carrierCalls": 6,
+      "resource": {
+        "table": "quotes",
+        "id": "91f27d86-03fa-4dea-b857-cb6e20f29e0d",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "c51ef3a6-ceb6-481c-a9de-b07a89e0a524",
+          "resource_id": "91f27d86-03fa-4dea-b857-cb6e20f29e0d",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-history",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_messages",
+            "pid": 236944,
+            "jobId": "20746403-ab58-4dd6-ba8e-6bcd813860cc",
+            "ownerToken": "26ff5bd1-c9da-43f3-a5b5-d7b6ba3d98b2",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "20746403-ab58-4dd6-ba8e-6bcd813860cc",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM3ca446065e244e578f49f719fff2c861",
+        "jobId": "e79fef4f-08cc-4050-83a6-dee70716db5e",
+        "intentId": "de0f1687-037c-4637-842d-6530d78eb89d",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "kill:after-history",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 6,
+      "carrierCalls": 6,
+      "resource": {
+        "table": "quotes",
+        "id": "24337eaf-f550-4d7e-b6b6-f56e105da90e",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "a308282d-f500-42bd-8f86-ea8ab7329197",
+          "resource_id": "24337eaf-f550-4d7e-b6b6-f56e105da90e",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-history",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "checkpoint_sms_work",
+            "pid": 235016,
+            "jobId": "47812609-2b1c-40a3-a856-c79155941b1a",
+            "ownerToken": "64c7b521-6b8f-4cfd-bdbe-0b958f80bfd7",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "history",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "47812609-2b1c-40a3-a856-c79155941b1a",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM1d9ac4e1c2a54f8682d08f5e80b3b24e",
+        "jobId": "d0392847-70fc-486b-b1ce-a40e2305fbe7",
+        "intentId": "5bdb2a71-0a43-4284-a791-5a9272d9a1de",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "kill:before-result-save",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 6,
+      "carrierCalls": 6,
+      "resource": {
+        "table": "quotes",
+        "id": "67339088-9d23-4fb3-bb11-b3617dae85f3",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "4e57dd37-a3a7-416f-b0f9-8345727214a8",
+          "resource_id": "67339088-9d23-4fb3-bb11-b3617dae85f3",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-result-save",
+            "phase": "before",
+            "path": "query",
+            "table": "quotes",
+            "pid": 270124,
+            "jobId": "c71f0193-e4c2-4561-be6c-ae8dfac98c4a",
+            "ownerToken": "534548d3-ebe1-469c-9499-a48fa32071f0",
+            "kind": "estimate",
+            "serialKey": "estimate:3e94d469-41fc-4a7e-ba9b-524ca85c03d4",
+            "sequence": 4,
+            "checkpointNames": [
+              "estimation",
+              "share_token"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "c71f0193-e4c2-4561-be6c-ae8dfac98c4a",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMe5d791219dcd4a218e8882cb55ac21ac",
+        "jobId": "33959a2e-a52b-4f65-ba52-acfdab63203a",
+        "intentId": "6946f9be-1427-4899-8201-a61879be42b7",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "kill:after-result-save",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 6,
+      "carrierCalls": 6,
+      "resource": {
+        "table": "quotes",
+        "id": "d8119a57-65bb-4690-be40-1b62496fe220",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "fd5e4955-ab54-48b3-b674-c8be8637d499",
+          "resource_id": "d8119a57-65bb-4690-be40-1b62496fe220",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-result-save",
+            "phase": "after",
+            "path": "query",
+            "table": "quotes",
+            "pid": 240708,
+            "jobId": "dc99d386-e66d-4834-b778-ba418b5172a3",
+            "ownerToken": "ab9ee787-74ad-467d-9b37-65c2d5f23fbe",
+            "kind": "estimate",
+            "serialKey": "estimate:fd2b8ea6-8b30-4441-b090-0d4a64dc7fe8",
+            "sequence": 4,
+            "checkpointNames": [
+              "estimation",
+              "share_token"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "dc99d386-e66d-4834-b778-ba418b5172a3",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM2f59b187bffa43c98c0249e39be482d4",
+        "jobId": "ce630090-06aa-4817-a3e5-2616632b4092",
+        "intentId": "98b0aa11-ab6e-4cbe-8935-415536b29413",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "kill:after-publication",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 6,
+      "carrierCalls": 6,
+      "resource": {
+        "table": "quotes",
+        "id": "8d173619-7d4e-461a-a167-c575945c8bd7",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "f6ffed41-eb23-4432-ad50-cb910a402e3c",
+          "resource_id": "8d173619-7d4e-461a-a167-c575945c8bd7",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-publication",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-publication",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "sms_outbox_finish",
+            "pid": 208660,
+            "jobId": "bbec1bdc-be8f-4bba-8b29-36d979987e3b",
+            "ownerToken": "d4993088-da88-4e42-a3e9-370a4d32a5a5",
+            "kind": "estimate",
+            "serialKey": "estimate:1f0e76e8-c74a-48d1-9c9a-0f637612f338",
+            "sequence": 4,
+            "checkpointNames": [
+              "estimation",
+              "share_token"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "bbec1bdc-be8f-4bba-8b29-36d979987e3b",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM4664c98cacdc462291e985fc69adf7c1",
+        "jobId": "241a8f33-7a5d-4aa6-82c5-f545220b68c1",
+        "intentId": "c5e25ce1-fd42-4d2d-90f8-b921eadaa104",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "kill:before-unlock",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 5,
+      "inboundSids": 3,
+      "childProcesses": 12,
+      "acceptedIntents": 7,
+      "carrierCalls": 7,
+      "resource": {
+        "table": "quotes",
+        "id": "7c70b4d6-badd-400d-88ad-171d6a978f85",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "b67334c8-aa09-4aa2-9ac6-7de8ce255e5b",
+          "resource_id": "7c70b4d6-badd-400d-88ad-171d6a978f85",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-unlock",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-unlock",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_conversations",
+            "pid": 209584,
+            "jobId": "96414a21-3b51-4e0f-951c-e61654328274",
+            "ownerToken": "0a157345-993b-4cec-bc31-f943209e21e6",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "history",
+              "dialog_decision",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "96414a21-3b51-4e0f-951c-e61654328274",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMb81abc89431240b4b7d82ec8598e5855",
+        "jobId": "d7a52b1d-93b8-4644-8ef0-15c2c2268000",
+        "intentId": "bf653e99-926d-496d-ad23-4c57ff9e29a5",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "burst:before-history",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 8,
+      "inboundSids": 6,
+      "childProcesses": 21,
+      "acceptedIntents": 9,
+      "carrierCalls": 9,
+      "resource": {
+        "table": "quotes",
+        "id": "37e2e924-c32c-4170-8215-5d6f580e3dee",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "dda2c493-ae62-406e-8249-0f174e89ce10",
+          "resource_id": "37e2e924-c32c-4170-8215-5d6f580e3dee",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-history",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_messages",
+            "pid": 131968,
+            "jobId": "f26a0328-4152-4838-a858-9bd20fe20cd5",
+            "ownerToken": "b3069dfe-2700-45aa-806f-9c48e2096c71",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM41367c5374d148bfa62b8611932bfc40",
+            "id": "49b065a0-db19-436f-8e2e-7e76a1c11c7d",
+            "sequence": 3,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SM7ce1d2a016494efa98b747d471e769e7",
+            "id": "c27d31fa-513b-4964-8d9e-295c6b148403",
+            "sequence": 5,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SM03508ac66c9749ac96841936b4baa926",
+            "id": "9f642311-9485-4095-a39f-0918f93d5b80",
+            "sequence": 7,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "49b065a0-db19-436f-8e2e-7e76a1c11c7d",
+            "intentId": "a2a7f7a1-7954-445f-8967-83d930534aee",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "c27d31fa-513b-4964-8d9e-295c6b148403",
+            "intentId": "b346db5e-2653-4559-ae79-2d360c0daf57",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          },
+          {
+            "kind": "resend",
+            "jobId": "9f642311-9485-4095-a39f-0918f93d5b80",
+            "intentId": "164fd03c-a7f5-4cc1-83b3-83ab955a4f64",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM7884210287464301ac0bd44ea2c3b007",
+        "jobId": "ba217897-2d25-413a-a504-56ea6a3084f7",
+        "intentId": "9352cfc1-5fbe-416f-9c8b-5834a17304ae",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "burst:after-history",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 8,
+      "inboundSids": 6,
+      "childProcesses": 21,
+      "acceptedIntents": 9,
+      "carrierCalls": 9,
+      "resource": {
+        "table": "quotes",
+        "id": "cc94a213-15cf-4584-835c-8c2f4c244d5e",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "f2bc1bf0-8f08-418a-88f1-793f5a7c22cb",
+          "resource_id": "cc94a213-15cf-4584-835c-8c2f4c244d5e",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:after-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-history",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "checkpoint_sms_work",
+            "pid": 262448,
+            "jobId": "e44ddf61-43b9-42e6-ba3b-a7dac6296a5f",
+            "ownerToken": "e9b25460-8143-4351-85ef-e9931a6fe02d",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "history",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SMe2faac7ceb1343bebdec89430d02392f",
+            "id": "0b180198-d93b-47ef-bfae-34bfeee89e1b",
+            "sequence": 3,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SM3f8a8c7a177b43c1aedb15012d9adf0b",
+            "id": "54e63483-5ea9-47f0-acc5-9e638ffd9784",
+            "sequence": 5,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SM12f42c3c01e84eb5907c9f4ab380dca1",
+            "id": "83a87631-015c-4380-92ed-2f0c0995dde5",
+            "sequence": 7,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "0b180198-d93b-47ef-bfae-34bfeee89e1b",
+            "intentId": "01a808a6-28b2-47c4-8ad2-13ae589ff75f",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "54e63483-5ea9-47f0-acc5-9e638ffd9784",
+            "intentId": "1f4ff062-ea9e-4fa7-bed2-d3ce4e144bb9",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          },
+          {
+            "kind": "resend",
+            "jobId": "83a87631-015c-4380-92ed-2f0c0995dde5",
+            "intentId": "c8b3f37b-2c02-4f14-b443-7b653e22bf3f",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM7a5bb76f12834983a882aabf06f2561c",
+        "jobId": "f6297fc5-c9e2-4375-9579-5cdc28056ddc",
+        "intentId": "7ed9704d-9346-4da0-99dd-20de06ae225a",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "burst:before-result-save",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical.failure-1788905428352.json",
+      "sourceSha256": "994c8c901ddba8e8cb258523cc22dccaaa9edaa22b7324fb7dfe40c1a18824b2",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "95883e3f6bcc5c9c344d4cba3a2e2c58822a0e8c03b5102f2224ac2344e18478",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 9,
+      "inboundSids": 6,
+      "childProcesses": 21,
+      "acceptedIntents": 9,
+      "carrierCalls": 9,
+      "resource": {
+        "table": "quotes",
+        "id": "cac6ee20-0853-46a8-ad19-1e8d505256f7",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "6a2731e0-82c8-4193-bb18-fe170483cb7c",
+          "resource_id": "cac6ee20-0853-46a8-ad19-1e8d505256f7",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-result-save",
+            "phase": "before",
+            "path": "query",
+            "table": "quotes",
+            "pid": 223924,
+            "jobId": "a2828e4a-86ba-4517-89b0-8093a23adf8e",
+            "ownerToken": "bd5278f2-dcfb-4901-a370-6c7540fa6185",
+            "kind": "estimate",
+            "serialKey": "estimate:410b1d46-9dab-46ab-949e-b003a9f06171",
+            "sequence": 4,
+            "checkpointNames": [
+              "estimation",
+              "share_token"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SMaa7c90861563431dab91d38f230ea998",
+            "id": "d1b7603b-2eac-483a-9548-64d84cc8fed5",
+            "sequence": 5,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SMcc96911aae5642f4af55b83973045387",
+            "id": "613ab4fb-a148-4d8a-bf68-546ea7e7a82d",
+            "sequence": 7,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SM8de7716f25f94d1599392e4ad4288b22",
+            "id": "bd364c1d-12b0-4f59-8b6b-2f7e9739d782",
+            "sequence": 9,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": false,
+          "results": [
+            {
+              "id": "d1b7603b-2eac-483a-9548-64d84cc8fed5",
+              "ok": true
+            },
+            {
+              "id": "613ab4fb-a148-4d8a-bf68-546ea7e7a82d",
+              "ok": true
+            },
+            {
+              "id": "bd364c1d-12b0-4f59-8b6b-2f7e9739d782",
+              "ok": true
+            }
+          ]
+        },
+        "idempotentWakeup": {
+          "jobId": "07e13b9b-1bfe-4823-bd5a-ab4bfbce72da",
+          "key": "intake:sms:98e99249-ac43-4a22-9f52-098f933d5b4b:SMaa7c90861563431dab91d38f230ea998",
+          "intakeId": "410b1d46-9dab-46ab-949e-b003a9f06171",
+          "additionalModels": 0,
+          "additionalPricingCalls": 0,
+          "additionalIntents": 0,
+          "additionalPublications": 0
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "d1b7603b-2eac-483a-9548-64d84cc8fed5",
+            "intentId": "0179fdb3-cb7a-4b81-a5fb-3e02b03a70ef",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "613ab4fb-a148-4d8a-bf68-546ea7e7a82d",
+            "intentId": "fe1ff012-9244-4bca-9b1c-2d26997f4abf",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          },
+          {
+            "kind": "resend",
+            "jobId": "bd364c1d-12b0-4f59-8b6b-2f7e9739d782",
+            "intentId": "6937ab26-4d10-4180-ada2-9b8fd341fe7c",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM4e82a2681bff48ee97cb8d3f1f6559b4",
+        "jobId": "b22866c0-e5bc-4fe8-a656-5193454fa4c4",
+        "intentId": "a4168d33-2f63-4ee0-9846-6937b15e8271",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:before-history",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "63bf4979-9d02-4853-8da0-a06947098703",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "61856f2f-c273-437f-a4bd-34b761164727",
+          "resource_id": "63bf4979-9d02-4853-8da0-a06947098703",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-history",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_messages",
+            "pid": 93048,
+            "jobId": "f0ea74a6-16ba-417a-9e8a-e34df0af6771",
+            "ownerToken": "f98b66ff-ea32-4deb-9660-687d84a4e3a6",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "f0ea74a6-16ba-417a-9e8a-e34df0af6771",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMe1779f349add442e93733204acb806bd",
+        "jobId": "319d6a26-3715-4e63-91c8-5d399b35c526",
+        "intentId": "fdd00663-8971-4952-81bb-3e99391a9446",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:after-history",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "66e4cea8-9f0e-4eaf-99d2-d26a367c8100",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "c30dd23b-a5a7-4f10-b391-673bcde06f64",
+          "resource_id": "66e4cea8-9f0e-4eaf-99d2-d26a367c8100",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-history",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "checkpoint_sms_work",
+            "pid": 159764,
+            "jobId": "e32985a2-e8b4-4062-8b13-6638e54d2886",
+            "ownerToken": "91b8ae79-c78d-4e54-942a-ad185afa0beb",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "e32985a2-e8b4-4062-8b13-6638e54d2886",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMf582786e36fc4ad3b862b30be2633009",
+        "jobId": "8cd3c623-fb83-45fa-a71b-63d2829cfd66",
+        "intentId": "df8f47b2-a336-4dd9-beb9-8097c7ace3db",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:before-result-save",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "b6fa894e-5182-4594-bf5e-4448b153ac46",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "36de9cad-30db-4b9a-9890-710bcb949686",
+          "resource_id": "b6fa894e-5182-4594-bf5e-4448b153ac46",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-result-save",
+            "phase": "before",
+            "path": "query",
+            "table": "painting_measurements",
+            "pid": 255188,
+            "jobId": "2a536f97-73a9-4bb6-b1e1-119b4c95e5e2",
+            "ownerToken": "3b5f30b5-9b29-44f4-ab30-d92b1b3dd810",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "2a536f97-73a9-4bb6-b1e1-119b4c95e5e2",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMd5e183bf78c944749723dae34a1d96a1",
+        "jobId": "c2835c73-baeb-41c1-a0d8-3db01522d4f0",
+        "intentId": "5ceb894e-e794-4a99-a1e7-20801ffe106e",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:after-result-save",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "ff16e7da-df36-4b84-bbc5-91024984aeb4",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "f5271c60-3136-4011-9b73-d15e58df2614",
+          "resource_id": "ff16e7da-df36-4b84-bbc5-91024984aeb4",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-result-save",
+            "phase": "after",
+            "path": "query",
+            "table": "painting_measurements",
+            "pid": 142004,
+            "jobId": "60ad0218-429c-4624-be74-8449eef00f97",
+            "ownerToken": "bf358727-e498-4c53-b51b-559d82fecd46",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "60ad0218-429c-4624-be74-8449eef00f97",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM26bb59c31f0547768855263d9c9fe16e",
+        "jobId": "c4c2185d-3735-4cb2-9c91-1010c6a8e48a",
+        "intentId": "468da4f3-654a-441e-a04b-c1a3424f0bbd",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:after-publication",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "ab598b7c-0a65-4f1f-b77d-734f5829af98",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "193dba59-304d-4951-abdc-0511bb41d8a7",
+          "resource_id": "ab598b7c-0a65-4f1f-b77d-734f5829af98",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:after-publication",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-publication",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "sms_outbox_finish",
+            "pid": 104544,
+            "jobId": "0033eacc-7ccb-458e-bf08-d792b9ece0d0",
+            "ownerToken": "be97fadf-94be-4df3-9077-b4a7892bb7f3",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "0033eacc-7ccb-458e-bf08-d792b9ece0d0",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SMc828b53cf7e84908a69082eb5ce7b7c1",
+        "jobId": "3dfdd9d9-4b6f-4b33-98cb-497face2ceb5",
+        "intentId": "52042af4-1c97-46ee-9c7a-4cc7269899d9",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "kill:before-unlock",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting.failure-1788905682959.json",
+      "sourceSha256": "b44d7d58d776348a6e11e6cfde2cdce52ec7af0c732987c94e8869253a1ba372",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "4145fbaba707f6dc0cfbb02a3ed1681cc1745c0fb72aace9157c7604b1d83530",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 4,
+      "inboundSids": 4,
+      "childProcesses": 15,
+      "acceptedIntents": 5,
+      "carrierCalls": 5,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "c418828e-0be0-44ef-b602-1129fa5b7f7c",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "16e44efc-6b5e-4f37-9715-5d5676ac4e99",
+          "resource_id": "c418828e-0be0-44ef-b602-1129fa5b7f7c",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "kill:before-unlock",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-unlock",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_conversations",
+            "pid": 187588,
+            "jobId": "f69fa4e5-2759-4119-a6f0-e9ce7b2e10e8",
+            "ownerToken": "6b9a79cc-5efd-43e6-af40-cb5280a4b2c8",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [],
+        "reclaimedJob": {
+          "id": "f69fa4e5-2759-4119-a6f0-e9ce7b2e10e8",
+          "status": "completed",
+          "attempts": 2
+        }
+      },
+      "heldFollowup": {
+        "sid": "SM1f3ffd29424b41d195f399174a1bcb8e",
+        "jobId": "8994e1e7-3adb-4fdd-b829-30ae5a621d15",
+        "intentId": "2b261df0-fe52-487f-b77f-057b99000ebe",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "burst:before-history",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-history.json",
+      "sourceSha256": "4e23f93fe85feac2870865686f5fb1c0aedc09e47ac7f10ebbb5af898632b590",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "006654d4f6e8912a9b1e61b3a175480664600be4f9fe59fc4ff5ff63f6af10f5",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 7,
+      "inboundSids": 7,
+      "childProcesses": 24,
+      "acceptedIntents": 8,
+      "carrierCalls": 8,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "435423fd-9743-4d3d-bb1f-b2966e9ef579",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "3e5c66ef-ebfa-4fe1-9547-ed322bfd7042",
+          "resource_id": "435423fd-9743-4d3d-bb1f-b2966e9ef579",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-history",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_messages",
+            "pid": 191580,
+            "jobId": "2dc6d95e-fc72-42b4-9563-d85ec26da953",
+            "ownerToken": "affd69a4-de4b-4057-8f7a-9fbbec03d8cd",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM375e7cb60b92491cb9e53beff1120be5",
+            "id": "47632c08-1ee0-4cdb-80ae-ae16376c3ae3",
+            "sequence": 4,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SMa9db2445362a4d1e8af03a3ebcf69baf",
+            "id": "6c3950df-ff62-4cb5-ab5d-b63311bbbe6f",
+            "sequence": 6,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SMc4025fe8ff9742a2971f06e8c3301189",
+            "id": "551481af-c6a7-4350-b94e-fa916589d254",
+            "sequence": 8,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "47632c08-1ee0-4cdb-80ae-ae16376c3ae3",
+            "intentId": "67355aae-af2c-4e23-945d-3a36d1a746bd",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "6c3950df-ff62-4cb5-ab5d-b63311bbbe6f",
+            "intentId": "cb782cd4-88ae-4a9f-9823-14d666f0d30f",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          },
+          {
+            "kind": "resend",
+            "jobId": "551481af-c6a7-4350-b94e-fa916589d254",
+            "intentId": "b22da41b-52d6-4ee2-93ed-c6d51ce4c646",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM81b08f5ce4484f5a8e9fd17dd82199f5",
+        "jobId": "9ce2b5c6-d1c6-433a-bfb2-c5c20aea31d3",
+        "intentId": "d1f11f6e-0f0d-489b-9a8c-e55262bca10f",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "burst:after-history",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-after-history.json",
+      "sourceSha256": "3ddceae482aac5ae98d4efef381d826bbfd571a82036769aa38aa720d880adde",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "006654d4f6e8912a9b1e61b3a175480664600be4f9fe59fc4ff5ff63f6af10f5",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 7,
+      "inboundSids": 7,
+      "childProcesses": 24,
+      "acceptedIntents": 8,
+      "carrierCalls": 8,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "3a84f178-9bde-4d75-8e4e-5b565d82b709",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "9b7f5a1d-f813-4f6c-ab60-2d0cf596bc60",
+          "resource_id": "3a84f178-9bde-4d75-8e4e-5b565d82b709",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:after-history",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "after-history",
+            "phase": "after",
+            "path": "rpc",
+            "rpc": "checkpoint_sms_work",
+            "pid": 214500,
+            "jobId": "174a2f2e-6430-43d5-b893-173f3cbb2cee",
+            "ownerToken": "d6e27753-b97f-45b0-ae36-e6a7a5ea6647",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM564e12ee592944b7ab83f6ac85c518fe",
+            "id": "cbdfddb9-e6cf-4f93-aef8-a7a3e627db8a",
+            "sequence": 4,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SM62d072dde6fe4fb59676bd5511889564",
+            "id": "991b10cb-9e87-431f-a907-e5938e016819",
+            "sequence": 6,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SMfe8170f2267149ed9032ca04b95e56e4",
+            "id": "31159ba7-0130-43bf-bc97-9f142e32670c",
+            "sequence": 8,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "cbdfddb9-e6cf-4f93-aef8-a7a3e627db8a",
+            "intentId": "532d416a-4f2a-4273-8b50-c57f2d60cb44",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "991b10cb-9e87-431f-a907-e5938e016819",
+            "intentId": "8acb09b0-fd9b-4175-989c-85b28cf74cab",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          },
+          {
+            "kind": "resend",
+            "jobId": "31159ba7-0130-43bf-bc97-9f142e32670c",
+            "intentId": "9e92ed14-7de7-4e22-a9c5-bf679430c2dc",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM02e4a55516e643fa9eee06553e6a2110",
+        "jobId": "c1844a9e-0523-4a0f-a0db-a8635353fc28",
+        "intentId": "0ea4e019-8f3e-4c61-b035-3d24f93b5e1c",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "burst:before-result-save",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-result-save.json",
+      "sourceSha256": "0e84dbdeb424ceb416887fd311b2b915558dd4c34920ad5bda7f52a99690d240",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "006654d4f6e8912a9b1e61b3a175480664600be4f9fe59fc4ff5ff63f6af10f5",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 7,
+      "inboundSids": 7,
+      "childProcesses": 24,
+      "acceptedIntents": 8,
+      "carrierCalls": 8,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "7b2e5623-a9f6-4e00-bfc0-1267265ccceb",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "065d2218-2f14-410d-b84f-fcefd8b2deb6",
+          "resource_id": "7b2e5623-a9f6-4e00-bfc0-1267265ccceb",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-result-save",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-result-save",
+            "phase": "before",
+            "path": "query",
+            "table": "painting_measurements",
+            "pid": 224736,
+            "jobId": "7fce10b7-0f91-491e-a364-ca560aa2c0bc",
+            "ownerToken": "bbeb1b94-363a-45d2-a9b3-503cfecf100a",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM33197853be524fa2bd413fcb4b1c436b",
+            "id": "528e5372-aacb-4be2-b01e-994520403af5",
+            "sequence": 4,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SM677df46d48cc495abb7c9d9a79e36041",
+            "id": "96c3bdf8-f3a4-4779-b74c-2bc6b5fe1aa9",
+            "sequence": 6,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SMefdb31200fa74a71abb31b4d49c1d792",
+            "id": "28dfc6f2-6849-43bb-a396-36f7a39354bd",
+            "sequence": 8,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "528e5372-aacb-4be2-b01e-994520403af5",
+            "intentId": "2dc5674c-96b0-4d3e-ab4e-cf358fc30daa",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "96c3bdf8-f3a4-4779-b74c-2bc6b5fe1aa9",
+            "intentId": "aaf9cac1-1270-400b-9af4-dda318957723",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          },
+          {
+            "kind": "resend",
+            "jobId": "28dfc6f2-6849-43bb-a396-36f7a39354bd",
+            "intentId": "1a79ab07-0a08-4c83-b83b-f2968d85028a",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SMebaba6a2ebd0481c8375b3697f2b375a",
+        "jobId": "cb4fb08c-b51f-49e8-ad7a-44639b8063b0",
+        "intentId": "a5203abe-2554-4203-abb5-68ebbf75ceaf",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "painting",
+      "scenario": "burst:before-unlock",
+      "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-painting-burst-before-unlock.json",
+      "sourceSha256": "f3f0f2cd642ec4854898a5a8e8c4328299fdd735259656c7c9957c7a1eef0320",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "006654d4f6e8912a9b1e61b3a175480664600be4f9fe59fc4ff5ff63f6af10f5",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 7,
+      "inboundSids": 7,
+      "childProcesses": 24,
+      "acceptedIntents": 8,
+      "carrierCalls": 8,
+      "resource": {
+        "table": "painting_measurements",
+        "id": "0d6122ae-e6ab-49d5-8252-8c414eb4f58a",
+        "positivePrices": [
+          12374.21,
+          17186.4,
+          21998.59
+        ]
+      },
+      "tasks": [
+        {
+          "id": "ecea1168-e6b1-43c6-bc9e-b3804c65910f",
+          "resource_id": "0d6122ae-e6ab-49d5-8252-8c414eb4f58a",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-unlock",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-unlock",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_conversations",
+            "pid": 236300,
+            "jobId": "750440c6-c2e0-4c5f-83e7-57f7b518fbea",
+            "ownerToken": "bd08b64b-95fe-4cf6-8230-d62bac1ec963",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 3,
+            "checkpointNames": [
+              "history",
+              "painting_turn",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM8472a3aecc174a74bde13fcef2bbbd09",
+            "id": "1325e5f5-8791-4593-bced-762aba7d5e9c",
+            "sequence": 4,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SMcb4fed9309614cdab119180c2a895ec9",
+            "id": "5ebc331f-71dc-4e40-bce4-60c155fc77a0",
+            "sequence": 6,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SM6d64819f32fd407895dea9d9500c9c32",
+            "id": "52360cb2-fc20-4168-a43e-c067062072bf",
+            "sequence": 8,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "1325e5f5-8791-4593-bced-762aba7d5e9c",
+            "intentId": "c3d596ab-2fa4-4dce-8a10-2462bdb8469f",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "5ebc331f-71dc-4e40-bce4-60c155fc77a0",
+            "intentId": "5f1c15c1-f736-4f3b-8cad-c4b8e907a876",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          },
+          {
+            "kind": "resend",
+            "jobId": "52360cb2-fc20-4168-a43e-c067062072bf",
+            "intentId": "054b7046-d21f-4451-b3d1-60b0f0fe6173",
+            "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SM4884dac13b614b029d5a6b7effc59bbb",
+        "jobId": "e1f991c7-f9f4-41ff-8798-ba8603676fce",
+        "intentId": "b16ea6ed-bb27-45b6-862c-64ca92e6cf44",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    },
+    {
+      "trade": "electrical",
+      "scenario": "burst:before-unlock",
+      "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+      "sourcePath": "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\final-validation-2026-09-09\\compiled-route-recovery-development-electrical-burst-before-unlock.json",
+      "sourceSha256": "fc22ba89201fe9a91590b67dfb5581dc5af72a194ea93249a1009e8b09765082",
+      "harnessHashes": {
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\test-sms-route-journeys.mjs": "293d7f31e34e7c1a9aefcd47a23e6964c1851b25bda6c461844c08740e5a16f6",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-provider-fixtures.cjs": "006654d4f6e8912a9b1e61b3a175480664600be4f9fe59fc4ff5ff63f6af10f5",
+        "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation\\scripts\\sms-route-journey-child.cjs": "5a36fb372482b25655f7e7e8b09de22fde7a04ea37cca14ff0a538e0a2c3bb07"
+      },
+      "jobCount": 9,
+      "inboundSids": 6,
+      "childProcesses": 21,
+      "acceptedIntents": 9,
+      "carrierCalls": 9,
+      "resource": {
+        "table": "quotes",
+        "id": "067923c4-2537-4e86-93be-f5ab21580b28",
+        "positivePrices": [
+          180,
+          240,
+          300
+        ]
+      },
+      "tasks": [
+        {
+          "id": "56a6f361-9542-4810-af81-e27159e6a9ee",
+          "resource_id": "067923c4-2537-4e86-93be-f5ab21580b28",
+          "status": "notified"
+        }
+      ],
+      "recovery": {
+        "scenario": "burst:before-unlock",
+        "gates": [
+          {
+            "event": "paused",
+            "stage": "before-unlock",
+            "phase": "before",
+            "path": "query",
+            "table": "sms_conversations",
+            "pid": 272564,
+            "jobId": "66dd6b20-b69e-47bd-9c09-2093b5d80a43",
+            "ownerToken": "69d888cd-b25b-41dc-b3b6-8d5cc3362807",
+            "kind": "inbound",
+            "serialKey": "sms:+61488888888:+61411111111",
+            "sequence": 2,
+            "checkpointNames": [
+              "history",
+              "dialog_decision",
+              "conversation_lookup",
+              "conversation_snapshot"
+            ]
+          }
+        ],
+        "burst": [
+          {
+            "kind": "correction",
+            "sid": "SM5be99f6273034354bfa3d33741f27822",
+            "id": "55a78ae7-22c9-4f44-a42b-ceaea136578b",
+            "sequence": 4,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "price-question",
+            "sid": "SMa9efe59ac74c49caa06ca3e78ec4137e",
+            "id": "a08a24c0-53d5-48ec-86b9-d283b0699b95",
+            "sequence": 6,
+            "serialKey": "sms:+61488888888:+61411111111"
+          },
+          {
+            "kind": "resend",
+            "sid": "SMaa671aee70c04082b57d9bf04cdad3fd",
+            "id": "bebdc215-a98d-4ab4-970d-6f9c8380227b",
+            "sequence": 8,
+            "serialKey": "sms:+61488888888:+61411111111"
+          }
+        ],
+        "competitor": {
+          "blocked": true,
+          "results": []
+        },
+        "idempotentWakeup": {
+          "jobId": "4ad61aa2-5df8-47b0-9045-c4cfe15d3570",
+          "key": "intake:sms:d79f7a50-b3ae-46e2-8fd3-3af2aba4e14c:SM5be99f6273034354bfa3d33741f27822",
+          "intakeId": "9b55a05e-20b9-485a-b2a1-ace92b0b9ae6",
+          "additionalModels": 0,
+          "additionalPricingCalls": 0,
+          "additionalIntents": 0,
+          "additionalPublications": 0
+        },
+        "replies": [
+          {
+            "kind": "correction",
+            "jobId": "55a78ae7-22c9-4f44-a42b-ceaea136578b",
+            "intentId": "39d8072e-20cc-4a99-9d8f-bc1b0c6460d1",
+            "body": "Thanks Alex, I have corrected your name. The draft still needs tradie review before a quote can be shared."
+          },
+          {
+            "kind": "price-question",
+            "jobId": "a08a24c0-53d5-48ec-86b9-d283b0699b95",
+            "intentId": "45c35c4c-537c-4d4b-9702-1a582c928f68",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          },
+          {
+            "kind": "resend",
+            "jobId": "bebdc215-a98d-4ab4-970d-6f9c8380227b",
+            "intentId": "19626046-fd27-4ea5-b3ee-131a3eea2b5c",
+            "body": "I cannot find a saved quote linked to this number yet. What is the job address or the type of work? I can check the request without creating another quote."
+          }
+        ]
+      },
+      "heldFollowup": {
+        "sid": "SMb805f70bfa5f49068e21222f0f435552",
+        "jobId": "0e451390-1b03-4ed1-8754-a600a81f67c0",
+        "intentId": "5eaa61b4-aef7-4172-b6d5-d3daef4a1f97",
+        "body": "Your 12 Example Road, Sydney NSW 2000 draft is saved and awaiting the tradie's review. It has not been released to you yet.",
+        "accepted": true,
+        "replayUnchanged": true
+      }
+    }
+  ],
+  "reviewFailure": {
+    "scenario": "electrical kill:before-unlock",
+    "observedAcceptedIntents": 7,
+    "expectedAcceptedIntents": 6,
+    "cause": "Replayed randomized photo message created another body-hashed intent for the same customer/token",
+    "actualRouteReproduction": "photo-replay-before-fix.log",
+    "canonicalFix": "Checkpoint first photo body and job-specific delivery key; durable pre-intent failures retry",
+    "finalCompiledRerunPending": true
+  },
+  "priorAssertionsPassedForDistinctScenarios": 20
+}

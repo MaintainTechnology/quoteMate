@@ -24,6 +24,16 @@ import {
 } from './painting-intake'
 
 describe('looksLikePaintingEnquiry', () => {
+  it.each(['repaint', 'repaints', 'repainting', 're-paint', 're-paints', 're-painting', 'paint', 'painting'])(
+    'recognises a targeted %s enquiry', (word) => {
+      expect(looksLikePaintingEnquiry(`Please quote ${word} interior walls at 12 Example Road, Sydney NSW 2000.`)).toBe(true)
+    },
+  )
+  it.each(['Do you do repainting?', 'Do you offer re-painting?', 'Please quote repainting the roof.', 'A complaint about my power points', 'An unrepainting software task'])(
+    'keeps non-painting-flow wording out: %s', (message) => {
+      expect(looksLikePaintingEnquiry(message)).toBe(false)
+    },
+  )
   it('matches clear painting terms', () => {
     expect(looksLikePaintingEnquiry('I need a painting quote')).toBe(true)
     expect(looksLikePaintingEnquiry('can you repaint my house')).toBe(true)

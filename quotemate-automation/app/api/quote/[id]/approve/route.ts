@@ -1,31 +1,14 @@
-// POST /api/quote/[id]/approve
-//
-// Mig 078 — tradie review-before-send approval endpoint.
-//
-// When a tenant's review_policy is 'always_review' or
-// 'review_over_threshold' AND the quote's total clears the threshold,
-// the estimator marks the quote `status = 'awaiting_tradie_approval'`
-// and DOES NOT send the customer SMS. The tradie gets a notification
-// SMS with a one-tap approve link that hits this endpoint.
-//
-// On approve:
-//   1. Verify the caller's tenant owns the quote.
-//   2. Verify the quote is actually in 'awaiting_tradie_approval'
-//      (idempotent — re-approving a 'sent' quote is a no-op, not an
-//      error, so a double-tap on the approve link doesn't double-fire
-//      the customer SMS).
-//   3. Send the customer SMS using the same template + dispatch path
-//      the estimator would have used auto.
-//   4. Advance status to 'sent' so the follow-up + dashboard views
-//      pick it up.
-//
-// Auth: bearer Supabase token (signed-in tradie owner). Mirrors the
-// auth pattern in /api/quote/[id]/edit + /api/quote/[id]/check-owner.
+// POST /api/quote/[id]/approve: the owning tradie authorises a held quote.
+// Approval and the exact initial SMS intent commit together before transport.
+// Replayed approve/send requests share that intent. Carrier acceptance updates
+// the sent lifecycle through the outbox trigger, including after worker recovery.
 
 import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
 import { dispatchQuoteWithPdf } from '@/lib/sms/send-quote-pdf'
-import { ensureQuotePdf, quotePdfUrl, signQuotePdfUrl } from '@/lib/quote/pdf'
+import { genericQuoteSendKey, persistGenericQuoteRelease, quoteReleaseReviewMatches, quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
+import { publicWebOrigin } from '@/lib/sms/public-origin'
+import { ensureQuotePdf, signQuotePdfUrl } from '@/lib/quote/pdf'
 import { archiveAndIngestQuote } from '@/lib/filestore/ingest-quote'
 import { buildQuoteKbText } from '@/lib/filestore/minimize'
 import {
@@ -41,7 +24,12 @@ import { asQuoteTierMode } from '@/lib/quote/tier-visibility'
 import { computePriceHoldUntil } from '@/lib/quote/hold'
 import { asQuoteKind, isSiteVisitFirstRow } from '@/lib/quote/mint-tier'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
-import { resolveCustomerContact } from '@/lib/quote/send-customer'
+import { assertExpectedQuoteRecipient, QuoteDeliveryRecipientError, resolveOwnedQuoteCustomerContact } from '@/lib/quote/delivery-recipient'
+import { loadQuoteReportPricing } from '@/lib/quote/report-pricing'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
+import { storedDepositPercent } from '@/lib/quote/chain-money'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { resolveQuoteOriginConversation } from '@/lib/sms/quote-origin-conversation'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +42,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  let approval: {expected_revision?:unknown; expected_recipient?:unknown} = {}
+  try { approval=await req.json() } catch { /* Missing review revision is rejected below. */ }
   const { id: quoteId } = await params
   if (!quoteId) {
     return Response.json({ error: 'missing_quote_id' }, { status: 400 })
@@ -78,7 +68,7 @@ export async function POST(
   const { data: quote, error: qErr } = await supabase
     .from('quotes')
     .select(
-      'id, tenant_id, intake_id, status, share_token, good, better, best, selected_tier, total_inc_gst, scope_of_works, assumptions, estimated_timeframe, needs_inspection, inspection_reason, stripe_links, deposit_pct, display_mode, price_hold_until, applied_discount_pct, quote_kind',
+      'id, tenant_id, intake_id, status, share_token, good, better, best, selected_tier, total_inc_gst, scope_of_works, assumptions, estimated_timeframe, needs_inspection, inspection_reason, stripe_links, deposit_pct, display_mode, price_hold_until, applied_discount_pct, quote_kind, parent_quote_id, customer_released_at, sent_at, paid_at, pricing_book_version_id, report_doc, report_style',
     )
     .eq('id', quoteId)
     .maybeSingle()
@@ -91,6 +81,11 @@ export async function POST(
   if (!tenant || quote.tenant_id !== tenant.id) {
     return Response.json({ error: 'forbidden' }, { status: 403 })
   }
+
+  const readiness = await readQuoteDraftReadiness(supabase, quote)
+  if (!readiness.ready) return Response.json({ ok: false, error: readiness.code }, { status: 409 })
+
+  if (quote.status === 'awaiting_tradie_approval' && !quoteReleaseReviewMatches(quote,approval?.expected_revision)) return Response.json({ok:false,error:'quote_review_required',message:'Open and review the current quote before approving.',review_url:`/dashboard/quote/${quote.share_token}`},{status:409})
 
   // Idempotency: if the quote isn't awaiting approval, return success
   // with a status code in the body so the page can render "already
@@ -109,33 +104,37 @@ export async function POST(
 
   // ─── Load intake (caller name + suburb + job_type) + pricing book
   //      (display mode for the SMS template) ──
-  const { data: intake } = await supabase
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('id, caller, suburb, job_type, scope, call_id, customer_id, trade')
+    .select('id, tenant_id, caller, suburb, job_type, scope, call_id, customer_id, trade')
     .eq('id', quote.intake_id as string)
+    .eq('tenant_id', tenant.id)
     .maybeSingle()
-  // Scoped to the QUOTE'S trade (audit 2026-07-23): unscoped limit(1) gave
-  // a multi-trade tenant an arbitrary row, so the approved-send SMS could
-  // present another trade's tier layout / GST wording. Legacy intakes with
-  // no trade keep the tenant-wide read.
-  let pricingBookQuery = supabase
+  if (intakeError || !intake || intake.id !== quote.intake_id || intake.tenant_id !== tenant.id)
+    return Response.json({ ok: false, error: 'quote_contact_unavailable' }, { status: 503 })
+  const approveIntakeTrade = typeof intake.trade === 'string' ? intake.trade.trim() : ''
+  if (!approveIntakeTrade) return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  // Today's book supplies presentation only. Priced messages use saved tax
+  // evidence, even after this mutable book changes or disappears.
+  const { data: currentBook } = await supabase
     .from('pricing_book')
-    .select('quote_display, gst_registered, quote_tier_mode')
+    .select('quote_display, quote_tier_mode')
     .eq('tenant_id', quote.tenant_id)
-  const approveIntakeTrade = (intake?.trade as string | null | undefined) ?? null
-  if (approveIntakeTrade) pricingBookQuery = pricingBookQuery.eq('trade', approveIntakeTrade)
-  const { data: pricingBook } = await pricingBookQuery.limit(1).maybeSingle()
+    .eq('trade', approveIntakeTrade).maybeSingle()
 
   // Caller phone number — shared 4-source chain (intake.caller.phone →
   // sms_conversations → calls → customers), the same lookup the edit route
   // proved necessary in prod; the old 2-source version here missed numbers
   // that sat on the intake or customer row.
-  const { phone: callerNumber } = await resolveCustomerContact(supabase, {
-    caller: (intake?.caller as { phone?: string; email?: string } | null) ?? null,
-    intakeId: (quote.intake_id as string | null) ?? null,
-    callId: (intake?.call_id as string | null) ?? null,
-    customerId: (intake?.customer_id as string | null) ?? null,
-  })
+  let callerNumber: string | null
+  try {
+    callerNumber = (await resolveOwnedQuoteCustomerContact(supabase, tenant.id, intake)).phone
+    assertExpectedQuoteRecipient('sms', approval?.expected_recipient, callerNumber)
+  } catch (error) {
+    if (error instanceof QuoteDeliveryRecipientError)
+      return Response.json({ ok: false, error: error.code, message: error.message }, { status: error.status })
+    return Response.json({ ok: false, error: 'quote_contact_unavailable' }, { status: 503 })
+  }
 
   if (!callerNumber) {
     return Response.json(
@@ -144,8 +143,27 @@ export async function POST(
     )
   }
 
+  const approveQuoteKind = asQuoteKind(quote.quote_kind as string | null)
+  let pricing: Awaited<ReturnType<typeof loadQuoteReportPricing>> | null = null
+  try {
+    if (!(quote.needs_inspection === true && approveQuoteKind === 'initial'))
+      pricing = await loadQuoteReportPricing(supabase, quote, intake)
+    if (pricing && !isSiteVisitFirstRow({ trade: approveIntakeTrade, quoteKind: approveQuoteKind }) &&
+        storedDepositPercent(quote.deposit_pct) === null) throw new QuotePricingVersionError('quote_pricing_review_required')
+  } catch (error) {
+    return Response.json({ ok: false, error: error instanceof QuotePricingVersionError ? error.code : 'pricing_unavailable' },
+      { status: error instanceof QuotePricingVersionError ? error.status : 503 })
+  }
+  const pricingBook = pricing?.pricingVersion?.snapshot ?? currentBook
+
+  let conversationId: string | null
+  try {
+    conversationId = await resolveQuoteOriginConversation(supabase, { tenantId: tenant.id, family: 'generic',
+      resourceId: quote.id as string, intakeId: quote.intake_id, customerPhone: callerNumber, fromNumber: tenant.twilio_sms_number })
+  } catch { return Response.json({ ok: false, error: 'quote_origin_unavailable', message: 'Saved quote conversation unavailable; retry approval shortly.' }, { status: 503 }) }
+
   // ─── Build + dispatch the customer SMS ──
-  const appUrl = process.env.APP_URL ?? 'https://www.quotemax.com.au'
+  const appUrl = publicWebOrigin()
   const displayMode = resolveQuoteDisplayMode({
     perQuoteOverride: quote.display_mode as string | null,
     tenantPreference:
@@ -174,16 +192,11 @@ export async function POST(
   // $99 site visit, so the approved-send message needs that link even on a
   // quote drafted before the model changed (stripe_links hold G/B/B only).
   // /r/<token>/inspection mints a fresh Session per click, so it is always live.
-  const approveQuoteKind = asQuoteKind(quote.quote_kind as string | null)
   if (isSiteVisitFirstRow({ trade: approveIntakeTrade, quoteKind: approveQuoteKind })) {
     payLinks.inspection = `${appUrl}/r/${quote.share_token as string}/inspection`
   }
-  const depositPct =
-    typeof quote.deposit_pct === 'number'
-      ? quote.deposit_pct
-      : typeof quote.deposit_pct === 'string'
-        ? parseFloat(quote.deposit_pct)
-        : 30
+  // Only inspection-only messages can reach here without a proven deposit.
+  const depositPct = typeof quote.deposit_pct === 'number' ? quote.deposit_pct : 0
 
   // Migration 105 — Gotenberg quote PDF. Held quotes skipped PDF
   // generation at draft time (the customer SMS was held), so this is
@@ -191,22 +204,20 @@ export async function POST(
   // approve-and-send.
   // Mig 146 — force a fresh render on the human send action so the PDF always
   // reflects the tenant's current Pricing-settings tier mode at send time.
-  const quotePdfPath = quote.needs_inspection
-    ? null
-    : await ensureQuotePdf(quote.id as string, { regenerate: true })
+  let quotePdfPath: string | null = null
+  try {
+    if (!quote.needs_inspection) quotePdfPath = await ensureQuotePdf(quote.id as string, {
+      regenerate: true, strictPricing: true, expectedReleaseRevision: quoteCustomerReleaseRevision(quote),
+    })
+  } catch (error) {
+    if (error instanceof QuotePricingVersionError)
+      return Response.json({ ok: false, error: error.code }, { status: error.status })
+    return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  }
 
-  // Restart the 7-day price hold from the moment the customer actually
-  // receives the quote. A review-held quote approved days after drafting
-  // would otherwise arrive with its hold partly (or fully) burnt and be
-  // blocked as 'expired' by the /r + booking gates before the customer
-  // ever had a window to act. Stamped before the SMS body is built so any
-  // "price held until" copy shows the refreshed date; harmless if the
-  // dispatch below fails (a retry simply restamps).
+  // The seven-day hold begins at the explicit release. A replay reuses the
+  // saved hold and message, so retry timing cannot change the approved offer.
   const refreshedHoldUntil = computePriceHoldUntil(new Date().toISOString())
-  await supabase
-    .from('quotes')
-    .update({ price_hold_until: refreshedHoldUntil })
-    .eq('id', quote.id)
 
   const quoteForSms = {
     ...quote,
@@ -216,13 +227,12 @@ export async function POST(
     needs_inspection: !!quote.needs_inspection,
     inspection_reason: quote.inspection_reason as string | null,
     quote_view_url: `${appUrl}/q/${quote.share_token as string}`,
-    pdf_url: quotePdfPath ? quotePdfUrl(quote.share_token as string) : null,
+    pdf_url: quotePdfPath ? `${appUrl}/api/q/${quote.share_token as string}/pdf` : null,
     // P6 — the SMS prices must match what /r's freshly-minted Session
     // charges: discounted when the customer already booked in time, and
     // GST-conditional like every other surface (lib/quote/money.ts).
     applied_discount_pct: (quote.applied_discount_pct as number | null) ?? 0,
-    gst_registered:
-      ((pricingBook as { gst_registered?: boolean | null } | null)?.gst_registered ?? true),
+    ...(pricing ? { gst_registered: pricing.gstRegistered } : {}),
   }
   const intakeForSms = {
     job_type: (intake?.job_type as string) ?? 'other',
@@ -241,30 +251,30 @@ export async function POST(
     quoteKind: approveQuoteKind,
     businessName: (tenant as { business_name?: string | null }).business_name ?? null,
   })
-  const fromNumber = tenant.twilio_sms_number ?? process.env.TWILIO_SMS_NUMBER ?? undefined
+  const fromNumber = tenant.twilio_sms_number ?? undefined
+  if (!fromNumber) return Response.json({ok:false,error:'tenant_messaging_unavailable'},{status:503})
   // Best-effort MMS attach of the PDF — the shared helper signs the media
   // URL (best-effort) and dispatch auto-falls back to a plain SMS when the
   // carrier rejects media; the body always carries the download link.
-  const dispatch = await dispatchQuoteWithPdf({
-    to: callerNumber,
-    text: body,
-    from: fromNumber,
-    pdfPath: quotePdfPath,
-    signMediaUrl: signQuotePdfUrl,
-  })
-
-  if (!dispatch.ok) {
-    // Keep the quote in awaiting_tradie_approval so the tradie can
-    // retry; surface the failure so they know to call the customer.
-    return Response.json(
-      {
-        error: 'dispatch_failed',
-        sms_code: dispatch.smsAttempt?.code,
-        wa_code: dispatch.waAttempt?.code,
-        message: 'Could not deliver the customer SMS. Try again or call the customer directly.',
+  let release
+  try {
+    release = await persistGenericQuoteRelease(supabase, {
+      quote, tenantId: tenant.id, ownerId: resolved.identity.userId, holdUntil: refreshedHoldUntil, signMediaUrl:signQuotePdfUrl,
+      outbound: { to: callerNumber, from: fromNumber, text: body, tenantId: tenant.id,
+        ...(conversationId ? { conversationId } : {}),
+        deliveryKey: genericQuoteSendKey(quote.id as string),
+        ...(quotePdfPath ? { mediaKey: quotePdfPath } : {}),
       },
-      { status: 502 },
-    )
+    })
+  } catch (error) {
+    return Response.json({ok:false,error:'approval_unavailable',message:String(error)},{status:409})
+  }
+  const dispatch = await dispatchQuoteWithPdf({
+    ...release.outbound!, pdfPath: typeof release.outbound?.mediaKey === 'string' ? release.outbound.mediaKey : null, signMediaUrl: signQuotePdfUrl,
+  })
+  if (!dispatch.ok) {
+    return Response.json({ok:true,approved:true,accepted:false,outboxId:release.outboxId,
+      status:'approved_delivery_pending',message:'Approved. Customer SMS delivery needs recovery; check SMS delivery.'},{status:202})
   }
 
   // Mark as sent (uses the same monotonic lifecycle advancer the
@@ -324,6 +334,9 @@ export async function POST(
   return Response.json({
     ok: true,
     quote_id: quote.id,
+    approved: true,
+    accepted: true,
+    outboxId: release.outboxId,
     channel: dispatch.channel,
     sid: dispatch.sid,
     status: 'sent',

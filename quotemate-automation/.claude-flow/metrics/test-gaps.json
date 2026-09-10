@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "timestamp": "2026-09-07T07:03:48.053Z",
-=======
-  "timestamp": "2026-09-08T04:16:10.851Z",
->>>>>>> sms-receptionist-fix
+  "timestamp": "2026-09-08T05:16:11.062Z",
   "mode": "local",
   "hasTestDir": true,
   "estimatedCoverage": "unknown",

@@ -6,7 +6,6 @@
  */
 import { QM } from './tokens'
 import type { Slide, Format } from './types'
-import { FORMATS } from './types'
 
 const SCRIM: Record<string, string> = {
   top: 'linear-gradient(180deg, rgba(22,18,15,0.95) 0%, rgba(22,18,15,0.86) 24%, rgba(22,18,15,0.46) 46%, rgba(22,18,15,0.8) 72%, rgba(22,18,15,0.95) 100%)',
@@ -173,7 +172,8 @@ function Frame({ photo, bar, children }: { photo?: Slide['photo']; bar?: string[
   )
 }
 
-export function renderSlide(slide: Slide, _format: Format = 'li-carousel'): React.ReactElement {
+export function renderSlide(slide: Slide, format: Format = 'li-carousel'): React.ReactElement {
+  if (format !== 'li-carousel') throw new Error('Unsupported Studio format')
   const top = (() => {
     switch (slide.kind) {
       case 'stat':
@@ -251,7 +251,12 @@ export function renderSlide(slide: Slide, _format: Format = 'li-carousel'): Reac
               <div style={{ display: 'flex', marginTop: 28 }}><Heading text={slide.h} size={90} maxWidth={900} /></div>
               {slide.sub && <div style={{ display: 'flex', marginTop: 20 }}><Body text={slide.sub} size={34} /></div>}
               <div style={{ display: 'flex', marginTop: 50 }}>
-                <div style={{ display: 'flex', alignItems: 'center', backgroundColor: QM.accent, color: QM.accentInk, paddingLeft: 46, paddingRight: 46, paddingTop: 26, paddingBottom: 26, fontFamily: 'Manrope', fontWeight: 800, fontSize: 28, letterSpacing: 1 }}>{slide.btn.toUpperCase()}</div>
+                <div style={{ display: 'flex', alignItems: 'center', backgroundColor: QM.accent, color: QM.accentInk, paddingLeft: 46, paddingRight: 46, paddingTop: 26, paddingBottom: 26, fontFamily: 'Manrope', fontWeight: 800, fontSize: 28, letterSpacing: 1 }}>
+                  {slide.btn.toUpperCase().split('→').map((part, index) => <div key={index} style={{ display: 'flex', alignItems: 'center' }}>
+                    {index > 0 && <svg width={28} height={28} viewBox="0 0 28 28"><path d="M3 14h21m-8-8 8 8-8 8" fill="none" stroke={QM.accentInk} strokeWidth={2.5} /></svg>}
+                    <span>{part}</span>
+                  </div>)}
+                </div>
               </div>
               {slide.foot && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: 38, fontFamily: 'JetBrains Mono', fontWeight: 500, fontSize: 18, letterSpacing: 1, color: QM.textDim }}>

@@ -69,7 +69,7 @@ describe('buildQuoteSms — tier mode (mig 142/146)', () => {
     expect(body).toMatch(/BETTER: \$880/)
     expect(body).toMatch(/BEST: \$1,?210/)
     // recommended tier still flagged when more than one option shows.
-    expect(body).toMatch(/BETTER: \$880 \(recommended\)/)
+    expect(body).toMatch(/BETTER: \$880\.00 \(recommended\)/)
   })
 })
 

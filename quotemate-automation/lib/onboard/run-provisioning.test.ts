@@ -1,365 +1,127 @@
-// End-to-end tests for the runProvisioning chain.
-//
-// These tests cover the persistence guarantee the user is missing in
-// prod: after a Twilio + Vapi success the tenants row MUST end up with
-// twilio_sms_number, twilio_voice_number, vapi_assistant_id, status =
-// 'active', and activated_at populated. Mock all 4 provisioner deps and
-// the supabase update path so the test is hermetic.
-
-import { describe, expect, it, vi } from 'vitest'
-
-// runProvisioning defers the file-store step via next/server `after()`. Outside
-// a request scope `after` throws, so mock it to run the callback synchronously.
-// (provisionTenantStore STUBs when TENANT_FILESTORE_ENABLED !== 'true' — the
-// test default — so the callback is a harmless no-op that writes nothing.)
-vi.mock('next/server', () => ({
-  after: (fn: () => Promise<void> | void) => {
-    Promise.resolve(fn()).catch(() => {})
-  },
-}))
-
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PGlite } from '@electric-sql/pglite'
+import { readFileSync } from 'node:fs'
+import type { SupabaseClient } from '@supabase/supabase-js'
+type Row=Record<string,unknown>
+const A='11111111-2222-4333-8444-555555555555',B='11111111-2222-4333-8444-666666666666'
+const PN='PN'+'a'.repeat(32),PHONE='+61482012345'
+const h=vi.hoisted(()=>({client:null as unknown,tenant:null as Row|null,failRead:'',failWrite:'',loseClaim:false,loseFinish:false,
+  sms:vi.fn(),twilio:vi.fn(),vapi:vi.fn(),register:vi.fn(),welcome:vi.fn()}))
+vi.mock('next/server',()=>({after:()=>{}}))
+vi.mock('@/lib/twilio/set-sms-webhook',()=>({setTwilioSmsWebhook:h.sms}))
+vi.mock('@/lib/twilio/provision',()=>({provisionTwilioNumber:h.twilio,smsWebhookUrl:()=> 'https://frontdesk.example.test/sms'}))
+vi.mock('@/lib/vapi/provision',()=>({provisionVapiAssistant:h.vapi}))
+vi.mock('@/lib/vapi/register-number',()=>({registerNumberWithVapi:h.register}))
+vi.mock('@/lib/twilio/welcome-sms',()=>({sendWelcomeSms:h.welcome}))
+vi.mock('@supabase/supabase-js',()=>({createClient:()=>new Proxy({},{get:(_,key)=>(h.client as Row)[key as string]})}))
+vi.mock('@/lib/tenant/from-request',()=>({resolveTenantRequest:async()=>h.tenant===null?null:{tenant:h.tenant}}))
 import { runProvisioning } from './run-provisioning'
-
-/* ─── Mock builders ──────────────────────────────────────── */
-
-function mockSupabase() {
-  const updateCalls: Array<{ table: string; payload: any; whereCol: string; whereVal: string }> = []
-  const supabase = {
-    from(table: string) {
-      return {
-        update(payload: any) {
-          return {
-            eq(col: string, val: string) {
-              updateCalls.push({ table, payload, whereCol: col, whereVal: val })
-              return Promise.resolve({ error: null }) as any
-            },
-          }
-        },
-      }
-    },
-  }
-  return { supabase, updateCalls }
-}
-
-function happyProvisioners() {
-  return {
-    twilio: vi.fn(async (_opts: { tenantId: string; friendlyName: string }) => ({
-      ok: true as const,
-      stubbed: false as const,
-      phoneNumber: '+61412345678',
-      twilioSid: 'PN-test',
-      numberType: 'Mobile' as const,
-      capabilities: { voice: true, sms: true, mms: true, fax: false },
-      faxAvailable: false,
-    })),
-    vapi: vi.fn(async (_opts: {
-      tenantId: string
-      businessName: string
-      trade: string
-      trades?: string[]
-      phoneNumber?: string
-    }) => ({
-      ok: true as const,
-      stubbed: false as const,
-      assistantId: 'asst_test_real',
-    })),
-    registerVapiNumber: vi.fn(async (_opts: {
-      phoneNumber: string
-      assistantId: string
-      name: string
-    }) => ({
-      ok: true as const,
-      stubbed: false as const,
-      vapiPhoneNumberId: 'pn_test_real',
-    })),
-    welcome: vi.fn(async (_opts: {
-      fromNumber: string
-      toMobile: string
-      firstName: string
-      businessName: string
-    }) => ({
-      ok: true as const,
-      stubbed: false as const,
-      sid: 'SM_test',
-    })),
-  }
-}
-
-const TENANT_ID = '11111111-2222-3333-4444-555555555555'
-const STD_INPUT = {
-  tenantId: TENANT_ID,
-  businessName: 'Peppers Plumbing',
-  trade: 'plumbing' as const,
-  ownerFirstName: 'Jon',
-  ownerMobile: '+61412000999',
-}
-
-/* ─── The happy path ─────────────────────────────────────── */
-
-describe('runProvisioning — happy path', () => {
-  it('returns ok=true, persists the tenants row, and sends the welcome SMS', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(supabase as any, STD_INPUT, provisioners)
-
-    expect(result.ok).toBe(true)
-    expect(result.phoneNumber).toBe('+61412345678')
-    expect(result.vapiAssistantId).toBe('asst_test_real')
-    expect(result.activated).toBe(true)
-    expect(result.stubbedTwilio).toBe(false)
-    expect(result.stubbedVapi).toBe(false)
-    expect(result.welcome?.ok).toBe(true)
-
-    // Tenant row must have been updated with all provisioning fields
-    expect(updateCalls).toHaveLength(1)
-    const persist = updateCalls[0]
-    expect(persist.table).toBe('tenants')
-    expect(persist.whereCol).toBe('id')
-    expect(persist.whereVal).toBe(TENANT_ID)
-    expect(persist.payload.twilio_sms_number).toBe('+61412345678')
-    expect(persist.payload.twilio_voice_number).toBe('+61412345678')
-    expect(persist.payload.vapi_assistant_id).toBe('asst_test_real')
-    expect(persist.payload.status).toBe('active')
-    expect(typeof persist.payload.activated_at).toBe('string')
-    // A live provision persists the authoritative Twilio Phone Number SID.
-    expect(persist.payload.twilio_number_sid).toBe('PN-test')
-
-    // All provisioners called exactly once
-    expect(provisioners.twilio).toHaveBeenCalledTimes(1)
-    expect(provisioners.vapi).toHaveBeenCalledTimes(1)
-    expect(provisioners.registerVapiNumber).toHaveBeenCalledTimes(1)
-    expect(provisioners.welcome).toHaveBeenCalledTimes(1)
-
-    // Vapi register call must reference the freshly-purchased number + assistant
-    const registerArgs = provisioners.registerVapiNumber.mock.calls[0][0] as any
-    expect(registerArgs.phoneNumber).toBe('+61412345678')
-    expect(registerArgs.assistantId).toBe('asst_test_real')
-  })
-
-  it('skips the welcome SMS (welcome stays undefined) when the tenant has no mobile', async () => {
-    // Mobile is optional in the wizard — a mobile-less activation must still
-    // provision the line and activate the tenant, just with no welcome text.
-    const { supabase } = mockSupabase()
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(
-      supabase as any,
-      { ...STD_INPUT, ownerMobile: null },
-      provisioners,
-    )
-
-    expect(result.ok).toBe(true)
-    expect(result.activated).toBe(true)
-    expect(result.welcome).toBeUndefined()
-    expect(provisioners.welcome).not.toHaveBeenCalled()
-  })
-
-  it('flags both stub paths when env flags are off (stubbed results)', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const stubProvisioners = {
-      twilio: vi.fn(async () => ({
-        ok: true as const,
-        stubbed: true as const,
-        phoneNumber: '+61482012345',
-      })),
-      vapi: vi.fn(async () => ({
-        ok: true as const,
-        stubbed: true as const,
-        assistantId: 'vapi-stub-11111111',
-      })),
-      registerVapiNumber: vi.fn(async () => ({ ok: true as const, stubbed: true as const })),
-      welcome: vi.fn(async () => ({ ok: true as const, stubbed: true as const, loggedMessage: '' })),
-    }
-
-    const result = await runProvisioning(supabase as any, STD_INPUT, stubProvisioners)
-
-    expect(result.ok).toBe(true)
-    expect(result.stubbedTwilio).toBe(true)
-    expect(result.stubbedVapi).toBe(true)
-    // Even in stub mode we persist the number so the dashboard renders a value.
-    expect(updateCalls[0].payload.twilio_sms_number).toBe('+61482012345')
-    expect(updateCalls[0].payload.vapi_assistant_id).toBe('vapi-stub-11111111')
-    expect(updateCalls[0].payload.status).toBe('active')
-    // A stub provision writes a NULL SID — the health check must read it as
-    // "no SID", never a fabricated real number.
-    expect(updateCalls[0].payload.twilio_number_sid).toBeNull()
-  })
+import { readProvisioningStatus, type ProvisioningTenant } from './provisioning-status'
+import { GET } from '../../app/api/onboard/provisioning-status/route'
+import { POST } from '../../app/api/onboard/retry-provision/route'
+let pg:PGlite
+const input={tenantId:A,businessName:'Test business',trade:'electrical',trades:['electrical','plumbing'],ownerFirstName:'Owner',ownerMobile:'+61412345678'}
+const db=()=>h.client as SupabaseClient
+const status=async()=>readProvisioningStatus(db(),await tenant() as ProvisioningTenant)
+const run=()=>runProvisioning(db(),input)
+async function tenant(id=A){ return (await pg.query<{row:Row}>('select to_jsonb(t) row from tenants t where id=$1',[id])).rows[0]?.row }
+async function receipt(){return (await pg.query<{row:Row}>('select to_jsonb(t) row from tenant_provisioning_attempts t where tenant_id=$1',[A])).rows[0]?.row}
+beforeAll(async()=>{
+ pg=new PGlite()
+ await pg.exec(`create role anon;create role authenticated;create role service_role;
+ create table tenants(id uuid primary key,status text,twilio_sms_number text,twilio_voice_number text,twilio_number_sid text,vapi_assistant_id text,activated_at timestamptz);`)
+ await pg.exec(readFileSync('sql/migrations/216_tenant_provisioning_attempts.sql','utf8'))
+ h.client={
+  rpc:async(name:string,args:Row)=>{
+   try{const r=await pg.query<{row:Row}>(`select ${name}($1) row`,[args.p_tenant_id]);return h.loseClaim?{error:{message:'Lost ACK'},data:null}:{error:null,data:r.rows[0].row}}
+   catch(error){return {error,data:null}}
+  },
+  from:(table:string)=>{
+   const filters:string[]=[],values:unknown[]=[];let patch:Row|null=null,projection='*'
+   const execute=async()=>{
+    if((patch?h.failWrite:h.failRead)===table)return {data:null,error:{message:'Unavailable'}}
+    try{
+     const params=[...values],where=filters.length?' where '+filters.join(' and '):''
+     let sql='select '+projection+' from '+table+where
+     if(patch){const sets=Object.entries(patch).map(([key,value])=>{params.push(value);return key+'=$'+params.length});sql='update '+table+' set '+sets.join(',')+where+' returning '+projection}
+     const r=await pg.query<{row:Row}>(patch?'with changed as ('+sql+') select to_jsonb(t) row from changed t':'select to_jsonb(t) row from ('+sql+') t',params)
+     if(patch&&table==='tenant_provisioning_attempts'&&h.loseFinish)return {error:{message:'Lost ACK'},data:null}
+     return {data:r.rows[0]?.row??null,error:null}
+    }catch(error){return {data:null,error}}
+   }
+   const q={select:(s:string)=>{projection=s;return q},update:(p:Row)=>{patch=p;return q},eq:(key:string,value:unknown)=>{values.push(value);filters.push(key+'=$'+values.length);return q},single:execute,maybeSingle:execute,then:(resolve:(v:unknown)=>unknown,reject:(e:unknown)=>unknown)=>execute().then(resolve,reject)}
+   return q
+  },
+ }
+},30_000)
+afterAll(async()=>{await pg?.close();vi.unstubAllEnvs()})
+beforeEach(async()=>{
+ vi.clearAllMocks();h.failRead='';h.failWrite='';h.loseClaim=false;h.loseFinish=false
+ for(const [key,value] of Object.entries({NEXT_PUBLIC_SUPABASE_URL:'https://db.example.test',SUPABASE_SERVICE_ROLE_KEY:'test',TWILIO_PROVISIONING_ENABLED:'true',VAPI_PROVISIONING_ENABLED:'true',TWILIO_ACCOUNT_SID:'AC_test',TWILIO_AUTH_TOKEN:'test',TWILIO_ADDRESS_SID:'AD_test',APP_URL:'https://example.test',VAPI_API_KEY:'test'}))vi.stubEnv(key,value)
+ await pg.exec('truncate tenant_provisioning_attempts,tenants cascade');await pg.query("insert into tenants(id,status) values($1,'onboarding'),($2,'onboarding')",[A,B])
+ h.tenant=await tenant()
+ h.twilio.mockResolvedValue({ok:true,stubbed:false,phoneNumber:PHONE,twilioSid:PN,capabilities:{sms:true,voice:true}})
+ h.vapi.mockResolvedValue({ok:true,stubbed:false,assistantId:'real-assistant'})
+ h.register.mockResolvedValue({ok:true,stubbed:false,vapiPhoneNumberId:'real-number-binding'})
+ h.sms.mockResolvedValue({ok:true,stubbed:false,twilioSid:PN})
+ h.welcome.mockResolvedValue({ok:true,stubbed:false,sid:'SM_test'})
 })
-
-/* ─── Twilio failure ─────────────────────────────────────── */
-
-describe('runProvisioning — Twilio failure', () => {
-  it('returns ok=false, does NOT activate, does NOT call Vapi, and surfaces the reason', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = {
-      ...happyProvisioners(),
-      twilio: vi.fn(async () => ({
-        ok: false as const,
-        reason: 'Authentication Error - No credentials provided',
-      })),
-    }
-
-    const result = await runProvisioning(supabase as any, STD_INPUT, provisioners)
-
-    expect(result.ok).toBe(false)
-    expect(result.phoneNumber).toBeNull()
-    expect(result.activated).toBe(false)
-    expect(result.error).toMatch(/Twilio.*Authentication Error/)
-
-    // Vapi must not be called when Twilio fails
-    expect(provisioners.vapi).not.toHaveBeenCalled()
-    expect(provisioners.registerVapiNumber).not.toHaveBeenCalled()
-    expect(provisioners.welcome).not.toHaveBeenCalled()
-
-    // No tenant update — the tenant row should remain in status='onboarding'
-    expect(updateCalls).toHaveLength(0)
-  })
-})
-
-/* ─── Vapi failure (half-provisioned) ────────────────────── */
-
-describe('runProvisioning — Vapi failure', () => {
-  it('returns ok=false, persists the Twilio number, leaves status=onboarding', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = {
-      ...happyProvisioners(),
-      vapi: vi.fn(async () => ({ ok: false as const, reason: 'Unauthorized' })),
-    }
-
-    const result = await runProvisioning(supabase as any, STD_INPUT, provisioners)
-
-    expect(result.ok).toBe(false)
-    expect(result.phoneNumber).toBe('+61412345678')
-    expect(result.vapiAssistantId).toBeNull()
-    expect(result.activated).toBe(false)
-    expect(result.error).toMatch(/Vapi.*Unauthorized/)
-
-    // Should have persisted just the Twilio number, NOT status='active'
-    expect(updateCalls).toHaveLength(1)
-    const persist = updateCalls[0]
-    expect(persist.payload.twilio_sms_number).toBe('+61412345678')
-    expect(persist.payload.status).toBeUndefined()
-    expect(persist.payload.vapi_assistant_id).toBeUndefined()
-
-    // Welcome SMS not attempted
-    expect(provisioners.welcome).not.toHaveBeenCalled()
-  })
-})
-
-/* ─── Vapi register-number is non-fatal ───────────────────── */
-
-describe('runProvisioning — Vapi register-number failure is non-fatal', () => {
-  it('still activates the tenant and returns ok=true, with a warning', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = {
-      ...happyProvisioners(),
-      registerVapiNumber: vi.fn(async () => ({
-        ok: false as const,
-        reason: 'Number already registered',
-      })),
-    }
-
-    const result = await runProvisioning(supabase as any, STD_INPUT, provisioners)
-
-    expect(result.ok).toBe(true)
-    expect(result.activated).toBe(true)
-    expect(result.warning).toMatch(/Number already registered/)
-    expect(updateCalls[0].payload.status).toBe('active')
-  })
-})
-
-/* ─── Idempotent retry: pre-existing values are reused ────── */
-
-describe('runProvisioning — retry path (existing values)', () => {
-  it('skips Twilio when twilio_sms_number is already on file', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(
-      supabase as any,
-      {
-        ...STD_INPUT,
-        existing: { twilioSmsNumber: '+61412999000', vapiAssistantId: null },
-      },
-      provisioners,
-    )
-
-    expect(result.ok).toBe(true)
-    expect(result.phoneNumber).toBe('+61412999000')
-    expect(provisioners.twilio).not.toHaveBeenCalled()
-    expect(provisioners.vapi).toHaveBeenCalledTimes(1)
-    expect(provisioners.registerVapiNumber).toHaveBeenCalledTimes(1)
-    expect(updateCalls[0].payload.twilio_sms_number).toBe('+61412999000')
-    expect(updateCalls[0].payload.vapi_assistant_id).toBe('asst_test_real')
-  })
-
-  it('skips Vapi when vapi_assistant_id is already on file', async () => {
-    const { supabase, updateCalls } = mockSupabase()
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(
-      supabase as any,
-      {
-        ...STD_INPUT,
-        existing: { twilioSmsNumber: null, vapiAssistantId: 'asst_existing' },
-      },
-      provisioners,
-    )
-
-    expect(result.ok).toBe(true)
-    expect(result.vapiAssistantId).toBe('asst_existing')
-    expect(provisioners.twilio).toHaveBeenCalledTimes(1) // must still buy a number
-    expect(provisioners.vapi).not.toHaveBeenCalled()
-    expect(provisioners.registerVapiNumber).toHaveBeenCalledTimes(1)
-    expect(updateCalls[0].payload.vapi_assistant_id).toBe('asst_existing')
-  })
-
-  it('correctly detects stub markers from pre-existing values', async () => {
-    const { supabase } = mockSupabase()
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(
-      supabase as any,
-      {
-        ...STD_INPUT,
-        existing: {
-          twilioSmsNumber: '+61482012345',
-          vapiAssistantId: 'vapi-stub-aaaa',
-        },
-      },
-      provisioners,
-    )
-
-    expect(result.ok).toBe(true)
-    expect(result.stubbedTwilio).toBe(true)
-    expect(result.stubbedVapi).toBe(true)
-  })
-})
-
-/* ─── Persistence failure ────────────────────────────────── */
-
-describe('runProvisioning — tenant update failure', () => {
-  it('returns ok=false with the DB error reason', async () => {
-    const failingSupabase = {
-      from() {
-        return {
-          update() {
-            return {
-              eq() {
-                return Promise.resolve({ error: { message: 'permission denied' } }) as any
-              },
-            }
-          },
-        }
-      },
-    }
-    const provisioners = happyProvisioners()
-
-    const result = await runProvisioning(failingSupabase as any, STD_INPUT, provisioners)
-
-    expect(result.ok).toBe(false)
-    expect(result.activated).toBe(false)
-    expect(result.error).toMatch(/permission denied/)
-  })
+describe('durable provisioning real SQL216 and action boundaries',()=>{
+ it('persists proof before reporting ready; a real PN proves a number even in the stub digit range',async()=>{
+  expect(await run()).toMatchObject({ok:true,phoneReadiness:{state:'ready',setupComplete:true,smsReady:true,voiceReady:true}})
+  expect(await receipt()).toMatchObject({state:'completed',result:{twilioNumberSid:PN}})
+  expect(h.vapi).toHaveBeenCalledWith(expect.objectContaining({trades:['electrical','plumbing']}))
+ })
+ it('replays completed setup without buying, registering, changing webhooks or welcoming again',async()=>{
+  await run();expect((await run()).phoneReadiness?.state).toBe('ready')
+  for(const mock of [h.twilio,h.vapi,h.register,h.sms,h.welcome])expect(mock).toHaveBeenCalledTimes(1)
+ })
+ it('serializes two concurrent attempts before provider dispatch',async()=>{
+  await Promise.all([run(),run()]);expect(h.twilio).toHaveBeenCalledTimes(1);expect(h.vapi).toHaveBeenCalledTimes(1);expect((await status()).state).toBe('ready')
+ })
+ it('does not dispatch when the claim ACK is lost, and never reclaims that processing receipt',async()=>{
+  h.loseClaim=true;await run();h.loseClaim=false;await run();expect(h.twilio).not.toHaveBeenCalled();expect((await status()).state).toBe('processing')
+ })
+ it('recovers completed DB success after a lost final ACK through owned GET without re-dispatch',async()=>{
+  h.loseFinish=true;expect((await run()).ok).toBe(false);h.loseFinish=false;h.tenant=await tenant()
+  const response=await GET(new Request('https://example.test/status'));expect(response.headers.get('Cache-Control')).toBe('no-store')
+  expect(await response.json()).toMatchObject({ok:true,tenantId:A,phoneReadiness:{state:'ready'}});await run();expect(h.twilio).toHaveBeenCalledTimes(1)
+ })
+ it.each(['twilio','vapi'])('fences a false %s result after dispatch, including partial persisted artifacts',async provider=>{
+  h[provider as 'twilio'|'vapi'].mockResolvedValue({ok:false,reason:'Network outcome uncertain'});await run();await run()
+  expect((await status()).state).toBe('unknown');expect(h.twilio).toHaveBeenCalledTimes(1);expect(h.welcome).not.toHaveBeenCalled()
+ })
+ it('fences a thrown provider response',async()=>{h.twilio.mockRejectedValue(new Error('Lost'));await run();await run();expect(h.twilio).toHaveBeenCalledTimes(1);expect((await status()).state).toBe('unknown')})
+ it('does not retry after tenant persistence fails',async()=>{h.failWrite='tenants';await run();h.failWrite='';await run();expect(h.twilio).toHaveBeenCalledTimes(1);expect((await status()).state).toBe('unknown')})
+ it.each(['sms','register'])('does not claim full readiness after %s routing failure',async provider=>{
+  h[provider as 'sms'|'register'].mockResolvedValue({ok:false,reason:'Routing rejected'});await run();expect((await status()).state).toBe('incomplete');expect(h.welcome).not.toHaveBeenCalled()
+ })
+ it('rejects a webhook update acknowledging a different phone SID',async()=>{h.sms.mockResolvedValue({ok:true,stubbed:false,twilioSid:'PN'+'b'.repeat(32)});await run();expect((await status()).setupComplete).toBe(false)})
+ it.each([{sms:false,voice:false},{sms:'false',voice:'false'}])('does not complete setup with missing or malformed capabilities %j',async capabilities=>{
+  h.twilio.mockResolvedValue({ok:true,stubbed:false,phoneNumber:PHONE,twilioSid:PN,capabilities});await run();expect((await status()).setupComplete).toBe(false)
+ })
+ it('shows stub mode honestly and sends no welcome SMS',async()=>{
+  vi.stubEnv('TWILIO_PROVISIONING_ENABLED','false');vi.stubEnv('VAPI_PROVISIONING_ENABLED','false')
+  h.twilio.mockResolvedValue({ok:true,stubbed:true,phoneNumber:PHONE});h.vapi.mockResolvedValue({ok:true,stubbed:true,assistantId:'vapi-stub-A'});h.register.mockResolvedValue({ok:true,stubbed:true})
+  await run();expect((await status()).state).toBe('stub');expect(h.sms).not.toHaveBeenCalled();expect(h.welcome).not.toHaveBeenCalled()
+ })
+ it.each(['twilio_sms_number','twilio_voice_number','twilio_number_sid','vapi_assistant_id'])('never repurchases historical %s without a receipt',async field=>{
+  await pg.query('update tenants set '+field+'=$1 where id=$2',[field==='vapi_assistant_id'?'vapi-stub-A':field==='twilio_number_sid'?PN:PHONE,A]);await run()
+  expect((await status()).state).toBe('unknown');expect(h.twilio).not.toHaveBeenCalled();expect(await receipt()).toBeUndefined()
+ })
+ it('allows a configuration-only preflight failure to be retried without a previous provider attempt',async()=>{
+  vi.stubEnv('VAPI_API_KEY','');expect((await run()).phoneReadiness?.retryable).toBe(true);expect(await receipt()).toBeUndefined();expect(h.twilio).not.toHaveBeenCalled()
+  vi.stubEnv('VAPI_API_KEY','test');expect((await run()).phoneReadiness?.state).toBe('ready')
+ })
+ it('fails closed on receipt read outages before provider work',async()=>{h.failRead='tenant_provisioning_attempts';expect((await run()).ok).toBe(false);expect(h.twilio).not.toHaveBeenCalled();expect((await GET(new Request('https://example.test'))).status).toBe(503)})
+ it('invalidates readiness after the saved account artifacts change',async()=>{await run();await pg.query('update tenants set vapi_assistant_id=$1 where id=$2',['other-assistant',A]);expect((await status()).state).toBe('unknown')})
+ it('does not share the other tenant operation through owned GET or retry',async()=>{
+  await run();h.tenant=await tenant(B);expect(await(await GET(new Request('https://example.test?tenantId='+A))).json()).toMatchObject({tenantId:B,phoneReadiness:{state:'not_started',operationId:null}})
+  h.tenant=null;expect((await POST(new Request('https://example.test',{method:'POST'}))).status).toBe(401)
+ })
+ it('retry POST reads an unknown attempt without another provider call',async()=>{h.twilio.mockRejectedValue(new Error('Lost'));await run();h.tenant=await tenant();expect(await(await POST(new Request('https://example.test',{method:'POST'}))).json()).toMatchObject({ok:false,setupComplete:false,phoneReadiness:{state:'unknown'}});expect(h.twilio).toHaveBeenCalledTimes(1)})
+ it('protects receipt identity and prevents automatic state reset',async()=>{
+  await run();await expect(pg.query("update tenant_provisioning_attempts set state='processing' where tenant_id=$1",[A])).rejects.toThrow('cannot be reclaimed')
+  for(const role of ['anon','authenticated','service_role'])expect((await pg.query<{allowed:boolean}>("select has_function_privilege($1,'claim_tenant_provisioning(uuid)','execute') allowed",[role])).rows[0].allowed).toBe(role==='service_role')
+ })
 })

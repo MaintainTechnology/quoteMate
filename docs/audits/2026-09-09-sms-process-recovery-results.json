@@ -1,0 +1,2282 @@
+{
+  "generatedAt": "2026-09-08T21:29:35.892Z",
+  "scope": "Compiled durable-work/outbox primitives with fixture stages; parent PGlite survives child kills. Not full handlers, live carrier, or deployed E2E.",
+  "limitations": [
+    "Fixture inbound/intake/estimate handlers, not full compiled route handlers. Existing actual-route regression tests cover route-specific replay.",
+    "PGlite serializes local SQL; this does not certify multi-connection production Postgres contention.",
+    "Lease expiration is advanced with local SQL to avoid wall-clock waits; production lease durations are unchanged.",
+    "Correction/resend fixtures prove FIFO work/intents, not business pricing or approved-link selection semantics.",
+    "Paused draft followers deliberately share the draft job serial key. Actual production route serial-key assignment and timing remain covered only by separate route tests."
+  ],
+  "compiled": [
+    {
+      "trade": "electrical",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\durable-outbox.js": "545740387fd4937ddb75daf3426ca7ecc26ab0ad93f3f895a2549a26062e0b1e",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    },
+    {
+      "trade": "plumbing",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-plumbing-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-plumbing-receptionist\\dist\\lib\\sms\\durable-outbox.js": "545740387fd4937ddb75daf3426ca7ecc26ab0ad93f3f895a2549a26062e0b1e",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-plumbing-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    },
+    {
+      "trade": "roofing",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-roofing-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-roofing-receptionist\\dist\\lib\\sms\\durable-outbox.js": "545740387fd4937ddb75daf3426ca7ecc26ab0ad93f3f895a2549a26062e0b1e",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-roofing-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    },
+    {
+      "trade": "painting",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-painting-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-painting-receptionist\\dist\\lib\\sms\\durable-outbox.js": "545740387fd4937ddb75daf3426ca7ecc26ab0ad93f3f895a2549a26062e0b1e",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-painting-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    },
+    {
+      "trade": "solar",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-solar-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-solar-receptionist\\dist\\lib\\sms\\durable-outbox.js": "545740387fd4937ddb75daf3426ca7ecc26ab0ad93f3f895a2549a26062e0b1e",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-solar-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    }
+  ],
+  "results": [
+    {
+      "trade": "electrical",
+      "boundary": "receipt",
+      "killedPid": 82676,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "a4e04c30-6679-49b1-bd56-3715cd763046"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "3efdf55c-8aa1-4020-9152-e787c8696cd7"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "electrical",
+      "boundary": "intake",
+      "killedPid": 35800,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "748d14ee-a613-4820-ac3b-c5702f2626d0"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "e037bb85-3275-41ef-93e6-ecae7b1ff222"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "electrical",
+      "boundary": "quote",
+      "killedPid": 173168,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "c40fa2d1-59ca-430e-b680-a372c2735147"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "c40fa2d1-59ca-430e-b680-a372c2735147"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "ac0d3079-0121-4109-aed6-eb915dc6c53b"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "electrical",
+      "boundary": "outbox",
+      "killedPid": 228464,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0a7ed93c-5950-48d2-9f71-f09ececa74bd"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "0e530f2a-780d-4f9c-8ecb-b3cb07403c64"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0a7ed93c-5950-48d2-9f71-f09ececa74bd"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "0e530f2a-780d-4f9c-8ecb-b3cb07403c64"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "electrical",
+      "boundary": "ambiguous",
+      "killedPid": 88168,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0a80f7df-2ac5-4cf7-bfd2-41c5feeecee4"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "3ec7f241-cea0-45ba-93e4-4fe232d5ffd3"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0a80f7df-2ac5-4cf7-bfd2-41c5feeecee4"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "3ec7f241-cea0-45ba-93e4-4fe232d5ffd3"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "receipt",
+      "killedPid": 51656,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "cea6f7fd-17ea-4140-b575-6457f3ada7a4"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "e3265da2-2804-4f57-a558-a37b3ce2a265"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "intake",
+      "killedPid": 163644,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "733de87e-fbdd-4fb7-9c26-d4e49633a5bc"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "27662130-6158-4f08-8a08-0ec97be2b84d"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "quote",
+      "killedPid": 112984,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "9bf13078-6753-47fb-92c4-11f7da0a091c"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "9bf13078-6753-47fb-92c4-11f7da0a091c"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "c6b67d16-98d7-4eee-8ad9-67339b2a209a"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "outbox",
+      "killedPid": 217144,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "2463af67-78e1-4c26-bfa1-5668efa78e04"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "b62b18df-9b1f-4014-bd4e-50faa90c68a9"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "2463af67-78e1-4c26-bfa1-5668efa78e04"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "b62b18df-9b1f-4014-bd4e-50faa90c68a9"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "ambiguous",
+      "killedPid": 133856,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "6395fe79-291a-4b08-9d3b-54264d8f7996"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "4db2fec9-3dfb-4465-87b0-5bb0090d2a0a"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "6395fe79-291a-4b08-9d3b-54264d8f7996"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "4db2fec9-3dfb-4465-87b0-5bb0090d2a0a"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "roofing",
+      "boundary": "receipt",
+      "killedPid": 30476,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "e9e1f1d6-a4ec-4903-959a-e2f79d90a94d"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "7c59a05c-d7c2-4b57-9296-f689cb5226fa"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "roofing",
+      "boundary": "intake",
+      "killedPid": 60752,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "4b2033e3-8ed7-41fd-a505-d4859e99f795"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "5d7d0ab1-2dc4-4387-b4e3-e6ad56f58536"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "roofing",
+      "boundary": "quote",
+      "killedPid": 91064,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "9406aa10-482d-45cc-88a3-a8b3aa78aefb"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "9406aa10-482d-45cc-88a3-a8b3aa78aefb"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "9538cae8-2fe1-4121-8346-8251bcccd31f"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "roofing",
+      "boundary": "outbox",
+      "killedPid": 244400,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "ca4c815d-6096-4fe2-ab59-193237f9d889"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "599c99ce-9158-431b-b8bb-d8144e54db52"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "ca4c815d-6096-4fe2-ab59-193237f9d889"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "599c99ce-9158-431b-b8bb-d8144e54db52"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "roofing",
+      "boundary": "ambiguous",
+      "killedPid": 210728,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "f5c58c99-c79c-4a74-bea3-86fb64b53516"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "9559fa26-2f3f-402b-9469-73561dc66832"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "f5c58c99-c79c-4a74-bea3-86fb64b53516"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "9559fa26-2f3f-402b-9469-73561dc66832"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "painting",
+      "boundary": "receipt",
+      "killedPid": 101196,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0b6dc1e4-a986-4d0a-8b94-dd604a721c6b"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "bc812ccf-e554-411f-8a8a-2acb212764af"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "painting",
+      "boundary": "intake",
+      "killedPid": 236660,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "9de10501-3e96-482b-8ba6-dd8c9cb78a67"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "ed7137d5-dc8e-4653-a3f1-fdbd84d3e316"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "painting",
+      "boundary": "quote",
+      "killedPid": 176280,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "b7ad55fa-f2f3-4f35-a0e1-54f3b21c7681"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "b7ad55fa-f2f3-4f35-a0e1-54f3b21c7681"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "bc2d602b-5736-48a7-aa88-0689061e3cef"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "painting",
+      "boundary": "outbox",
+      "killedPid": 97660,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "431d7b6f-995b-41fb-ad44-7211d4225e64"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "d96c1b48-6c3f-4a5f-aa9c-f0423c0279a8"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "431d7b6f-995b-41fb-ad44-7211d4225e64"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "d96c1b48-6c3f-4a5f-aa9c-f0423c0279a8"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "painting",
+      "boundary": "ambiguous",
+      "killedPid": 71888,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "c11bb3ee-bdb1-4e76-82b9-89fb9805fcde"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "972c7750-31d3-46cd-a6c3-8b1c67fdcd53"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "c11bb3ee-bdb1-4e76-82b9-89fb9805fcde"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "972c7750-31d3-46cd-a6c3-8b1c67fdcd53"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "solar",
+      "boundary": "receipt",
+      "killedPid": 206080,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "0777c089-1fce-4b5a-9f9b-cb2f4e31d1bd"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "fd64faa0-24d4-4825-918f-0bc8a7187200"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "solar",
+      "boundary": "intake",
+      "killedPid": 144952,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "8e30b7e6-78a9-4fb8-961d-0b31379876e1"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "c70ef4af-4c36-442b-87e9-a5bfa33d2759"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "solar",
+      "boundary": "quote",
+      "killedPid": 94368,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "3a67ca38-4f39-4346-90e3-4ab0448957ec"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "3a67ca38-4f39-4346-90e3-4ab0448957ec"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "29421316-1a88-4e07-84cd-a36ab6fb6196"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "solar",
+      "boundary": "outbox",
+      "killedPid": 52188,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "11144b35-29a9-4521-8bc7-5ab8ba70ec64"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "2df7a00e-aa1a-490e-8b68-74af32c0f05a"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "11144b35-29a9-4521-8bc7-5ab8ba70ec64"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "2df7a00e-aa1a-490e-8b68-74af32c0f05a"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    },
+    {
+      "trade": "solar",
+      "boundary": "ambiguous",
+      "killedPid": 219880,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "e1c3f1e9-3733-4699-9a8b-3f8c4269f08a"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "806f868a-a827-4aac-864b-dca8d35e81dc"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "history": [],
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "e1c3f1e9-3733-4699-9a8b-3f8c4269f08a"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "806f868a-a827-4aac-864b-dca8d35e81dc"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 24,
+      "followupIntents": 3,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6
+    }
+  ],
+  "burstResults": [
+    {
+      "trade": "electrical",
+      "boundary": "before-history",
+      "predecessorPid": 33372,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "electrical",
+      "boundary": "after-history",
+      "predecessorPid": 96312,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "electrical",
+      "boundary": "during-draft",
+      "predecessorPid": 238224,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "electrical",
+      "boundary": "before-unlock",
+      "predecessorPid": 216444,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "before-history",
+      "predecessorPid": 231824,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "after-history",
+      "predecessorPid": 66104,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "during-draft",
+      "predecessorPid": 1864,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "plumbing",
+      "boundary": "before-unlock",
+      "predecessorPid": 193296,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "roofing",
+      "boundary": "before-history",
+      "predecessorPid": 59408,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "roofing",
+      "boundary": "after-history",
+      "predecessorPid": 40456,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "roofing",
+      "boundary": "during-draft",
+      "predecessorPid": 202656,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "roofing",
+      "boundary": "before-unlock",
+      "predecessorPid": 267520,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "painting",
+      "boundary": "before-history",
+      "predecessorPid": 245148,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "painting",
+      "boundary": "after-history",
+      "predecessorPid": 119460,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "painting",
+      "boundary": "during-draft",
+      "predecessorPid": 123696,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "painting",
+      "boundary": "before-unlock",
+      "predecessorPid": 112420,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "solar",
+      "boundary": "before-history",
+      "predecessorPid": 158504,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "solar",
+      "boundary": "after-history",
+      "predecessorPid": 119592,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "solar",
+      "boundary": "during-draft",
+      "predecessorPid": 197072,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    },
+    {
+      "trade": "solar",
+      "boundary": "before-unlock",
+      "predecessorPid": 210792,
+      "duplicateDeliveries": 24,
+      "queuedReceipts": 3,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "price-question",
+        "resend"
+      ],
+      "completedJobs": 6,
+      "initialDrafts": 1,
+      "outboxIntents": 4
+    }
+  ],
+  "completed": true,
+  "runnerExitCode": 0,
+  "verification": {
+    "checkedAfterRun": true,
+    "readinessSha256": "3f70e3787b5834845294b9153988139d73f86c869f2982a669623cb3208f8303",
+    "readinessUtc": "2026-09-08T21:24:12.0345853Z",
+    "candidateBindings": [
+      {
+        "trade": "electrical",
+        "sourceHash": "d08598086243a16950d835bb44c4d793dc25613d592744715ee6898f99a21a65",
+        "manifestSha256": "a9416de3c4e627dcfdb8f8b34fe38cb85db47dbca3bf3852d543b5e1430b24b9",
+        "attestationSha256": "ab4ca1e87aa937f321e00df680f4129f58df43208df7e1497cf07b0183a13927"
+      },
+      {
+        "trade": "plumbing",
+        "sourceHash": "53b7ec68731be06873e49a0d611eec3454576699a1242dcc27da6e9c57de1e1f",
+        "manifestSha256": "676e1e34cf2772c5128ac379517217fb8b5d22bdd5d2cb388d4154fe4fe92786",
+        "attestationSha256": "550a8ec30e98c45aed1d4adb3f509e06967980ec2ba79a8b915a17acde8d3491"
+      },
+      {
+        "trade": "roofing",
+        "sourceHash": "941ecf544de308732e653386653a172c08ec3c3ec562d8ff522da01ab55e80c3",
+        "manifestSha256": "9f5a2076c4e2fe5cc7bf645f4ace3b232909eaf12650f256450d1e1449c0e314",
+        "attestationSha256": "95e2b8803a3e20be1d5bb9fc8c2575173010d4632a61d0e220f427975f5d3111"
+      },
+      {
+        "trade": "painting",
+        "sourceHash": "9f5ab853356a00b1db7aa992175a29fb5b456db80671da8d185b5a4344d9c142",
+        "manifestSha256": "cf8e530fa3fcc52b8fa591fbfaf200f3b092a1cc59d4ee96cdb0ed8fbd094813",
+        "attestationSha256": "f0b9ae5db5f5b47fe2bca1d12f07fb45c54e31c8e0b6d22cb911b41065dddafb"
+      },
+      {
+        "trade": "solar",
+        "sourceHash": "cd7829e6c0a4b04ed6ac39643d26b7086bc8f5f9553ebeb1dc2cda84909b13fa",
+        "manifestSha256": "e44b3edd7f13f6df03e8da251704761624c0e16a18554008597e80b1a0e32ff4",
+        "attestationSha256": "86a26828a8a60d2b18265aded042ef14a8be4dcf3166e9746fd82903cd1440ef"
+      }
+    ],
+    "harnessHashesAtVerification": {
+      "quotemate-automation/scripts/test-sms-process-recovery.mjs": "bcd8c75aeb250b934af8adaba89bd74d3a337012d8cb6c5930124403f9dc341d",
+      "quotemate-automation/scripts/sms-process-worker.cjs": "47bba615f72bb6bb1f87c39347609d5d8e4782e6e0ac547bd011bf5d442ac4e3",
+      "quotemate-automation/sql/migrations/198_sms_durable_work.sql": "61fa08fd34d3a308bf983d87571d4e4a527159b03d548c083213fa500d500410",
+      "quotemate-automation/sql/migrations/199_sms_delivery_outbox.sql": "4692464f2e96a84066c06bf38ced1fec1a0b8a3ea40aaebe849921fc4e482e40"
+    }
+  }
+}

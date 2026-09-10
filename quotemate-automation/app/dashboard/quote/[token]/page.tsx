@@ -1,3 +1,6 @@
+import { quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
 // Dashboard PDF quote viewer — /dashboard/quote/[token].
 //
 // Reached from the "View PDF" action on each dashboard quote card. Loads the
@@ -17,6 +20,8 @@ import type { ReportDoc } from '@/lib/quote/report-doc/types'
 import type { ReportStyle } from '@/lib/quote/report-doc/style'
 import QuoteReportViewerClient from './QuoteReportViewerClient'
 import { asQuoteKind, isSiteVisitFirstTrade } from '@/lib/quote/mint-tier'
+import { loadQuoteReportPricing } from '@/lib/quote/report-pricing'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,7 +37,7 @@ export default async function DashboardQuoteViewerPage({
 }) {
   const { token } = await params
 
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
     .select(
       // paid_tier + the mig-194 chain columns (spec post-visit-money-sequence
@@ -43,22 +48,40 @@ export default async function DashboardQuoteViewerPage({
       // app/api/tenant/me/route.ts, which computes it for the dashboard list).
       // Selecting it made PostgREST fail the whole read, so `quote` came back
       // null and this page 404'd EVERY quote, not just unpaid ones.
-      'id, intake_id, tenant_id, good, better, best, needs_inspection, paid_at, paid_tier, quote_kind, parent_quote_id, status, selected_tier, scope_of_works, assumptions, risk_flags, report_doc, report_style',
+      '*',
     )
     .eq('share_token', token)
     .maybeSingle()
+  if (quoteError) return <p role="alert">Quote temporarily unavailable. Please try again shortly.</p>
   if (!quote) notFound()
+  if (!await isQuotePageOwner(supabase,quote.tenant_id)) return <QuoteAwaitingReview />
 
-  // Trade lives on the intake (legacy rows without it default to electrical,
-  // matching /q/[token]).
-  const { data: intake } = quote.intake_id
+  const { data: intake, error: intakeError } = quote.intake_id && quote.tenant_id
     ? await supabase
         .from('intakes')
-        .select('trade, job_type, caller, call_id, customer_id, scope')
+        .select('id, tenant_id, trade, job_type, caller, call_id, customer_id, scope')
         .eq('id', quote.intake_id)
+        .eq('tenant_id', quote.tenant_id)
         .maybeSingle()
-    : { data: null }
-  const trade = ((intake?.trade as string | null | undefined) ?? 'electrical').trim() || 'electrical'
+    : { data: null, error: null }
+  if (intakeError) return <p role="alert">Quote temporarily unavailable. Please try again shortly.</p>
+  if (!intake || intake.id !== quote.intake_id || intake.tenant_id !== quote.tenant_id ||
+      typeof intake.trade !== 'string' || !intake.trade.trim()) {
+    return <p role="alert">Quote pricing needs review. The saved trade could not be verified.</p>
+  }
+  const trade = intake.trade.trim()
+  // Inspection rows have no committable job price. Keep their chain action
+  // accessible without passing an invented tax flag into a price editor.
+  let gstRegistered: boolean | null = null
+  if (!quote.needs_inspection) {
+    try {
+      gstRegistered = (await loadQuoteReportPricing(supabase, quote, intake)).gstRegistered
+    } catch (error) {
+      return <p role="alert">{error instanceof QuotePricingVersionError && error.status === 409
+        ? 'Quote pricing needs review. The saved tax basis could not be verified.'
+        : 'Quote temporarily unavailable. Please try again shortly.'}</p>
+    }
+  }
   // Same derivation the dashboard list uses (app/api/tenant/me/route.ts): a
   // quote counts as paid once Stripe stamped paid_at. Suppresses the
   // "Send to Customer" CTA on an already-paid quote.
@@ -75,19 +98,6 @@ export default async function DashboardQuoteViewerPage({
     callId: (intake?.call_id as string | null) ?? null,
     customerId: (intake?.customer_id as string | null) ?? null,
   })
-
-  // GST flag for the line-item editor's inc-GST display.
-  let gstRegistered = true
-  if (quote.tenant_id) {
-    const { data: pb } = await supabase
-      .from('pricing_book')
-      .select('gst_registered')
-      .eq('tenant_id', quote.tenant_id)
-      .eq('trade', trade)
-      .limit(1)
-      .maybeSingle()
-    gstRegistered = !!(pb?.gst_registered ?? true)
-  }
 
   // ─── The post-site-visit chain (spec R3/R10) ─────────────────────
   // Which forward action this row offers, decided here so the client
@@ -118,7 +128,7 @@ export default async function DashboardQuoteViewerPage({
   // Phase 1 living-document editor, flag-gated (default off ⇒ prod unchanged).
   // Seed a default document from the quote's fields when none is stored yet, so
   // the editor opens with today's title/scope/pricing/assumptions.
-  const docEditorEnabled = process.env.FULL_QUOTE_DOC === 'true'
+  const docEditorEnabled = process.env.FULL_QUOTE_DOC === 'true' && gstRegistered !== null
   const reportDoc =
     (quote.report_doc as ReportDoc | null) ??
     buildDefaultReportDoc({
@@ -130,6 +140,8 @@ export default async function DashboardQuoteViewerPage({
   return (
     <QuoteReportViewerClient
       quoteId={quote.id as string}
+      reviewVersion={quoteCustomerReleaseRevision(quote)}
+      sentBefore={!!quote.sent_at || ['sent','viewed','accepted','paid'].includes(String(quote.status))}
       shareToken={token}
       trade={trade}
       gstRegistered={gstRegistered}

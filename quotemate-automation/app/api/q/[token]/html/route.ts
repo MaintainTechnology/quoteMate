@@ -4,13 +4,17 @@
 // (buildQuoteReportHtml), served as text/html so the dashboard quote viewer can
 // embed a live, edit-reactive preview instead of a frozen PDF snapshot.
 //
-// Read-only + owner-agnostic: it never mutates and never exposes anything the
-// PDF doesn't. Editing still flows exclusively through the structured, grounded
+// Held reports require the authenticated owner; released reports follow the
+// public PDF contract. Editing still flows exclusively through the structured, grounded
 // TradieEditor → POST /api/quote/[id]/edit; because this route reads the live
 // quotes row every call, the preview reflects a saved edit on the next reload.
 
 import { createClient } from '@supabase/supabase-js'
 import { renderQuoteReportHtml } from '@/lib/quote/pdf'
+import { genericQuoteReleased } from '@/lib/quote/customer-release'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -36,17 +40,24 @@ function placeholder(title: string, body: string, status: number): Response {
   })
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
 
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
-    .select('id, needs_inspection')
+    .select('id,tenant_id,status,sent_at,paid_at,customer_released_at,needs_inspection')
     .eq('share_token', token)
     .maybeSingle()
 
+  if (quoteError) return placeholder('Quote temporarily unavailable','Try again shortly.',503)
   if (!quote) {
     return placeholder('Quote not found', 'This quote link is invalid or has expired.', 404)
+  }
+  if (!genericQuoteReleased(quote)) {
+    const owner = await resolveTenantRequest(supabase,req,'id')
+    if (owner?.tenant?.id !== quote.tenant_id && !await isQuotePageOwner(supabase,quote.tenant_id)) {
+      return placeholder('Quote awaiting approval','The owning tradie needs to review this quote before its price can be shared.',403)
+    }
   }
   if (quote.needs_inspection) {
     return placeholder(
@@ -56,7 +67,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     )
   }
 
-  const html = await renderQuoteReportHtml(quote.id as string)
+  let html: string | null
+  try {
+    html = await renderQuoteReportHtml(quote.id as string)
+  } catch (error) {
+    const review = error instanceof QuotePricingVersionError && error.status === 409
+    return placeholder(review ? 'Quote pricing needs review' : 'Preview unavailable',
+      review ? 'The saved pricing basis could not be verified. The owning tradie needs to review this quote before a priced report can be shown.'
+        : 'The report is temporarily unavailable. Please try again shortly.', review ? 409 : 503)
+  }
   if (!html) {
     return placeholder(
       'Preview unavailable',

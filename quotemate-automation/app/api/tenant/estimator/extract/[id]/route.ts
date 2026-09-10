@@ -105,6 +105,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return Response.json({ ok: false, error: 'corrected_items must be an array' }, { status: 400 })
   }
 
+  try {
+    const guard = await supabase.rpc('sms_plan_quote_guard_ready').abortSignal(AbortSignal.timeout(3000))
+    if (guard.error || guard.data !== true) throw new Error('Plan release guard unavailable')
+  } catch {
+    return Response.json({ ok: false, code: 'plan_release_guard_unavailable', error: 'Plan editing is temporarily unavailable. Please retry.' }, { status: 503 })
+  }
+  const { data: existing, error: readError } = await supabase.from('plan_extractions')
+    .select('id, released_at').eq('id', id).eq('tenant_id', tenant.id).eq('trade', 'electrical').abortSignal(AbortSignal.timeout(3000)).maybeSingle()
+  if (readError) return Response.json({ ok: false, error: 'Plan could not be loaded. Please retry.' }, { status: 503 })
+  if (!existing) return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
+  if (existing.released_at) return Response.json({ ok: false, code: 'released_quote_immutable',
+    error: 'This plan has already been released. Start a new plan or revision for changed quantities or prices.' }, { status: 409 })
+
   const { data, error } = await supabase
     .from('plan_extractions')
     .update({ corrected_items: corrected, priced_bom: null, priced_at: null, updated_at: new Date().toISOString() })
@@ -114,6 +127,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .select('id')
     .maybeSingle()
 
+  if (error?.code === 'QM001') return Response.json({ ok: false, code: 'released_quote_immutable',
+    error: 'This plan has already been released. Start a new plan or revision for changed quantities or prices.' }, { status: 409 })
   if (error) return Response.json({ ok: false, error: error.message }, { status: 500 })
   if (!data) return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
 

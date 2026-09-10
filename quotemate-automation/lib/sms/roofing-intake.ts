@@ -76,6 +76,13 @@ export type RoofingSlots = {
 
 /** Which input the receptionist is currently gathering. */
 export type RoofingStep =
+  // Opener — the self-serve quote-request form has been offered and we are
+  // waiting to hear whether they want it or would rather answer here
+  // (spec: specs/generic-quote-request-form.md §4).
+  | 'offer_form'
+  // Customer chose the form — acknowledged and waiting for the submission.
+  // A later text switches them to Q&A.
+  | 'await_form'
   | 'address'
   | 'confirm_address'
   | 'intent'
@@ -724,7 +731,19 @@ export function roofingReadiness(slots: RoofingSlots): 'ready' | 'need_more' | '
 }
 
 const QUESTIONS: Record<
-  Exclude<RoofingStep, 'ready' | 'inspection' | 'confirm_roof' | 'await_booking' | 'quoted' | 'closed'>,
+  Exclude<
+    RoofingStep,
+    | 'ready'
+    | 'inspection'
+    | 'confirm_roof'
+    | 'await_booking'
+    | 'quoted'
+    | 'closed'
+    // The form-offer opener and its acknowledgement are composed, not
+    // gather questions — see buildRoofingFormOffer / AWAIT_FORM_ACK.
+    | 'offer_form'
+    | 'await_form'
+  >,
   string
 > = {
   address: "Happy to sort a roofing quote for you. What's the property address, including suburb and postcode?",

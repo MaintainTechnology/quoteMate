@@ -28,6 +28,8 @@ import { applyTierEdits, type PaintingTierEdit } from '@/lib/painting/edit'
 import type { PaintingEstimate } from '@/lib/painting/types'
 import { PAINT_INSPECTION_TIER } from '@/lib/painting/pay-redirect'
 import { expireCheckoutSession } from '@/lib/stripe/checkout'
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { paintingEditVersion } from '@/lib/painting/edit-version'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -47,9 +49,14 @@ const TierEditSchema = z.object({
 
 const BodySchema = z.object({
   tiers: z.array(TierEditSchema).min(1).max(3),
+  expectedVersion: z.string().regex(/^[a-f0-9]{64}$/),
+  approveChanges: z.boolean().optional(),
 })
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const owner = await resolveTenantRequest(supabase,req,'id')
+  if (!owner?.tenant?.id) return Response.json({ok:false,error:'Sign in as the owning tradie before editing.'},{status:401})
+  const tenantId=owner.tenant.id as string
   const { token } = await ctx.params
   if (!token || token.length < 8) {
     return Response.json({ ok: false, error: 'invalid_token' }, { status: 400 })
@@ -69,17 +76,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     )
   }
 
-  const { data: row } = await supabase
+  const { data: row, error: readError } = await supabase
     .from('painting_measurements')
-    .select('id, estimate, released_at, paid_at, routing, public_token, address, stripe_links')
+    .select('id, tenant_id, estimate, released_at, paid_at, routing, public_token, address, stripe_links')
     .eq('estimate_token', token)
+    .eq('tenant_id',tenantId)
     .maybeSingle()
-  if (!row) {
+  if (readError) return Response.json({ok:false,error:'Quote temporarily unavailable.'},{status:503})
+  if (!row || row.tenant_id !== tenantId) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
   if (!row.estimate) {
     return Response.json({ ok: false, error: 'no_estimate' }, { status: 409 })
   }
+  if (parsed.data.expectedVersion !== paintingEditVersion(row.estimate)) return Response.json({ok:false,error:'This quote changed. Refresh and review it again.'},{status:409})
+  if (row.released_at && parsed.data.approveChanges !== true) return Response.json({ok:false,error:'Approve the revised prices and scope before updating the customer quote.'},{status:409})
   // Transacted prices are immutable: once the customer has paid, the tiers are
   // the record of what they accepted. (The old released_at gate used to block
   // this incidentally; post-release editing made an explicit paid guard
@@ -118,6 +129,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     estimate: nextEstimate,
     better_inc_gst: betterIncGst,
   }
+  const stale: string[] = []
 
   // A price change invalidates any per-tier Stripe deposit session left on the
   // row (their unit_amount was baked from the OLD inc-GST), and on a released
@@ -130,7 +142,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (priceChanged) {
     const oldLinks = (row.stripe_links ?? {}) as Record<string, string | undefined>
     const kept: Record<string, string> = {}
-    const stale: string[] = []
     for (const [tier, url] of Object.entries(oldLinks)) {
       if (!url) continue
       if (tier === PAINT_INSPECTION_TIER) kept[tier] = url
@@ -138,16 +149,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
     updateBody.stripe_links = kept
     // Best-effort (expireCheckoutSession tolerates already-expired/paid).
-    await Promise.allSettled(stale.map((url) => expireCheckoutSession(url)))
   }
 
-  const { error: updErr } = await supabase
+  let update = supabase
     .from('painting_measurements')
     .update(updateBody)
     .eq('id', row.id)
+    .eq('tenant_id',tenantId).is('paid_at',null).eq('estimate',JSON.stringify(row.estimate))
+  update = row.released_at ? update.eq('released_at',row.released_at) : update.is('released_at',null)
+  const { data: saved,error: updErr } = await update.select('id').maybeSingle()
   if (updErr) {
     return Response.json({ ok: false, error: 'update_failed' }, { status: 500 })
   }
+  if (!saved) return Response.json({ok:false,error:'The quote changed or was paid while you were editing. Refresh before trying again.'},{status:409})
+  await Promise.allSettled(stale.map((url) => expireCheckoutSession(url)))
 
   return Response.json({
     ok: true,

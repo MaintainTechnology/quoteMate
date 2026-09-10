@@ -7,6 +7,8 @@
 // Stubs global fetch — no network.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Transport-only suite; outbox persistence has separate actual-Postgres coverage.
+vi.mock('./durable-outbox', () => ({ dispatchDurably: (opts: object, send: (opts: object) => unknown) => send(opts) }))
 import { dispatchQuoteMessage, whatsappFallbackAllowed } from './dispatch'
 
 const ENV = { ...process.env }

@@ -1,3 +1,7 @@
+import { quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
+import { resolveOwnedQuoteCustomerContact } from '@/lib/quote/delivery-recipient'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
 // Mig 078 — tradie-side approve page.
 //
 // Deep-linked from the buildTradieReviewNotification SMS. Reached at:
@@ -37,18 +41,28 @@ export default async function ApprovePage(props: {
   const { data: quote } = await supabase
     .from('quotes')
     .select(
-      'id, tenant_id, status, share_token, scope_of_works, total_inc_gst, selected_tier, intake_id, needs_inspection, created_at',
+      '*',
     )
     .eq('share_token', token)
     .maybeSingle()
 
   if (!quote) notFound()
+  if (!await isQuotePageOwner(supabase,quote.tenant_id)) return <QuoteAwaitingReview />
 
-  const { data: intake } = await supabase
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('job_type, caller, suburb')
+    .select('id, tenant_id, job_type, caller, suburb, call_id, customer_id')
     .eq('id', quote.intake_id as string)
+    .eq('tenant_id', quote.tenant_id as string)
     .maybeSingle()
+
+  if (intakeError) return <p role="alert">Customer contact temporarily unavailable. Refresh before sending.</p>
+  let customerPhone: string | null
+  try {
+    customerPhone = (await resolveOwnedQuoteCustomerContact(supabase, quote.tenant_id, intake)).phone
+  } catch {
+    return <p role="alert">Customer contact temporarily unavailable. Refresh before sending.</p>
+  }
 
   const jobType = (intake?.job_type as string) ?? 'job'
   const customerName =
@@ -129,10 +143,11 @@ export default async function ApprovePage(props: {
         </section>
 
         {/* Actions */}
+        {isHeld && <p className="mt-6 text-sm text-text-sec">{customerPhone ? <>Send customer SMS to <strong>{customerPhone}</strong>.</> : 'No customer mobile is available. Add the contact before sending.'}</p>}
         <div className="mt-8 flex flex-wrap items-center gap-3">
           {isHeld ? (
             <>
-              <ApproveAction quoteId={quote.id as string} shareToken={token} />
+              <ApproveAction quoteId={quote.id as string} shareToken={token} reviewVersion={quoteCustomerReleaseRevision(quote)} customerPhone={customerPhone} />
               <Link
                 href={`/q/${token}?edit=1`}
                 className="inline-flex items-center justify-center gap-2 border border-ink-line text-text-pri font-mono text-xs uppercase tracking-[0.15em] font-bold px-4 py-3 hover:border-accent/50 hover:text-accent transition-colors"

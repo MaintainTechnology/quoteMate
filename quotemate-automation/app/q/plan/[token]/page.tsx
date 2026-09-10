@@ -9,6 +9,10 @@
 // shown to the customer, framed as indicative and subject to confirmation.
 
 import { createClient } from '@supabase/supabase-js'
+import { notFound } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import type { CSSProperties } from 'react'
 import type { ExtractionItem } from '@/lib/estimation/extract'
 import type { PricedBom } from '@/lib/estimation/price'
@@ -35,14 +39,17 @@ const MONO: CSSProperties = { fontFamily: 'var(--font-mono)' }
 export default async function PlanResultsPage(props: { params: Promise<{ token: string }> }) {
   const { token } = await props.params
 
-  const { data: extraction } = await supabase
+  const { data: extraction, error: quoteError } = await supabase
     .from('plan_extractions')
     .select(
-      'id, items, corrected_items, sheets_used, overall_note, priced_bom, report_pdf_path, created_at, tenant_id, plan_uploads(filename), tenants:tenant_id(business_name)',
+      'id, items, corrected_items, sheets_used, overall_note, priced_bom, report_pdf_path, created_at, tenant_id, released_at, plan_uploads(filename), tenants:tenant_id(business_name)',
     )
     .eq('share_token', token)
     .maybeSingle()
 
+  if (quoteError) return <QuoteUnavailable correlationId={quoteReadFailure('plan', quoteError)} />
+  if (!extraction) notFound()
+  if (!extraction.released_at) return <QuoteAwaitingReview />
   if (!extraction) {
     return (
       <QuoteChrome trade={{ label: 'Plan', icon: tradeIcon('plan') }} sticky={null}>

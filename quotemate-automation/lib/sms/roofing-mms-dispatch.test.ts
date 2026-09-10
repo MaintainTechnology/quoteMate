@@ -2,6 +2,8 @@
 // fallback. Stubs global fetch so no network is touched.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Transport-only suite; durable persistence is exercised with actual Postgres in sms-outbox-migration.test.ts.
+vi.mock('./durable-outbox', () => ({ dispatchDurably: (opts: object, send: (opts: object) => unknown) => send(opts) }))
 import { sendSms } from './twilio'
 import { dispatchQuoteMessage } from './dispatch'
 

@@ -16,7 +16,7 @@ const h = vi.hoisted(() => {
   function from(table: string) {
     const record = { table, ops: [] as Op[] }
     const builder: Record<string, unknown> = {}
-    for (const op of ['select', 'update', 'eq', 'maybeSingle', 'single']) {
+    for (const op of ['select', 'update', 'eq', 'is', 'maybeSingle', 'single']) {
       builder[op] = (...args: unknown[]) => {
         record.ops.push({ op, args })
         return builder
@@ -25,23 +25,27 @@ const h = vi.hoisted(() => {
     builder.then = (resolve: (r: Result) => unknown, reject?: (e: unknown) => unknown) => {
       queries.push(record)
       const r = results.shift() ?? { data: null, error: null }
+      if (r.data && typeof r.data === 'object' && 'estimate' in r.data) r.data={tenant_id:'tenant-1',...r.data}
       return Promise.resolve(r).then(resolve, reject)
     }
     return builder
   }
 
-  return { results, queries, client: { from } }
+  return { results, queries, client: { from }, owner:vi.fn() }
 })
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.client }))
+vi.mock('@/lib/tenant/from-request',()=>({resolveTenantRequest:h.owner}))
 vi.mock('@/lib/stripe/checkout', () => ({
   expireCheckoutSession: vi.fn(async () => ({ ok: true })),
 }))
 
 import { POST } from './route'
+import { paintingEditVersion } from '@/lib/painting/edit-version'
 import { expireCheckoutSession } from '@/lib/stripe/checkout'
 
 beforeEach(() => {
+  h.owner.mockResolvedValue({tenant:{id:'tenant-1'}})
   h.results.length = 0
   h.queries.length = 0
   vi.mocked(expireCheckoutSession).mockClear()
@@ -70,13 +74,30 @@ function editReq(tiers: unknown) {
   return new Request('http://localhost/api/painting/edit/tok-estimate-1', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tiers }),
+    body: JSON.stringify({ tiers,expectedVersion:paintingEditVersion(estimateFixture()),approveChanges:true }),
   })
 }
 
 const ctx = { params: Promise.resolve({ token: 'tok-estimate-1' }) }
 
 describe('POST /api/painting/edit/[token]', () => {
+  it('rejects a capability token without owner authentication before reading the quote',async()=>{
+    h.owner.mockResolvedValue(null);expect((await POST(editReq([{tier:'better',inc_gst:9000}]),ctx)).status).toBe(401);expect(h.queries).toHaveLength(0)
+  })
+  it('requires explicit approval before replacing a released price',async()=>{
+    h.results.push({data:{id:'p1',estimate:estimateFixture(),released_at:'2026-09-08',public_token:'pub-1'},error:null})
+    const request=new Request('https://example.test',{method:'POST',body:JSON.stringify({tiers:[{tier:'better',inc_gst:9000}],expectedVersion:paintingEditVersion(estimateFixture())})})
+    expect((await POST(request,ctx)).status).toBe(409);expect(h.queries).toHaveLength(1)
+  })
+  it('rejects an old reviewed snapshot and never changes payment sessions',async()=>{
+    h.results.push({data:{id:'p1',estimate:{...estimateFixture(),changed:true},released_at:'2026-09-08',public_token:'pub-1'},error:null})
+    expect((await POST(editReq([{tier:'better',inc_gst:9000}]),ctx)).status).toBe(409);expect(expireCheckoutSession).not.toHaveBeenCalled()
+  })
+  it('preserves a concurrent payment or revision when the conditional write loses',async()=>{
+    h.results.push({data:{id:'p1',estimate:estimateFixture(),released_at:'2026-09-08',public_token:'pub-1',stripe_links:{good:'https://stripe/old'}},error:null},{data:null,error:null})
+    expect((await POST(editReq([{tier:'better',inc_gst:9000}]),ctx)).status).toBe(409);expect(expireCheckoutSession).not.toHaveBeenCalled()
+    const update=h.queries[1];expect(update.ops).toContainEqual({op:'is',args:['paid_at',null]});expect(update.ops).toContainEqual({op:'eq',args:['tenant_id','tenant-1']});expect(update.ops).toContainEqual({op:'eq',args:['estimate',JSON.stringify(estimateFixture())]})
+  })
   it('edits a RELEASED row (post-release on-site revision) and persists it', async () => {
     h.results.push(
       {
@@ -90,7 +111,7 @@ describe('POST /api/painting/edit/[token]', () => {
         },
         error: null,
       },
-      { data: null, error: null }, // update
+      { data: {id:'p1'}, error: null }, // update
     )
     const res = await POST(editReq([{ tier: 'better', label: 'Premium repaint' }]), ctx)
     expect(res.status).toBe(200)
@@ -116,7 +137,7 @@ describe('POST /api/painting/edit/[token]', () => {
         },
         error: null,
       },
-      { data: null, error: null }, // update
+      { data: {id:'p1'}, error: null }, // update
     )
     const res = await POST(editReq([{ tier: 'better', inc_gst: 9000 }]), ctx)
     expect(res.status).toBe(200)
@@ -163,7 +184,7 @@ describe('POST /api/painting/edit/[token]', () => {
         },
         error: null,
       },
-      { data: null, error: null }, // update
+      { data: {id:'p1'}, error: null }, // update
     )
     const res = await POST(editReq([{ tier: 'better', inc_gst: 9000 }]), ctx)
     expect(res.status).toBe(200)

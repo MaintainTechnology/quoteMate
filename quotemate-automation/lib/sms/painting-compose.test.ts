@@ -40,6 +40,8 @@ describe('buildPaintingFormOffer', () => {
     expect(msg).toContain('https://x.test/paint-request/abc123')
     expect(msg).toMatch(/reply here/i)
     expect(msg).toMatch(/Hi Sam/)
+    expect(msg).toMatch(/painter to review before sending/)
+    expect(msg).not.toMatch(/straight back|straight over|on.*way/)
   })
 })
 
@@ -108,7 +110,7 @@ describe('booking / cancel / thank-you', () => {
     expect(composePaintingCancel('Sam')).toMatch(/stopped there/i)
   })
   it('thank-you says the quote is on its way', () => {
-    expect(buildPaintingFormThankYou({ firstName: 'Sam' })).toMatch(/on its way/i)
+    expect(buildPaintingFormThankYou({ firstName: 'Sam' })).toMatch(/needs to review the draft/i)
   })
 })
 
@@ -117,11 +119,11 @@ describe('buildPaintingHoldingSms', () => {
     const msg = buildPaintingHoldingSms({ firstName: 'Sam', businessName: 'Acme Painting' })
     expect(msg).toMatch(/Hi Sam/)
     expect(msg).toContain('Acme Painting')
-    expect(msg).toMatch(/preparing your painting quote/i)
+    expect(msg).toMatch(/draft is saved.*awaiting review/i)
     expect(msg).not.toContain('$')
   })
   it('falls back to "your painter" with no business name', () => {
-    expect(buildPaintingHoldingSms({})).toMatch(/your painter is preparing/i)
+    expect(buildPaintingHoldingSms({})).toMatch(/awaiting review by your painter/i)
   })
 })
 

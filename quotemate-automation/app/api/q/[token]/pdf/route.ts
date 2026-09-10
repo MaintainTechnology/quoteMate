@@ -1,3 +1,6 @@
+import { genericQuoteReleased } from '@/lib/quote/customer-release'
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
 // GET /api/q/[token]/pdf — download the customer quote PDF (electrical +
 // plumbing G/B/B quotes). Token = quotes.share_token, same trust model as
 // the /q/[token] page. Lazy-generates via Gotenberg on first hit (covers
@@ -7,6 +10,7 @@
 import { after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { ensureQuotePdf, downloadQuotePdf } from '@/lib/quote/pdf'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
 import { archiveQuoteOnDownload } from '@/lib/filestore/archive-on-download'
 
 export const dynamic = 'force-dynamic'
@@ -25,14 +29,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   // (the Download button + every existing link/SMS keep their behaviour).
   const inline = new URL(req.url).searchParams.get('disposition') === 'inline'
 
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
-    .select('id, intake_id, pdf_path, needs_inspection')
+    .select('id, intake_id, tenant_id, status, sent_at, paid_at, customer_released_at, pdf_path, needs_inspection')
     .eq('share_token', token)
     .maybeSingle()
 
+  if (quoteError) return Response.json({ok:false,error:'Quote temporarily unavailable'},{status:503})
   if (!quote) {
     return Response.json({ ok: false, error: 'Invalid or expired link' }, { status: 404 })
+  }
+  if (!genericQuoteReleased(quote)) {
+    const owner = await resolveTenantRequest(supabase,req,'id')
+    if (owner?.tenant?.id !== quote.tenant_id && !await isQuotePageOwner(supabase,quote.tenant_id)) return Response.json({ok:false,error:'Quote awaiting tradie review'},{status:403})
   }
   if (quote.needs_inspection) {
     return Response.json(
@@ -41,13 +50,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     )
   }
 
-  // Mig 146 — always run the self-healing generator: it serves the cached PDF
-  // when the signature still matches the tenant's current tier mode + template,
-  // and regenerates when the tradie has since changed the Pricing-settings tier
-  // mode (or the template was bumped). Falls back to the last-known cached PDF
-  // if generation is unavailable (e.g. Gotenberg down) so the link never breaks.
-  let path = await ensureQuotePdf(quote.id as string)
-  if (!path) path = quote.pdf_path as string | null
+  // Only the generator can approve a cache signature against the saved price
+  // basis. A stale/unverified PDF must not bypass review when rendering fails.
+  let path: string | null
+  try {
+    path = await ensureQuotePdf(quote.id as string, { strictPricing: true })
+  } catch (error) {
+    if (error instanceof QuotePricingVersionError) {
+      return Response.json({ ok: false, error: error.code }, { status: error.status })
+    }
+    return Response.json({ ok: false, error: 'PDF unavailable' }, { status: 503 })
+  }
   if (!path) {
     return Response.json({ ok: false, error: 'PDF unavailable right now — try again shortly' }, { status: 503 })
   }

@@ -249,7 +249,12 @@ export function SolarTab({ accessToken, tenantId, appUrl }: Props) {
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean
           confirmed_at?: string
+          reviewUrl?: string
           error?: string
+        }
+        if (res.status === 409 && json.reviewUrl?.startsWith('/dashboard/quote-review?')) {
+          window.location.assign(json.reviewUrl)
+          return
         }
         if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`)
         // Optimistically flip this row to confirmed (released) in place.

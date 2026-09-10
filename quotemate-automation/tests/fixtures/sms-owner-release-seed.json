@@ -1,0 +1,357 @@
+{
+  "fixtureVersion": 1,
+  "provenance": {
+    "kind": "synthetic-test-data",
+    "description": "Saved synthetic pricing outputs for owner-release and public-page tests; not a live quote, pricing authority, or passing test report.",
+    "sourceArtifact": "2026-09-09-sms-cross-channel-parity-results.json",
+    "sourceSha256": "c005e7e48ad112a5fbfa8c58bf89f93031e93b5b30f8f6742225910c765274db",
+    "sourceFields": [
+      "results[finding=F16].quote",
+      "results[finding=F17].savedEstimate"
+    ]
+  },
+  "quote": {
+    "structures": [
+      {
+        "buildingId": "fixed-house",
+        "role": "primary",
+        "label": "Main dwelling",
+        "metrics": {
+          "footprint_m2": 200,
+          "sloped_area_m2": 220,
+          "storeys": 1,
+          "form": "gable",
+          "hips": 0,
+          "valleys": 0,
+          "ridge_lm": null,
+          "polygon_geojson": null,
+          "capture_date": null
+        },
+        "inputs": {
+          "material": "colorbond_corrugated",
+          "pitch": "standard",
+          "building_year_built": 2010,
+          "intent": "full_reroof"
+        },
+        "price": {
+          "area_m2": 220,
+          "effective_rate_per_m2": 175.16,
+          "tiers": [
+            {
+              "tier": "good",
+              "label": "Patch / spot repair",
+              "ex_gst": 7707.04,
+              "inc_gst": 8477.74,
+              "scope": "Spot patches and ridge cap rebed on the existing Colorbond Corrugated roof (no full replacement).",
+              "line_items": [
+                {
+                  "unit": "sqm",
+                  "quantity": 220,
+                  "description": "Spot patches and ridge cap rebed on the existing Colorbond Corrugated roof (no full replacement).",
+                  "unit_price_ex_gst": 175.16,
+                  "total_ex_gst": 7707.04,
+                  "source": "labour"
+                }
+              ]
+            },
+            {
+              "tier": "better",
+              "label": "Full re-roof, same material",
+              "ex_gst": 38535.2,
+              "inc_gst": 42388.72,
+              "scope": "Full re-roof of approximately 220 m² using Colorbond Corrugated, including ridge caps and flashings.",
+              "line_items": [
+                {
+                  "unit": "sqm",
+                  "quantity": 220,
+                  "description": "Full re-roof of approximately 220 m² using Colorbond Corrugated, including ridge caps and flashings.",
+                  "unit_price_ex_gst": 175.16,
+                  "total_ex_gst": 38535.2,
+                  "source": "labour"
+                }
+              ]
+            },
+            {
+              "tier": "best",
+              "label": "Full re-roof, upgrade material",
+              "ex_gst": 50784.8,
+              "inc_gst": 55863.28,
+              "scope": "Full re-roof of approximately 220 m² using Colorbond Klip-Lok 700 as a material upgrade, including ridge caps and flashings.",
+              "line_items": [
+                {
+                  "unit": "sqm",
+                  "quantity": 220,
+                  "description": "Full re-roof of approximately 220 m² using Colorbond Klip-Lok 700 as a material upgrade, including ridge caps and flashings.",
+                  "unit_price_ex_gst": 175.16,
+                  "total_ex_gst": 50784.8,
+                  "source": "labour"
+                }
+              ]
+            }
+          ],
+          "loadings_applied": [
+            {
+              "code": "complexity",
+              "pct": 0.16,
+              "detail": "16% complexity loading"
+            }
+          ],
+          "routing": {
+            "decision": "tradie_review",
+            "reason": "Quote auto-calculated from Geoscape measurement. Every roofing quote requires tradie sign-off before customer send."
+          },
+          "call_out_minimum_applied": false,
+          "edge_works": {
+            "hips_count": 0,
+            "valleys_count": 0,
+            "hips_lm": 0,
+            "valleys_lm": 0,
+            "box_gutter_lm": null,
+            "per_edge_length_m": 7.7,
+            "length_source": "geometry"
+          }
+        }
+      }
+    ],
+    "combined": {
+      "area_m2": 220,
+      "tiers": [
+        {
+          "tier": "good",
+          "label": "Patch / repair, all structures",
+          "ex_gst": 7707.04,
+          "inc_gst": 8477.74,
+          "scope": "Patch / repair priced across 1 structure."
+        },
+        {
+          "tier": "better",
+          "label": "Re-roof, all structures",
+          "ex_gst": 38535.2,
+          "inc_gst": 42388.72,
+          "scope": "Re-roof priced across 1 structure."
+        },
+        {
+          "tier": "best",
+          "label": "Upgrade, all structures",
+          "ex_gst": 50784.8,
+          "inc_gst": 55863.28,
+          "scope": "Upgrade priced across 1 structure."
+        }
+      ]
+    },
+    "routing": {
+      "decision": "tradie_review",
+      "reason": "Quotable structures auto-calculated from measurement. Every roofing quote requires tradie sign-off before customer send."
+    },
+    "inspection_structures": []
+  },
+  "estimate": {
+    "provider": "mock",
+    "facts": {
+      "floor_area_m2": 181,
+      "floor_area_source": "listing",
+      "footprint_m2": 197,
+      "storeys": 1,
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "year_built": 1962,
+      "property_type": "House",
+      "land_size_m2": 537,
+      "has_floor_plan": false,
+      "source": "mock",
+      "capture_note": "Synthetic demo record — not a real property."
+    },
+    "measurement": {
+      "floor_area_m2": 180,
+      "floor_area_low_m2": 158.4,
+      "floor_area_high_m2": 201.6,
+      "floor_area_source": "manual",
+      "ceiling_height_m": 2.4,
+      "storeys": 1,
+      "confidence": "high",
+      "surfaces": [
+        {
+          "scope": "walls",
+          "unit": "m2",
+          "quantity": 504,
+          "quantity_low": 443.5,
+          "quantity_high": 564.5
+        }
+      ],
+      "notes": [
+        "Floor area entered by hand — treated as confirmed.",
+        "Walls ≈ floor area × 2.8 (2.4 m ceilings, openings deducted)."
+      ],
+      "basis": "whole_house"
+    },
+    "price": {
+      "confidence": "high",
+      "total_area_m2": 504,
+      "tiers": [
+        {
+          "tier": "good",
+          "label": "1-coat refresh",
+          "ex_gst": 13613.04,
+          "inc_gst": 14974.34,
+          "inc_gst_low": 13176.83,
+          "inc_gst_high": 16771.86,
+          "scope": "Single topcoat refresh over sound walls in the existing colour."
+        },
+        {
+          "tier": "better",
+          "label": "2-coat standard repaint",
+          "ex_gst": 18648,
+          "inc_gst": 20512.8,
+          "inc_gst_low": 18050.45,
+          "inc_gst_high": 22975.15,
+          "scope": "Two topcoats with standard prep across walls."
+        },
+        {
+          "tier": "best",
+          "label": "Premium paint + full prep",
+          "ex_gst": 24055.92,
+          "inc_gst": 26461.51,
+          "inc_gst_low": 23285.08,
+          "inc_gst_high": 29637.94,
+          "scope": "Two coats of premium paint with full prep (patching, sanding, priming) across walls."
+        }
+      ],
+      "loadings_applied": [],
+      "routing": {
+        "decision": "tradie_review",
+        "reason": "Quote auto-calculated from the floor-area estimate. Every painting quote needs tradie sign-off before customer send."
+      },
+      "call_out_minimum_applied": false,
+      "breakdown": {
+        "surfaces": [
+          {
+            "scope": "walls",
+            "unit": "m2",
+            "quantity": 504,
+            "rate_per_unit": 37,
+            "line_ex_gst": 18648
+          }
+        ],
+        "coats_multiplier": 1,
+        "prep_multiplier": 1,
+        "colour_change_multiplier": 1,
+        "double_storey_multiplier": 1,
+        "better_ex_gst": 18648,
+        "good_refresh_fraction": 0.73,
+        "premium_uplift_pct": 0.29,
+        "gst_factor": 1.1,
+        "call_out_minimum_ex_gst": 551,
+        "pricing_model": "sqm"
+      }
+    },
+    "warnings": [
+      "Demo data from the deterministic mock provider."
+    ],
+    "takeoff": {
+      "tiers": [
+        {
+          "tier": "good",
+          "products": [
+            {
+              "product": "wall_paint",
+              "litres": 31.5,
+              "litres_low": 27.7,
+              "litres_high": 35.3,
+              "packs": [
+                {
+                  "size_l": 15,
+                  "count": 2
+                },
+                {
+                  "size_l": 4,
+                  "count": 1
+                }
+              ],
+              "cost_ex_gst": 476,
+              "note": "504 m² × 1 coat ÷ 16 m²/L = 31.5 L → packed 34 L × $14/L"
+            }
+          ],
+          "sundries_ex_gst": 38.08,
+          "materials_ex_gst": 514.08,
+          "labour_hours": 117.6,
+          "labour_ex_gst": 11407.2,
+          "crew_size": 2,
+          "days_on_site": 8,
+          "margin_ex_gst": 1691.76,
+          "margin_pct": 0.1243,
+          "sundries_note": "8% of product cost — filler, caulk, tape, drop sheets",
+          "labour_note": "walls 504 m² ÷ 3 m²/hr × 0.7 (coats · prep · colour) = 117.6 h @ $97/hr · 2 painters × 7.6 h/day ≈ 8 days",
+          "margin_note": "Good $13,613 ex GST − materials $514 − labour $11,407"
+        },
+        {
+          "tier": "better",
+          "products": [
+            {
+              "product": "wall_paint",
+              "litres": 63,
+              "litres_low": 55.4,
+              "litres_high": 70.6,
+              "packs": [
+                {
+                  "size_l": 15,
+                  "count": 4
+                },
+                {
+                  "size_l": 4,
+                  "count": 1
+                }
+              ],
+              "cost_ex_gst": 896,
+              "note": "504 m² × 2 coats ÷ 16 m²/L = 63 L → packed 64 L × $14/L"
+            }
+          ],
+          "sundries_ex_gst": 71.68,
+          "materials_ex_gst": 967.68,
+          "labour_hours": 168,
+          "labour_ex_gst": 16296,
+          "crew_size": 2,
+          "days_on_site": 12,
+          "margin_ex_gst": 1384.32,
+          "margin_pct": 0.0742,
+          "sundries_note": "8% of product cost — filler, caulk, tape, drop sheets",
+          "labour_note": "walls 504 m² ÷ 3 m²/hr × 1 (coats · prep · colour) = 168 h @ $97/hr · 2 painters × 7.6 h/day ≈ 12 days",
+          "margin_note": "Better $18,648 ex GST − materials $968 − labour $16,296"
+        },
+        {
+          "tier": "best",
+          "products": [
+            {
+              "product": "wall_paint",
+              "litres": 63,
+              "litres_low": 55.4,
+              "litres_high": 70.6,
+              "packs": [
+                {
+                  "size_l": 15,
+                  "count": 4
+                },
+                {
+                  "size_l": 4,
+                  "count": 1
+                }
+              ],
+              "cost_ex_gst": 1120,
+              "note": "504 m² × 2 coats ÷ 16 m²/L = 63 L → packed 64 L × $17.50/L (premium +25%)"
+            }
+          ],
+          "sundries_ex_gst": 89.6,
+          "materials_ex_gst": 1209.6,
+          "labour_hours": 168,
+          "labour_ex_gst": 16296,
+          "crew_size": 2,
+          "days_on_site": 12,
+          "margin_ex_gst": 6550.32,
+          "margin_pct": 0.2723,
+          "sundries_note": "8% of product cost — filler, caulk, tape, drop sheets",
+          "labour_note": "walls 504 m² ÷ 3 m²/hr × 1 (coats · prep · colour) = 168 h @ $97/hr · 2 painters × 7.6 h/day ≈ 12 days",
+          "margin_note": "Best $24,056 ex GST − materials $1,210 − labour $16,296"
+        }
+      ]
+    }
+  }
+}

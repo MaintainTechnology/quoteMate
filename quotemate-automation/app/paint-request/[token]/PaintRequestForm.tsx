@@ -219,7 +219,7 @@ function ThankYou({ inspection }: { inspection: boolean }) {
       <p className="mt-4 max-w-lg text-base leading-relaxed text-text-sec">
         {inspection
           ? "Thanks for those details. This one needs a quick look on site, so we'll text you to arrange a time."
-          : "Thanks — your painter is reviewing your quote now and will text it straight to your phone shortly."}
+          : "Your painting draft is saved and awaiting the painter's review. It has not been released as a quote yet."}
       </p>
     </div>
   )

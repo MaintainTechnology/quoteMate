@@ -19,6 +19,8 @@
 
 import { PDF_CONTENT_WIDTH_IN } from './gotenberg'
 import { businessInitials } from '@/lib/brand/monogram'
+import { reportAppearanceCss } from '@/lib/quote/report-doc/appearance'
+import type { ReportStyle } from '@/lib/quote/report-doc/style'
 
 /** HTML-escape a user-influenced string. Shared by every trade builder. */
 export const esc = (s: string): string =>
@@ -64,6 +66,8 @@ export function brandingFromName(businessName: string): TenantBranding {
 
 /** The trade-agnostic document content the chrome wraps around. */
 export type ReportDocument = {
+  /** Optional bounded per-quote appearance; absent preserves the shared defaults. */
+  appearance?: ReportStyle | null
   /** <title> — white-label, no QuoteMax. */
   docTitle: string
   /** Mono eyebrow above the heading, e.g. "Roofing quote · Good / Better / Best". */
@@ -394,7 +398,7 @@ export function renderReportDocument(branding: TenantBranding, doc: ReportDocume
   .footline{ position:fixed; left:0; right:0; bottom:8px; text-align:center;
     font-family:'JetBrains Mono','Courier New',monospace; font-size:8px;
     letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
-</style>
+${reportAppearanceCss(doc.appearance)}</style>
 </head>
 <body>
   <header>

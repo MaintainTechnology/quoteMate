@@ -33,6 +33,12 @@ import { RECIPE_SLOT_CODES, recipeSlotsFrom } from '@/lib/quote/recipe-slots'
 import { normaliseAuMobile } from '@/lib/phone/au'
 import { findOrCreateCustomer } from '@/lib/customers/lookup'
 import { customerMemoryAllowed } from '@/lib/customers/memory-scope'
+import { refreshSignedUrl } from '@/lib/storage/upload'
+import {
+  claimJobQuoteOperation, jobQuoteOperationResponse, jobQuoteRequestHash,
+  readJobQuoteOperation, updateJobQuoteOperation, validJobQuoteMedia,
+  type JobQuoteOperation,
+} from '@/lib/quote/job-quote-operation'
 
 // structureIntake (Opus) then runEstimation (Opus) run inline so the response
 // can carry the share_token the form navigates to. Worst case is ~2 minutes.
@@ -45,6 +51,8 @@ const supabase = createClient(
 )
 
 const BodySchema = z.object({
+  /** Stable, client-persisted attempt identity. Older web clients remain compatible. */
+  operation_id: z.string().uuid().transform(value => value.toLowerCase()).optional(),
   // Reuse the canonical enum rather than re-declaring it — a job type added
   // to lib/intake/schema.ts is accepted here automatically.
   job_type: IntakeSchema.shape.job_type,
@@ -61,7 +69,7 @@ const BodySchema = z.object({
   /** The pinned product's catalogue row. The NAME alone is only a hint the
    *  estimator may ignore; the id lets the server re-read the row and force
    *  that exact price. Never trust a client-sent price. */
-  product_id: z.string().uuid().optional(),
+  product_id: z.string().uuid().transform(value => value.toLowerCase()).optional(),
   /** Optional photos of the job, already uploaded to the private intake-photos
    *  bucket by /api/tenant/job-quote/photos (spec ev-charger-location-photo R3).
    *  Storage PATHS are the durable reference stored on the intake; the signed
@@ -146,13 +154,32 @@ export async function POST(req: Request) {
     product_name: body.product_name,
   })
 
+  if (!validJobQuoteMedia(tenant.id, body)) {
+    return Response.json({ ok: false, error: 'invalid_body', issues: ['Use up to three distinct photos uploaded by this account.'] }, { status: 400 })
+  }
+  let operation: JobQuoteOperation | undefined
+  // Once INSERT is dispatched, even a transport error can conceal a commit.
+  let intakeWriteDispatched = false
+
   try {
+    if (body.operation_id) {
+      const hash = jobQuoteRequestHash(body)
+      const receipt = await claimJobQuoteOperation(supabase, tenant.id, body.operation_id, hash, !!pinnedProductRequest.product_id)
+      if (receipt.operation.request_hash !== hash) {
+        return Response.json({ ok: false, error: 'operation_input_conflict' }, { status: 409 })
+      }
+      if (!receipt.claimed) return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, receipt.operation))
+      operation = receipt.operation
+    }
     const transcript = buildTranscript(body, trade)
     // Spec ev-charger-location-photo R3 — the second argument has always been
     // `photoUrls: string[]` and has always been passed empty from here, so a
     // dashboard job could never use vision. Feeding the freshly-signed URLs
     // costs no signature change and lets the structurer see the spot.
-    const structuredIntake = await structureIntake(transcript, body.photo_urls ?? [], trade)
+    // URL expiry/rotation never changes request identity. Vision only receives
+    // server-signed private objects from the authenticated upload namespace.
+    const photoUrls = await Promise.all((body.photo_paths ?? []).map(path => refreshSignedUrl(path)))
+    const structuredIntake = await structureIntake(transcript, photoUrls, trade)
     const inspectionRoutedIntake = enforceThreePhaseInspection(structuredIntake, body.answers)
     const intake = canonicaliseEvChargerSupply(
       inspectionRoutedIntake,
@@ -199,7 +226,10 @@ export async function POST(req: Request) {
         .eq('tenant_id', tenant.id)
         .eq('trade', trade)
         .maybeSingle()
-      const price = Number((row as { unit_price_ex_gst?: number | string } | null)?.unit_price_ex_gst)
+      const rawPrice = (row as { unit_price_ex_gst?: unknown } | null)?.unit_price_ex_gst
+      // Null/blank is missing catalogue authority, never a configured zero.
+      const price = typeof rawPrice === 'number' || (typeof rawPrice === 'string' && rawPrice.trim() !== '')
+        ? Number(rawPrice) : Number.NaN
       if (row && (row as { active?: boolean }).active !== false && Number.isFinite(price) && price >= 0) {
         const r = row as Record<string, unknown>
         intake.scope = {
@@ -268,9 +298,15 @@ export async function POST(req: Request) {
 
     const embedding = await embedIntake(intake)
 
+    if (operation) operation = await updateJobQuoteOperation(supabase, operation, {
+      pinned: !!(intake.scope as { chosen_product?: unknown } | null)?.chosen_product,
+    })
+
+    intakeWriteDispatched = true
     const { data: intakeRow, error: insErr } = await supabase
       .from('intakes')
       .insert({
+        ...(operation ? { id: operation.intake_id } : {}),
         tenant_id: tenant.id,
         // Unlocks recipient source #4 for a later Send, and lets a future
         // inbound SMS from this handset be recognised instead of arriving cold.
@@ -307,6 +343,10 @@ export async function POST(req: Request) {
 
     if (insErr || !intakeRow) {
       console.error('[job-quote] intake insert failed', insErr?.message)
+      if (operation) {
+        operation = await updateJobQuoteOperation(supabase, operation, { status: 'unknown' })
+        return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+      }
       return Response.json({ ok: false, error: 'intake_insert_failed' }, { status: 500 })
     }
 
@@ -329,6 +369,10 @@ export async function POST(req: Request) {
     if (!draftRes.ok) {
       const detail = (await draftRes.text()).slice(0, 300)
       console.error('[job-quote] estimate/draft returned', draftRes.status, detail)
+      if (operation) {
+        operation = await updateJobQuoteOperation(supabase, operation, { status: 'unknown' })
+        return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+      }
       return Response.json(
         { ok: false, error: 'draft_failed', intakeId: intakeRow.id, detail },
         { status: 502 },
@@ -345,7 +389,14 @@ export async function POST(req: Request) {
       reason?: string
       error?: string
     }
+    if (operation && draftRes.status === 202) {
+      return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+    }
     if (!draft.ok || !draft.quoteId) {
+      if (operation) {
+        operation = await updateJobQuoteOperation(supabase, operation, { status: 'unknown' })
+        return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+      }
       return Response.json(
         {
           ok: false,
@@ -358,11 +409,19 @@ export async function POST(req: Request) {
     }
 
     // draft mints the share_token internally and returns only the quote id.
-    const { data: quote } = await supabase
+    const { data: quote, error: quoteError } = await supabase
       .from('quotes')
       .select('share_token, needs_inspection')
       .eq('id', draft.quoteId)
+      .eq('tenant_id', tenant.id)
+      .eq('intake_id', intakeRow.id)
       .single()
+
+    if (operation) {
+      if (quoteError || !quote) throw new Error('Draft quote could not be verified')
+      operation = await updateJobQuoteOperation(supabase, operation, { status: 'completed', quote_id: draft.quoteId })
+      return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+    }
 
     return Response.json({
       ok: true,
@@ -381,6 +440,17 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[job-quote] pipeline failed', message)
+    if (operation) {
+      try {
+        // Only the original claimant can prove it never dispatched the intake
+        // insert. Crashed/ambiguous writers and readbacks cannot make this claim.
+        operation = await updateJobQuoteOperation(supabase, operation, {
+          status: intakeWriteDispatched ? 'unknown' : 'failed_no_commit',
+        })
+        return jobQuoteOperationResponse(await readJobQuoteOperation(supabase, operation))
+      } catch { /* The original durable claim stays fenced if outcome persistence fails. */ }
+    }
+    if (body.operation_id) return Response.json({ ok: false, error: 'operation_unconfirmed' }, { status: 503 })
     return Response.json({ ok: false, error: 'pipeline_failed', detail: message }, { status: 500 })
   }
 }

@@ -421,10 +421,10 @@ export function ThankYou({ inspection, texted }: { inspection: boolean; texted?:
       </h1>
       <p className="mt-4 max-w-lg text-base leading-relaxed text-text-sec">
         {texted === false
-          ? "Thanks for those details. We have everything we need and we'll be in touch shortly with your quote."
+          ? "Your details are saved. The tradie needs to review the draft before a quote can be shared."
           : inspection
-            ? "Thanks for those details. This one needs a quick look on site, so we'll text you to arrange a time."
-            : "Thanks for those details. Your quote is on its way to your phone now."}
+            ? 'Thanks for those details. An on-site assessment needs tradie review before an appointment can be arranged.'
+            : "Your details have been received. Quote preparation and tradie review still need to complete before a quote can be shared."}
       </p>
     </div>
   )

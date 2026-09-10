@@ -1,0 +1,27 @@
+# Released plan quantities and pricing — local closure evidence
+
+The public plan page now retains the quantities and pricing the owner released. Editing or repricing that extraction returns HTTP 409 with `released_quote_immutable` and directs the owner to start a new plan or revision. This change does not implement automatic cloning or a new revision workflow.
+
+The defect was reproduced through the actual electrical estimator PATCH and price POST, the real deterministic tenant pricer, and the actual public plan page rendered to static HTML. With an already released fixture extraction, PATCH returned 200 and changed the visible count from 2 to 8 while clearing its approved price. Price POST returned 200 and replaced the public $242.00 total with $968.00 under the same token and unchanged release timestamp. The database/auth boundaries were explicit offline fixtures; no live customer record was changed.
+
+The cause was the combination of direct writes to `plan_extractions.corrected_items` / `priced_bom` and a public page that read those current fields whenever `released_at` was present. Neither writer rejected a released extraction, and the previous migrations supplied no immutable plan-row guard. GitNexus query/context resolved both route symbols; upstream impact returned UNKNOWN with no graph callers. Their Next route entrypoints and estimator UI/test consumers were confirmed separately; UNKNOWN was not treated as proof of no callers.
+
+Both mutation routes now check the `sms_plan_quote_guard_ready()` capability and load the tenant-owned electrical extraction before changing it. Missing, false, failed or stalled capability checks return 503 before a write. The new capability and release-state reads carry a three-second abort signal. Released rows fail before pricing or mutation; a release that wins after that read is rejected by the database trigger and translated to the same 409 result. Owner pricing previews without an extraction ID remain available because they do not persist a result.
+
+Migration **212_plan_quote_release_guard.sql** adds UPDATE/DELETE and TRUNCATE guards. Once `released_at` exists, the extraction's business fields are immutable, including quantities, BOM, token, tenant/source IDs, release timestamp and future added business fields. Only `report_pdf_path`, `updated_at` and transient worker-fence fields may change, preserving the existing PDF cache backfill. Actual migration 201 approval locks this same extraction row before checking its review snapshot, so release and mutation use the same row lock. The guard also covers updates or deletes from other producers, including the SMS plan worker; the existing new-extraction path still inserts a new held row. Migration 104 already makes public share tokens unique.
+
+The readiness RPC is read-only and executable by `service_role`, not `anon` or `authenticated`. It verifies both expected triggers, function associations, complete event coverage, enabled state and absence of conditional/column-only narrowing. The truncate guard sets `row_security=off`, causing restricted roles to fail closed when RLS would hide a released row. The down migration refuses to remove protection while any released plan exists; a held-only rollback preserves the saved result and can be reapplied.
+
+Evidence lives in `C:/Users/dalig/.codex/visualizations/2026/09/08/01a07f99-45aa-7301-bf72-b1e946ed3015/fleet-candidate-02/final-validation-2026-09-09/`:
+
+| Evidence | Result and scope |
+|---|---|
+| `plan-release-mutations-before-fix.log` | Two failing actual-handler/public-page regressions; records both visible changes under the unchanged release timestamp. |
+| `plan-release-mutations-final-bounded.log` | 20/20 passing cases: immutable released quantities/prices, held edits, missing/false/failing readiness, two actual three-second aborts, release-race error mapping, ownership/trade filtering and read failures. |
+| `plan-release-pricing-authority-final.log` | 46/46 existing electrical pricing authority and actual price-route cases pass with the new capability boundary. |
+| `plan-release-guard-final.log` | 19/19 PostgreSQL cases using real migrations 201/199/212: thirteen protected field changes, one initial approval intent despite duplicate approval, deletion/truncate protection, cache writes, held edits/deletes, both serialized edit/release orderings, RLS-hidden truncate, readiness ACL/disabled/missing triggers and safe down/up behavior. |
+| `plan-release-guard-attempt-01.log` | Preserved fixture failure: the tenant seed was missing, so the real outbox foreign key rejected approval. No production change was made for this failure. |
+| `plan-release-guard-attempt-02.log` | Earlier 18-case guard pass before adding the final down-migration safety case. Superseded by the final 19-case run. |
+| `plan-release-final-lint.log` | Scoped ESLint for the two routes and three test files passed with zero warnings/errors; the final rollback test addition received a further scoped lint check. |
+
+The focused route fixtures model a trigger conflict but do not claim to implement PostgreSQL isolation. The separate guard suite executes actual SQL in PGlite and verifies both operation orderings; its single connection does not certify concurrent production sessions. No migration was applied remotely, and deployed schema readiness, production RLS, carrier delivery and real customer approval remain separate gates. These results also do not replace the final rebuilt fleet and compiled journey/recovery runs required by the broader audit.

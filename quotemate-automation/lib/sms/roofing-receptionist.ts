@@ -52,10 +52,15 @@ import {
   consumeAddressRejection,
   isAddressReadBack,
 } from './verify-address'
+// Reused, not re-implemented: the "did they ask for the form?" predicate is
+// pure text and trade-agnostic, and the two trades MUST agree on it — a
+// second copy is a second vocabulary to drift.
+import { customerWantsForm } from './painting-receptionist'
 
 /** Persisted on sms_conversations.roofing_state (jsonb). */
 export type RoofingConversationState = {
   slots: RoofingSlots
+  workflow_stage?: 'awaiting_review' | 'ready' | 'send_failed'
   /** The step we asked the customer about last turn (null on the opener). */
   last_step?: RoofingStep | null
   /** Token of the saved roofing_measurements row this thread is parked on:
@@ -64,6 +69,12 @@ export type RoofingConversationState = {
    *  US-002 so the booking-confirm tradie notify can link the saved
    *  measurement). */
   pending_quote_token?: string | null
+  /** Token of the self-serve quote-request form we offered on the opener —
+   *  the `trade_lead_requests.token` behind /quote-request/<token>. Written
+   *  by the route (it owns the mint); kept while the thread sits at
+   *  offer_form / await_form so the customer's reply is understood in
+   *  context. Mirrors PaintingConversationState.pending_form_token. */
+  pending_form_token?: string | null
   /** measure_token of an UNMEASURED lead row (Geoscape holds no footprints for
    *  the address). Deliberately separate from pending_quote_token: that one
    *  stays null so no customer surface re-serves a measurement that doesn't
@@ -100,6 +111,11 @@ const ANSWERABLE_STEPS: ReadonlySet<RoofingStep> = new Set<RoofingStep>([
 ])
 
 export type RoofingTurnDecision =
+  // Opener — the route mints the trade_lead_requests token and composes the
+  // canonical three-line form offer (buildRoofingFormOffer).
+  | { action: 'offer_form'; slots: RoofingSlots }
+  // Customer asked for the form — acknowledge and stay put.
+  | { action: 'await_form'; slots: RoofingSlots; reply: string }
   // `handoff` — this ask is the END of the address handshake: the budget is
   // spent and the reply PROMISES the customer a human. The route must notify
   // the tradie on it, or we make a promise nobody hears
@@ -121,6 +137,11 @@ export type RoofingTurnDecision =
   // of re-grabbing roofing. Absent/false on an interrupt/question bail (resume-able).
   | { action: 'passthrough'; slots: RoofingSlots; close?: boolean }
 
+/** Acknowledgement when the customer picks the form. Byte-identical to the
+ *  shipped painting wording (painting-receptionist.ts AWAIT_FORM_ACK) — same
+ *  standardisation argument as the opener, including its em dash. */
+const AWAIT_FORM_ACK =
+  "Fill that in whenever you're ready. Your details will be saved for the roofer to review. Or reply here and we can continue by text."
 const WRONG_BUILDING_REPROMPT = ADDRESS_REJECTED_REPLY
 /** Two wordings, not one: the second unrecognised address answer must not be
  *  answered with byte-identical copy (specs/address-confirm-loop.md req 5).
@@ -562,6 +583,7 @@ function recoverDroppedAddress(
 export function advanceRoofing(
   prev: RoofingConversationState | null | undefined,
   inbound: string,
+  options: { formFirst?: boolean } = {},
 ): RoofingTurnDecision {
   const rawLastStep = prev?.last_step ?? null
   let slots: RoofingSlots = { ...(prev?.slots ?? {}) }
@@ -699,7 +721,7 @@ export function advanceRoofing(
     // A CORRECTION names the trade it is REJECTING, so it carries a roofing
     // keyword and reads as a fresh roofing enquiry. "Lets do painting its
     // painting not roofing mate" therefore reopened the gather (live
-    // 2026-08-07, token 268266af). The Front Desk now routes that turn to
+    // 2026-08-07, token 268266af). The front desk now routes that turn to
     // painting before we ever see it — this is the second line, so one router
     // slip cannot re-trap the customer in a trade they just refused.
     //
@@ -730,6 +752,17 @@ export function advanceRoofing(
   if (rawLastStep === 'closed' || rawLastStep === 'quoted' || restartFromConfirm) {
     slots = {}
     lastStep = null
+  }
+
+  // (4.5) Replying to the form offer. An EXPLICIT form cue parks the thread
+  // at await_form; anything else — including a decline that already carries
+  // the address ("nah just ask, it's 12 Smith St Bondi 2026") — falls through
+  // to the opener harvest below and starts the Q&A gather with whatever they
+  // just told us, so nothing is asked for twice. Same rule as painting.
+  // 'await_form' also falls through: a customer who texts instead of filling
+  // the form is switched to Q&A.
+  if (lastStep === 'offer_form' && customerWantsForm(inbound)) {
+    return { action: 'await_form', slots, reply: AWAIT_FORM_ACK }
   }
 
   // (5) Gathering inputs. Adaptive, not a rigid script (2026-07-24):
@@ -896,6 +929,19 @@ export function advanceRoofing(
     }
   }
 
+  // ── The opener (spec: specs/generic-quote-request-form.md §4) ──────────
+  // A FRESH enquiry — a cold thread, or one reset above by a fresh enquiry on
+  // a closed / quoted / abandoned-confirm flow — is answered with the
+  // self-serve form offer, not the address question. The route mints the
+  // trade_lead_requests row and composes the three-line message.
+  //
+  // The harvest above still runs first and its slots ride along, so a one-shot
+  // brief ("full reroof at 670 London Rd Chandler QLD 4155, colorbond
+  // corrugated, standard pitch") is NOT thrown away: the moment the customer
+  // replies anything other than "send the form", the gather resumes from an
+  // already-complete brief and measures without re-asking a thing.
+  if (lastStep === null && options.formFirst) return { action: 'offer_form', slots: nextSlots }
+
   const next = nextRoofingStep(nextSlots)
   if (next.step === 'ready') return { action: 'measure', slots: nextSlots }
   if (next.step === 'inspection') {
@@ -928,6 +974,13 @@ export function nextRoofingConversationState(
   decision: RoofingTurnDecision,
 ): RoofingConversationState {
   switch (decision.action) {
+    case 'offer_form':
+      // The ROUTE persists its own shape here — it owns the minted
+      // pending_form_token, which this pure fn never sees. Same
+      // route-owned-state carve-out as measure / send_saved.
+      return { slots: decision.slots, last_step: 'offer_form', pending_quote_token: null, pending_structure_count: null }
+    case 'await_form':
+      return { slots: decision.slots, last_step: 'await_form' }
     case 'ask':
       return { slots: decision.slots, last_step: decision.step, pending_quote_token: null, pending_structure_count: null }
     case 'measure':
@@ -1030,6 +1083,24 @@ export function isActiveRoofingFlow(prev: RoofingConversationState | null | unde
   if (!prev || !prev.slots) return false
   const step = prev.last_step ?? null
   return step !== null && step !== 'closed'
+}
+
+/** PURE — must this turn run the DETERMINISTIC machine even when the LLM
+ *  receptionist flag is on? Exactly the two turns painting pre-empts
+ *  (paintingTurnIsDeterministic), for the same reason:
+ *    • the opener — the canonical three-line form offer must go out on BOTH
+ *      paths, or the two layers open differently and the spec's
+ *      "byte-identical across trades" guarantee holds only when the flag is
+ *      off. A model asked to greet does not mint a token;
+ *    • an explicit "use the form" reply parked at offer_form — it must resolve
+ *      to await_form with the standard acknowledgement.
+ *  Everything else stays with whichever layer the flag picks. */
+export function roofingTurnIsDeterministic(
+  prev: RoofingConversationState | null | undefined,
+  inbound: string,
+): boolean {
+  if (!isActiveRoofingFlow(prev)) return true
+  return prev?.last_step === 'offer_form' && customerWantsForm(inbound)
 }
 
 /** PURE — should the roofing receptionist engage this turn?

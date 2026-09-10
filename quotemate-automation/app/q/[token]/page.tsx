@@ -1,3 +1,10 @@
+import { genericQuoteReleased } from '@/lib/quote/customer-release'
+import { isQuotePageOwner } from '@/lib/quote/page-owner'
+import { QuoteAwaitingReview } from '@/app/q/_chrome/QuoteAwaitingReview'
+import { QuotePricingReview } from '@/app/q/_chrome/QuotePricingReview'
+import { loadQuoteReportPricing } from '@/lib/quote/report-pricing'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
+import { storedDepositPercent } from '@/lib/quote/chain-money'
 // Customer-facing public quote page.
 // Reached via the SMS link "View full quote: {APP_URL}/q/{share_token}".
 // Anyone with the token can view; tokens are unguessable (see lib/stripe/checkout
@@ -13,6 +20,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
 import { notFound, redirect } from 'next/navigation'
+import { QuoteUnavailable } from '@/app/q/_chrome/QuoteUnavailable'
+import { quoteReadFailure } from '@/lib/quote/read-failure'
 import { asQuoteTierMode, resolveVisibleTiers } from '@/lib/quote/tier-visibility'
 import { refreshSignedUrl } from '@/lib/storage/upload'
 import { CustomerPhotosBlock } from './CustomerPhotosBlock'
@@ -38,22 +47,19 @@ import {
   MIN_STRIPE_CHARGE_CENTS,
   PLATFORM_FEE_PCT,
   asMoneyNumber,
-  chargedCents,
   clampDepositPct,
+  chargedCents,
   depositCents,
-  displayDeposit,
-  displayIncGst,
-  dollars,
   finalBalanceBaseCents,
   finalDepositBaseCents,
-  fmtAud,
   surchargeCents,
   totalIncGstCents,
 } from '@/lib/quote/money'
 import { safeWebsiteUrl, trustVideoTrack } from '@/lib/quote/tenant-identity'
 import type { TrustVideoState } from '@/lib/videos/trust-video'
 import type { TradeVideoMap } from '@/lib/videos/trade-videos'
-import { allocateIncGst, priceStack } from '@/lib/quote/line-allocation'
+import { allocateIncGst } from '@/lib/quote/line-allocation'
+import { quoteAmount, formatQuoteAmount, quotePriceStack } from '@/lib/quote/display-money'
 import { jobMethod, METHOD_DISCLAIMER } from '@/lib/quote/job-method'
 import {
   isEvChargerJob,
@@ -190,7 +196,7 @@ function asNumber(v: number | string | null | undefined): number {
 // Money maths + formatting live in lib/quote/money.ts — the SAME functions
 // the SMS, PDF and Stripe charge derive from, so every surface shows one
 // number (spec customer-quote-five-sections R9).
-const fmt = fmtAud
+const fmt = formatQuoteAmount
 
 // The Section 2 sentence (scope_short, else the scope's first sentence) now
 // resolves through the shared lib/quote/scope-short jobDetailsSentence, so this
@@ -208,13 +214,15 @@ export default async function PublicQuotePage(props: {
   const payBlocked =
     searchParams.connect === '0' || searchParams.pay === 'unavailable'
 
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
-    .select('id, intake_id, tenant_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, inspection_cause, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at, price_hold_until, booking_state, preview_status, preview_image_path, preview_image_paths, samples_status, sample_image_paths, display_mode, deposit_pct, total_inc_gst, quote_kind, parent_quote_id')
+    .select('id, intake_id, tenant_id, status, scope_of_works, assumptions, risk_flags, good, better, best, optional_upsells, estimated_timeframe, needs_inspection, inspection_reason, inspection_cause, gst_note, selected_tier, share_token, stripe_links, paid_at, paid_tier, created_at, price_hold_until, booking_state, preview_status, preview_image_path, preview_image_paths, samples_status, sample_image_paths, display_mode, deposit_pct, total_inc_gst, applied_discount_pct, pricing_book_version_id, quote_kind, parent_quote_id, customer_released_at, sent_at')
     .eq('share_token', token)
     .maybeSingle()
 
+  if (quoteError) return <QuoteUnavailable correlationId={quoteReadFailure('generic', quoteError)} />
   if (!quote) notFound()
+  if (!genericQuoteReleased(quote) && !await isQuotePageOwner(supabase,quote.tenant_id)) return <QuoteAwaitingReview />
 
   // ═══ Post-site-visit chain (spec post-visit-money-sequence R5) ═══════
   //
@@ -285,17 +293,18 @@ export default async function PublicQuotePage(props: {
   // on a missing column, which simply leaves the offer at zero.
   let ebDiscountPct = 0
   let ebExpiresAt: string | null = null
-  let ebAppliedPct = 0
+  // The realised discount is financial evidence from the main quote snapshot.
+  // An unavailable countdown/offer read must never restore the undiscounted price.
+  const ebAppliedPct = Number(quote.applied_discount_pct ?? 0)
   {
     const { data: eb } = await supabase
       .from('quotes')
-      .select('early_bird_discount_pct, early_bird_expires_at, applied_discount_pct')
+      .select('early_bird_discount_pct, early_bird_expires_at')
       .eq('id', quote.id)
       .maybeSingle()
     if (eb) {
       ebDiscountPct = Number(eb.early_bird_discount_pct ?? 0)
       ebExpiresAt = (eb.early_bird_expires_at as string | null) ?? null
-      ebAppliedPct = Number(eb.applied_discount_pct ?? 0)
     }
   }
 
@@ -332,12 +341,17 @@ export default async function PublicQuotePage(props: {
   // would return null once there are 2+ rows in pricing_book (electrical
   // + plumbing). Legacy intake rows without a trade column fall back to
   // 'electrical' (the original NSW/NECA pilot).
-  const { data: intake } = await supabase
+  if (!quote.tenant_id || !quote.intake_id) return <QuotePricingReview scope={quote.scope_of_works} />
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('id, call_id, job_type, scope, caller, address, suburb, photo_paths, trade')
+    .select('id, tenant_id, call_id, job_type, scope, caller, address, suburb, photo_paths, trade')
     .eq('id', quote.intake_id)
+    .eq('tenant_id', quote.tenant_id)
     .maybeSingle()
-  const intakeTrade = ((intake as { trade?: string } | null)?.trade as string | undefined) ?? 'electrical'
+  if (intakeError) return <QuoteUnavailable correlationId={quoteReadFailure('generic', intakeError)} />
+  if (!intake || intake.id !== quote.intake_id || intake.tenant_id !== quote.tenant_id ||
+      typeof intake.trade !== 'string' || !intake.trade.trim()) return <QuotePricingReview scope={quote.scope_of_works} />
+  const intakeTrade = intake.trade.trim()
   // Single source of truth for which renderer this trade uses (spec R1–R3).
   // Electrical/plumbing keep the generic Good/Better/Best card; every other
   // trade renders the non-electrical TradeTiers; unknown trades fall back to
@@ -375,6 +389,21 @@ export default async function PublicQuotePage(props: {
   if (tradeFormat.key === 'solar') {
     const solarPath = await resolveSolarPagePath(supabase, token)
     if (solarPath) redirect(solarPath)
+  }
+  let quotePricing: Awaited<ReturnType<typeof loadQuoteReportPricing>>
+  try {
+    quotePricing = await loadQuoteReportPricing(supabase, quote, intake)
+  } catch (error) {
+    if (error instanceof QuotePricingVersionError && error.status === 409) {
+      return <QuotePricingReview scope={quote.scope_of_works}
+        inspectionUrl={quoteKind === 'initial' && !quote.paid_at && (siteVisitFirst || quote.needs_inspection)
+          ? `/r/${encodeURIComponent(token)}/inspection` : undefined} />
+    }
+    return <QuoteUnavailable correlationId={quoteReadFailure('generic', error)} />
+  }
+  const gstRegistered = quotePricing.gstRegistered
+  if (!quote.needs_inspection && !siteVisitFirst && storedDepositPercent(quote.deposit_pct) === null) {
+    return <QuotePricingReview scope={quote.scope_of_works} />
   }
 
   // Pull the roof-hero stats off the intake scope when this IS a roofing
@@ -428,13 +457,11 @@ export default async function PublicQuotePage(props: {
   // single-pilot era, one book per trade) fall back to a deterministic
   // trade-only lookup.
   const quoteTenantId = (quote as { tenant_id?: string | null }).tenant_id ?? null
-  let pricingBookQuery = supabase
+  const pricingBookQuery = supabase
     .from('pricing_book')
-    .select('licence_type, licence_number, licence_state, gst_registered, quote_display, quote_tier_mode')
+    .select('licence_type, licence_number, licence_state, quote_display, quote_tier_mode')
     .eq('trade', intakeTrade)
-  pricingBookQuery = quoteTenantId
-    ? pricingBookQuery.eq('tenant_id', quoteTenantId)
-    : pricingBookQuery.order('id', { ascending: true }).limit(1)
+    .eq('tenant_id', quoteTenantId)
   const { data: pricingBook } = await pricingBookQuery.maybeSingle()
 
   // ─── Tradie identity (letterhead) ───────────────────────────────
@@ -649,8 +676,8 @@ export default async function PublicQuotePage(props: {
           needsPreview ? generatePreviewImage(quote.id as string) : Promise.resolve(),
           needsSamples ? generateSampleImages(quote.id as string) : Promise.resolve(),
         ])
-      } catch (e: any) {
-        console.error('[preview] page-load trigger 2 threw', { quoteId: quote.id, error: e?.message ?? String(e) })
+      } catch (e) {
+        console.error('[preview] page-load trigger 2 threw', { quoteId: quote.id, error: e instanceof Error ? e.message : String(e) })
       }
     })
   }
@@ -709,10 +736,7 @@ export default async function PublicQuotePage(props: {
   // stored value — a tenant on 20% saw 30% advertised and was charged 20%.
   const depositPct = isInspection
     ? null
-    : clampDepositPct((quote as { deposit_pct?: number | string | null }).deposit_pct)
-  // P1 — every price on this page honours gst_registered exactly like the
-  // stored total_inc_gst (a legacy tenant-less quote defaults to registered).
-  const gstRegistered = pricingBook ? !!pricingBook.gst_registered : true
+    : isFinalRow ? clampDepositPct(quote.deposit_pct) : storedDepositPercent(quote.deposit_pct)
 
   // ── The post-visit deposit maths (spec "Money" — one source of truth) ──
   //
@@ -793,7 +817,8 @@ export default async function PublicQuotePage(props: {
   // (the TradieEditor overlay below still gets all three). selected_tier drives
   // the 'single' mode; an inspection quote has no priced tiers so this is [].
   const tierMode = asQuoteTierMode(
-    (pricingBook as { quote_tier_mode?: string | null } | null)?.quote_tier_mode,
+    quotePricing.pricingVersion ? quotePricing.pricingVersion.snapshot.quote_tier_mode as string | null
+      : (pricingBook as { quote_tier_mode?: string | null } | null)?.quote_tier_mode,
   )
   const visibleTierKeys = resolveVisibleTiers({
     mode: tierMode,
@@ -815,16 +840,16 @@ export default async function PublicQuotePage(props: {
   // rounded to inc-GST dollars FIRST then discounted while TradeTiers did the
   // opposite — same quote, two components, off-by-a-dollar results.
   const tierIncGst = (t: Tier): number =>
-    displayIncGst((t as { subtotal_ex_gst?: number | string })?.subtotal_ex_gst ?? 0, {
+    quoteAmount(totalIncGstCents((t as { subtotal_ex_gst?: number | string })?.subtotal_ex_gst ?? 0, {
       discountPct: ebApp,
       gstRegistered,
-    })
-  const tierDeposit = (t: Tier): number | null =>
-    displayDeposit(
+    }))
+  const tierDeposit = (t: Tier): number | null => {
+    const cents = depositCents(totalIncGstCents(
       (t as { subtotal_ex_gst?: number | string })?.subtotal_ex_gst ?? 0,
-      depositPct,
-      { discountPct: ebApp, gstRegistered },
-    )
+      { discountPct: ebApp, gstRegistered }), depositPct)
+    return cents > 0 ? quoteAmount(cents) : null
+  }
   const cleanTierLabel = (label: string | undefined): string =>
     (label ?? '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -859,8 +884,8 @@ export default async function PublicQuotePage(props: {
     } else if (balanceRequested && balanceChild) {
       stickyBar = {
         tierLabel: 'Balance on completion',
-        priceText: `$${fmt(dollars(finalBalanceChargedCents))}`,
-        ctaLabel: `Pay $${fmt(dollars(finalBalanceChargedCents))} balance`,
+        priceText: `$${fmt(quoteAmount(finalBalanceChargedCents))}`,
+        ctaLabel: `Pay $${fmt(quoteAmount(finalBalanceChargedCents))} balance`,
         ctaHref: payBlocked ? null : `/r/${balanceChild.token}/balance`,
       }
     } else if (isPaid) {
@@ -876,8 +901,8 @@ export default async function PublicQuotePage(props: {
     } else {
       stickyBar = {
         tierLabel: `${finalPct}% deposit · less your $${INSPECTION_FEE_AUD} credit`,
-        priceText: `$${fmt(dollars(finalDepositChargedCents))}`,
-        ctaLabel: `Accept & pay $${fmt(dollars(finalDepositChargedCents))} deposit`,
+        priceText: `$${fmt(quoteAmount(finalDepositChargedCents))}`,
+        ctaLabel: `Accept & pay $${fmt(quoteAmount(finalDepositChargedCents))} deposit`,
         ctaHref: finalDepositPayable ? `/r/${token}/deposit` : null,
       }
     }
@@ -955,12 +980,12 @@ export default async function PublicQuotePage(props: {
     // inputs change (spec elec-plumb-site-visit-first R2).
     pricesVisible: !isInspection && !siteVisitFirst,
     priceExpired,
-    priceLabel: acceptFeaturedTier ? `$${fmt(acceptInc)} inc GST` : null,
+    priceLabel: acceptFeaturedTier ? `$${fmt(acceptInc)} ${gstRegistered ? 'inc GST' : 'No GST'}` : null,
     // A final row's deposit is NOT the raw tier deposit: it is that figure less
     // the $99 already paid, plus the 2% platform fee — the number the mint
     // actually charges (spec "Money").
     depositLabel: isFinalRow
-      ? `${finalPct}% deposit, $${fmt(dollars(finalDepositChargedCents))} after your $${INSPECTION_FEE_AUD} credit and the ${PLATFORM_FEE_PCT}% platform fee`
+      ? `${finalPct}% deposit, $${fmt(quoteAmount(finalDepositChargedCents))} after your $${INSPECTION_FEE_AUD} credit and the ${PLATFORM_FEE_PCT}% platform fee`
       : acceptDep
         ? `${depositPct ?? 30}% deposit ($${fmt(acceptDep)})`
         : null,
@@ -990,7 +1015,7 @@ export default async function PublicQuotePage(props: {
   if (!isInspection && !siteVisitFirst && depositPct) {
     statItems.push({ k: 'Deposit', v: `${depositPct}%`, sub: 'to book' })
   }
-  if (pricingBook?.gst_registered) {
+  if (gstRegistered) {
     statItems.push({ k: 'GST', v: 'Incl.', sub: 'all prices' })
   } else if (isInspection || siteVisitFirst) {
     statItems.push({ k: 'Site visit', v: `$${INSPECTION_FEE_AUD}`, sub: 'refundable' })
@@ -1009,7 +1034,7 @@ export default async function PublicQuotePage(props: {
       }`,
     })
   }
-  if (pricingBook?.gst_registered) {
+  if (gstRegistered) {
     footerRows.push({ k: 'GST', v: 'Registered · all prices include 10% GST' })
   }
   footerRows.push({ k: 'Quote ref', v: quoteRef })
@@ -1061,21 +1086,21 @@ export default async function PublicQuotePage(props: {
   const finalGreeting = balancePaid
     ? 'Your final quote after the site visit. Paid in full - thanks.'
     : balanceRequested
-      ? `Your final quote after the site visit. Deposit received. Balance due: $${fmt(dollars(finalBalanceChargedCents))}.`
+      ? `Your final quote after the site visit. Deposit received. Balance due: $${fmt(quoteAmount(finalBalanceChargedCents))}.`
       : isPaid
         ? 'Your final quote after the site visit. Deposit received - your tradie will confirm the job date.'
         : finalZeroDeposit
-          ? `Your final quote after the site visit. Price includes GST. Your $${INSPECTION_FEE_AUD} site visit covers the deposit - nothing to pay now.`
-          : `Your final quote after the site visit. Price includes GST. Accept with a ${finalPct}% deposit - your $${INSPECTION_FEE_AUD} site visit is credited.`
+          ? `Your final quote after the site visit. ${gstRegistered ? 'Price includes GST.' : 'No GST is charged.'} Your $${INSPECTION_FEE_AUD} site visit covers the deposit - nothing to pay now.`
+          : `Your final quote after the site visit. ${gstRegistered ? 'Price includes GST.' : 'No GST is charged.'} Accept with a ${finalPct}% deposit - your $${INSPECTION_FEE_AUD} site visit is credited.`
   const heroGreeting = isFinalRow
     ? finalGreeting
     : isInspection
     ? `This job needs a quick on-site visit before a real price can be locked in. The visit is $99, refundable and credited toward your final quote.`
     : tierCount === 1
-      ? `One option below. Price includes 10% GST. ${
+      ? `One option below. ${gstRegistered ? 'Price includes 10% GST.' : 'No GST is charged.'} ${
           siteVisitFirst ? siteVisitGreeting : `Tap to lock it in with a ${depositPct ?? 30}% deposit.`
         }`
-      : `${tierCount === 2 ? 'Two' : 'Three'} options below. All prices include 10% GST. ${
+      : `${tierCount === 2 ? 'Two' : 'Three'} options below. ${gstRegistered ? 'All prices include 10% GST.' : 'No GST is charged.'} ${
           siteVisitFirst
             ? siteVisitGreeting
             : `Tap any tier to lock it in with a ${depositPct ?? 30}% deposit.`
@@ -1100,7 +1125,7 @@ export default async function PublicQuotePage(props: {
     const storedInc = (roofTier as { total_inc_gst?: number } | null)?.total_inc_gst
     const roofPriceInc =
       ebApp === 0 && typeof storedInc === 'number' && storedInc > 0
-        ? Math.round(storedInc)
+        ? storedInc
         : roofTier
           ? tierIncGst(roofTier)
           : 0
@@ -1192,7 +1217,7 @@ export default async function PublicQuotePage(props: {
             </div>
             <div style={{ marginTop: 6, ...microNote }}>
               {roofPriceInc > 0
-                ? `${roofTierLabel} · inc GST${isInspection ? ' · indicative' : ''}`
+                ? `${roofTierLabel} · ${gstRegistered ? 'inc GST' : 'No GST'}${isInspection ? ' · indicative' : ''}`
                 : 'Priced after your site visit'}
             </div>
             {isInspection && roofPriceInc > 0 ? (
@@ -1562,7 +1587,7 @@ export default async function PublicQuotePage(props: {
     )
     const finalDepositStack = (
       <div style={{ marginTop: 14, display: 'grid', gap: 7 }}>
-        <StackRow label={`Deposit (${finalPct}%)`} value={`$${fmt(dollars(finalGrossDepositCents))}`} />
+        <StackRow label={`Deposit (${finalPct}%)`} value={`$${fmt(quoteAmount(finalGrossDepositCents))}`} />
         <StackRow
           label={`Less $${INSPECTION_FEE_AUD} site-visit credit`}
           value={`−$${fmt(INSPECTION_FEE_AUD)}`}
@@ -1570,10 +1595,10 @@ export default async function PublicQuotePage(props: {
         />
         <StackRow
           label={`QuoteMax platform fee (${PLATFORM_FEE_PCT}%)`}
-          value={`$${fmt(dollars(finalDepositFeeCents))}`}
+          value={`$${fmt(quoteAmount(finalDepositFeeCents))}`}
         />
-        <StackRow label="Deposit due now" value={`$${fmt(dollars(finalDepositChargedCents))}`} strong />
-        <StackRow label="Balance on completion" value={`$${fmt(dollars(finalBalanceBase))}`} />
+        <StackRow label="Deposit due now" value={`$${fmt(quoteAmount(finalDepositChargedCents))}`} strong />
+        <StackRow label="Balance on completion" value={`$${fmt(quoteAmount(finalBalanceBase))}`} />
       </div>
     )
     const finalCardAction = balancePaid ? (
@@ -1589,7 +1614,7 @@ export default async function PublicQuotePage(props: {
             className="qm-cta"
             style={{ ...ctaStyle, marginTop: 14 }}
           >
-            Pay ${fmt(dollars(finalBalanceChargedCents))} balance
+            Pay ${fmt(quoteAmount(finalBalanceChargedCents))} balance
           </a>
         )}
       </>
@@ -1603,7 +1628,7 @@ export default async function PublicQuotePage(props: {
       payBlockedNote
     ) : (
       <a href={`/r/${token}/deposit`} className="qm-cta" style={{ ...ctaStyle, marginTop: 14 }}>
-        Accept &amp; pay ${fmt(dollars(finalDepositChargedCents))} deposit
+        Accept &amp; pay ${fmt(quoteAmount(finalDepositChargedCents))} deposit
       </a>
     )
 
@@ -1945,7 +1970,7 @@ export default async function PublicQuotePage(props: {
                             {u.name}
                             {' — '}
                             {typeof u.price_ex_gst === 'number' && Number.isFinite(u.price_ex_gst)
-                              ? `$${displayIncGst(u.price_ex_gst, { gstRegistered }).toLocaleString('en-AU')} inc GST`
+                              ? `$${(totalIncGstCents(u.price_ex_gst, { gstRegistered }) / 100).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${gstRegistered ? 'inc GST' : 'No GST'}`
                               : 'quoted on site'}
                           </span>
                         </div>
@@ -2059,11 +2084,11 @@ export default async function PublicQuotePage(props: {
                   .map((k) => {
                     const t = quote[k] as NonNullable<Tier>
                     const lines = Array.isArray(t.line_items) ? t.line_items : []
-                    const stack = priceStack(t.subtotal_ex_gst ?? 0, {
+                    const stack = quotePriceStack(t.subtotal_ex_gst ?? 0, {
                       discountPct: ebApp,
                       gstRegistered,
                     })
-                    const rowTotals = allocateIncGst(lines, stack.totalDollars)
+                    const rowTotals = allocateIncGst(lines, Math.round(stack.totalDollars * 100)).map(quoteAmount)
                     const dep = tierDeposit(t)
                     const recommended = showRecommendedBadge && quote.selected_tier === k
                     // A site-visit-first row's paid_tier is 'inspection', so no
@@ -2126,7 +2151,7 @@ export default async function PublicQuotePage(props: {
                           </span>
                         </div>
                         <div style={{ marginTop: 5, ...microNote, textAlign: 'right' }}>
-                          inc GST{stack.discountPct > 0 ? ` · ${stack.discountPct}% off applied` : ''}
+                          {gstRegistered ? 'inc GST' : 'No GST'}{stack.discountPct > 0 ? ` · ${stack.discountPct}% off applied` : ''}
                         </div>
                         {cleanTierLabel(t.label) ? (
                           <p style={{ margin: '9px 0 0', fontSize: 13, lineHeight: 1.45, color: 'var(--text-sec)' }}>
@@ -2216,7 +2241,7 @@ export default async function PublicQuotePage(props: {
                               ) : (
                                 <StackRow label="GST" value="Not registered" />
                               )}
-                              <StackRow label="Total (inc GST)" value={`$${fmt(stack.totalDollars)}`} strong />
+                              <StackRow label={gstRegistered ? 'Total (inc GST)' : 'Total (no GST)'} value={`$${fmt(stack.totalDollars)}`} strong />
                               {/* No deposit row for a site-visit-first trade —
                                   the $99 visit is the only thing to pay. A
                                   final row has its own stack below (credit +
@@ -2232,7 +2257,7 @@ export default async function PublicQuotePage(props: {
                             </div>
 
                             <p style={{ margin: '11px 0 0', fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-dim)' }}>
-                              Line amounts are shown inc GST and add up to the total above. The
+                              Line amounts {gstRegistered ? 'include GST' : 'have no GST'} and add up to the total above. The
                               per-unit rates beneath each line are your tradie&apos;s ex-GST rate card.
                             </p>
                           </details>
@@ -2311,11 +2336,11 @@ export default async function PublicQuotePage(props: {
                   {balancePaid
                     ? 'Paid in full — thanks. Nothing further to pay.'
                     : balanceRequested
-                      ? `Your job is complete. Balance due: $${fmt(dollars(finalBalanceChargedCents))} — tap the balance button above to pay.`
+                      ? `Your job is complete. Balance due: $${fmt(quoteAmount(finalBalanceChargedCents))} — tap the balance button above to pay.`
                       : isPaid
                         ? 'Deposit received — your tradie will confirm the job date.'
                         : finalZeroDeposit
-                          ? `Your $${INSPECTION_FEE_AUD} site visit covers the deposit — nothing to pay now; balance $${fmt(dollars(finalBalanceBase))} on completion.`
+                          ? `Your $${INSPECTION_FEE_AUD} site visit covers the deposit — nothing to pay now; balance $${fmt(quoteAmount(finalBalanceBase))} on completion.`
                           : 'Next steps: pay the deposit to confirm the job; the balance is requested by your tradie on completion.'}
                 </p>
               </>
@@ -2468,7 +2493,7 @@ export default async function PublicQuotePage(props: {
       {/* ─── Tradie-owner edit overlay (renders nothing for customers) ─── */}
       <TradieEditor
         quoteId={quote.id as string}
-        gstRegistered={!!pricingBook?.gst_registered}
+        gstRegistered={gstRegistered}
         initialTiers={{
           good: (quote.good as unknown as {
             label?: string

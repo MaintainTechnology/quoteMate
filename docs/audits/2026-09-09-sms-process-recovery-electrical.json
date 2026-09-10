@@ -1,0 +1,428 @@
+{
+  "generatedAt": "2026-09-08T17:58:14.105Z",
+  "scope": "Compiled durable-work/outbox primitives with fixture stages; parent PGlite survives child kills. Not full handlers, live carrier, or deployed E2E.",
+  "limitations": [
+    "Fixture inbound/intake/estimate handlers, not full compiled route handlers. Existing actual-route regression tests cover route-specific replay.",
+    "PGlite serializes local SQL; this does not certify multi-connection production Postgres contention.",
+    "Lease expiration is advanced with local SQL to avoid wall-clock waits; production lease durations are unchanged.",
+    "Correction/resend fixtures prove FIFO work/intents, not business pricing or approved-link selection semantics.",
+    "Paused draft followers deliberately share the draft job serial key. Actual production route serial-key assignment and timing remain covered only by separate route tests."
+  ],
+  "compiled": [
+    {
+      "trade": "electrical",
+      "hashes": {
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\durable-work.js": "cbfbe00f26079a47529d627ca9a8fdcff8142d02a76b67b2d9c4ebd2508ac8fa",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\durable-outbox.js": "be06cf79d40ae393acfc3d3a6a36941bd219f7e96bb41fee57eaa865ffe9629a",
+        "C:\\Users\\dalig\\.codex\\visualizations\\2026\\09\\08\\01a07f99-45aa-7301-bf72-b1e946ed3015\\fleet-candidate-02\\qm-electrical-receptionist\\dist\\lib\\sms\\delivery-context.js": "9ac019c93eaab4be36c74b317ff33a78fc85b955bcbf435e786c866db2529a15"
+      }
+    }
+  ],
+  "results": [
+    {
+      "trade": "electrical",
+      "boundary": "receipt",
+      "killedPid": 83260,
+      "staleOwnerRejected": false,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "pending",
+          "checkpoint": {}
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "6dd8cdf9-e4e3-45b5-b0b6-826de4fb5a53"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "ab2aba74-0d3f-4d6c-bbec-07db7545fc6a"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 16,
+      "followupIntents": 2,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5
+    },
+    {
+      "trade": "electrical",
+      "boundary": "intake",
+      "killedPid": 108632,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "running",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            }
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "8983c330-3b49-48eb-b981-723c7a01b26f"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "6e3a0684-9142-4af5-a3df-4f2c12c1293c"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 16,
+      "followupIntents": 2,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5
+    },
+    {
+      "trade": "electrical",
+      "boundary": "quote",
+      "killedPid": 36972,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "153345e0-9278-480c-ae66-38ef7ffe183b"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "153345e0-9278-480c-ae66-38ef7ffe183b"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "a68ef721-3326-42e1-8ad1-3cf1ea275577"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 16,
+      "followupIntents": 2,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5
+    },
+    {
+      "trade": "electrical",
+      "boundary": "outbox",
+      "killedPid": 71860,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "e31e9622-1862-4965-ab2e-79bbe919d441"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "f17cfc2c-479d-4eb4-853a-c57c4f9cbe1d"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "e31e9622-1862-4965-ab2e-79bbe919d441"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "f17cfc2c-479d-4eb4-853a-c57c4f9cbe1d"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": null,
+      "duplicateDeliveries": 16,
+      "followupIntents": 2,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5
+    },
+    {
+      "trade": "electrical",
+      "boundary": "ambiguous",
+      "killedPid": 108812,
+      "staleOwnerRejected": true,
+      "afterKill": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "4634c30c-29c5-4ab7-afd3-f44be65aa892"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "running",
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "89444499-3023-46b2-aac1-e625f56fa081"
+          }
+        }
+      ],
+      "checkpointAfterRecovery": [
+        {
+          "kind": "inbound",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "decision": {
+              "action": "initial"
+            }
+          }
+        },
+        {
+          "kind": "intake",
+          "status": "completed",
+          "attempts": 1,
+          "checkpoint": {
+            "facts": {
+              "quantity": 2
+            },
+            "intake_saved": "4634c30c-29c5-4ab7-afd3-f44be65aa892"
+          }
+        },
+        {
+          "kind": "estimate",
+          "status": "completed",
+          "attempts": 3,
+          "checkpoint": {
+            "price": 12345,
+            "quote_saved": "89444499-3023-46b2-aac1-e625f56fa081"
+          }
+        }
+      ],
+      "initialDrafts": 1,
+      "initialOutboxIntents": 1,
+      "transportCallsBeforeBurst": 1,
+      "ambiguousStatus": "unknown",
+      "duplicateDeliveries": 16,
+      "followupIntents": 2,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5
+    }
+  ],
+  "burstResults": [
+    {
+      "trade": "electrical",
+      "boundary": "before-history",
+      "predecessorPid": 101036,
+      "duplicateDeliveries": 16,
+      "queuedReceipts": 2,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5,
+      "initialDrafts": 1,
+      "outboxIntents": 3
+    },
+    {
+      "trade": "electrical",
+      "boundary": "during-draft",
+      "predecessorPid": 70640,
+      "duplicateDeliveries": 16,
+      "queuedReceipts": 2,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5,
+      "initialDrafts": 1,
+      "outboxIntents": 3
+    },
+    {
+      "trade": "electrical",
+      "boundary": "before-unlock",
+      "predecessorPid": 104364,
+      "duplicateDeliveries": 16,
+      "queuedReceipts": 2,
+      "competitorClaims": 0,
+      "fifo": [
+        "correction",
+        "resend"
+      ],
+      "completedJobs": 5,
+      "initialDrafts": 1,
+      "outboxIntents": 3
+    }
+  ]
+}

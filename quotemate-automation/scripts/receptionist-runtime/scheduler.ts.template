@@ -1,0 +1,16 @@
+/** Independent guards prevent a slow AI turn from pausing delivery recovery. */
+export function startIndependentPollers(work: () => Promise<unknown>, outbox: () => Promise<unknown>, intervalMs = 1000): () => void {
+  const timers = [work, outbox].map((operation) => {
+    let running = false
+    const timer = setInterval(async () => {
+      if (running) return
+      running = true
+      try { await operation() }
+      catch (error) { console.error('[sms/worker] poll failed', String(error).slice(0,300)) }
+      finally { running = false }
+    }, intervalMs)
+    timer.unref()
+    return timer
+  })
+  return () => { for (const timer of timers) clearInterval(timer) }
+}

@@ -2,12 +2,14 @@
 // selection (included_indices) for a roofing measurement, keyed by its
 // unguessable measure_token (migration 140).
 //
-// Trust model: the measure_token IS the capability (same as the customer
-// /q/roof/[public_token] page — link-shareable, no bearer). Updating the
-// selection recomputes the denormalised summary AND invalidates any cached
+// Writes require the authenticated owning tenant and the displayed revision.
+// Released rows create a new held successor; old customer links keep their prices. Updating the
+// owner-approved selection recomputes the denormalised summary AND invalidates any cached
 // quote PDF (pdf_path → null) so the customer page + PDF re-render the new
 // selection on next view/download. At least one structure must stay included.
 
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { roofMeasurementVersion } from '@/lib/roofing/measurement-version'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import type { MultiRoofQuote, RoofJobIntent } from '@/lib/roofing/types'
@@ -15,7 +17,7 @@ import type { SolarQuoteAddon } from '@/lib/roofing/solar'
 import { denormFromSelection, sanitizeIndices, structureCount } from '@/lib/roofing/selection'
 import { detectSolarForJob } from '@/lib/roofing/solar-detect'
 import { repriceWithEdgeOverrides } from '@/lib/roofing/reprice'
-import { loadTenantRoofingPricingContext } from '@/lib/roofing/pricing-authority'
+import { loadTenantRoofingPricingContext, roofMeasurementTokensForRun } from '@/lib/roofing/pricing-authority'
 
 export const dynamic = 'force-dynamic'
 // The POST re-scan runs Gemini (per structure) + an Anthropic photo pass
@@ -49,6 +51,7 @@ const EdgeOverrideSchema = z.object({
 })
 const BodySchema = z
   .object({
+    expected_revision: z.string().regex(/^[a-f0-9]{64}$/),
     included_indices: z.array(z.number().int()).min(1).max(64).optional(),
     edges: z.array(EdgeOverrideSchema).min(1).max(64).optional(),
   })
@@ -56,11 +59,64 @@ const BodySchema = z
     message: 'included_indices or edges required',
   })
 
-type Row = {
+type Row = Record<string, unknown> & {
   id: string
   quote: MultiRoofQuote | null
   tenant_id: string | null
   included_indices: number[] | null
+}
+
+/** Private native reopen. A measure/public token is never authentication.
+ * `lookup=id` lets an owned saved-list row reopen without publishing its token. */
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const headers = { 'Cache-Control': 'no-store' }
+  const { token } = await ctx.params
+  const lookup = new URL(req.url).searchParams.get('lookup') ?? 'token'
+  if (!['id', 'token', 'run'].includes(lookup) ||
+      (lookup === 'id' ? !z.string().uuid().safeParse(token).success : lookup === 'run' ? !/^[a-f0-9]{32}$/.test(token) : !token || token.length < 8 || token.length > 160)) {
+    return Response.json({ ok:false, error:'invalid_lookup' }, { status:400, headers })
+  }
+  try {
+    const auth = await resolveTenantRequest(supabase,req,'id')
+    const tenantId = auth?.tenant?.id
+    if (typeof tenantId !== 'string') return Response.json({ ok:false,error:'unauthorized' }, { status:401,headers })
+    // Recovery is read-only even after the measurement run expires. The same
+    // deterministic capability was used by Save; the owning tenant is still
+    // required and a run ID never grants public or cross-tenant access.
+    let lookupToken = token
+    if (lookup === 'run') {
+      const secret = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (!secret) return Response.json({ ok:false,error:'measurement_unavailable' }, { status:503,headers })
+      lookupToken = roofMeasurementTokensForRun({ runId: token, secret }).measure_token
+    }
+    const { data:row,error } = await supabase.from('roofing_measurements').select('*')
+      .eq('tenant_id',tenantId).eq(lookup === 'id' ? 'id':'measure_token',lookupToken).maybeSingle<Row>()
+    if (error) return Response.json({ ok:false,error:'measurement_unavailable' }, { status:503,headers })
+    if (!row || row.tenant_id !== tenantId) return Response.json({ ok:false,error:'not_found' }, { status:404,headers })
+    const pricing = await loadTenantRoofingPricingContext(supabase,tenantId,null)
+    let promotedQuoteId: string | null = null
+    if (typeof row.quote_share_token === 'string' && row.quote_share_token) {
+      const promoted = await supabase.from('quotes').select('id,tenant_id,share_token')
+        .eq('tenant_id',tenantId).eq('share_token',row.quote_share_token).maybeSingle()
+      if (promoted.error) return Response.json({ok:false,error:'promotion_lookup_unavailable'},{status:503,headers})
+      if (promoted.data?.tenant_id === tenantId && promoted.data.share_token === row.quote_share_token && typeof promoted.data.id === 'string') {
+        promotedQuoteId = promoted.data.id
+      }
+    }
+    return Response.json({ ok:true, measurement: {
+      id:row.id, tenant_id:tenantId, measure_token:row.measure_token, public_token:row.public_token,
+      revision:roofMeasurementVersion(row), address:row.address ?? null, postcode:row.postcode ?? null,
+      state:row.state ?? null, provider:row.provider ?? null, customer_name:row.customer_name ?? null,
+      customer_phone:row.customer_phone ?? null, quote:row.quote ?? null,
+      included_indices:row.included_indices ?? null, created_at:row.created_at ?? null,
+      released_at:row.released_at ?? null, paid_at:row.paid_at ?? null,
+      pricing_authority:pricing?.authority ?? null,
+      promoted_quote_id:promotedQuoteId,
+      promotion_pending:!!row.quote_share_token && !promotedQuoteId,
+    } }, { headers })
+  } catch {
+    return Response.json({ ok:false,error:'measurement_unavailable' }, { status:503,headers })
+  }
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -68,6 +124,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ token: string
   if (!token || token.length < 8) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+
+  const auth = await resolveTenantRequest(supabase, req, 'id')
+  const tenantId = auth?.tenant?.id
+  if (typeof tenantId !== 'string') return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
 
   let body: unknown
   try {
@@ -85,12 +145,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ token: string
 
   const { data: row, error: readErr } = await supabase
     .from('roofing_measurements')
-    .select('id, quote, tenant_id, included_indices')
+    .select('*')
     .eq('measure_token', token)
+    .eq('tenant_id', tenantId)
     .maybeSingle<Row>()
-  if (readErr || !row) {
+  if (readErr) return Response.json({ ok: false, error: 'measurement_unavailable' }, { status: 503 })
+  if (!row) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+  if (row.paid_at) return Response.json({ ok: false, error: 'paid_quote_locked' }, { status: 409 })
+  if (parsed.data.expected_revision !== roofMeasurementVersion(row)) return Response.json({ ok: false, error: 'measurement_changed', detail: 'Reload the measurement before saving your changes.' }, { status: 409 })
 
   // Tradie edge re-price (hips / valleys / box gutter) — re-price the stored
   // structures in place with the confirmed counts, keeping the current
@@ -114,20 +178,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ token: string
       total,
     )
     const denorm = denormFromSelection(updatedQuote, included)
-    const { error: updErr } = await supabase
-      .from('roofing_measurements')
-      .update({
-        quote: updatedQuote,
-        combined_area_m2: denorm.combined_area_m2,
-        combined_better_inc_gst: denorm.combined_better_inc_gst,
-        structure_count: denorm.structure_count,
-        pdf_path: null,
-      })
-      .eq('id', row.id)
-    if (updErr) {
-      return Response.json({ ok: false, error: 'update_failed', detail: updErr.message }, { status: 200 })
-    }
-    return Response.json({ ok: true, repriced: true, ...denorm }, { status: 200 })
+    return saveRevision(row, { quote: updatedQuote, ...denorm, pdf_path: null }, { repriced: true, ...denorm })
   }
 
   if (!parsed.data.included_indices) {
@@ -146,41 +197,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ token: string
     ? denormFromSelection(row.quote, included)
     : { combined_area_m2: null, combined_better_inc_gst: null, structure_count: included.length }
 
-  const { error: updErr } = await supabase
-    .from('roofing_measurements')
-    .update({
-      included_indices: included,
-      combined_area_m2: denorm.combined_area_m2,
-      combined_better_inc_gst: denorm.combined_better_inc_gst,
-      structure_count: denorm.structure_count,
-      // Invalidate the cached PDF — the lazy PDF route regenerates from the
-      // new selection when pdf_path is null.
-      pdf_path: null,
-    })
-    .eq('id', row.id)
-
-  if (updErr) {
-    return Response.json({ ok: false, error: 'update_failed', detail: updErr.message }, { status: 200 })
-  }
-
-  return Response.json({ ok: true, included_indices: included, ...denorm }, { status: 200 })
+  return saveRevision(row, { included_indices: included, ...denorm, pdf_path: null }, { included_indices: included, ...denorm })
 }
 
 // POST /api/roofing/measurement/[token] — re-scan this measurement for existing
 // solar/skylights using tradie-attached close-up roof PHOTOS, merged with the
 // per-structure aerial pass, and persist the result onto
-// roofing_measurements.quote.solar. Same measure_token capability model as the
-// PATCH above (link-shareable, no bearer). This is the tradie-attached-photo
+// roofing_measurements.quote.solar. Authenticated ownership, version and
+// immutable released-quote policy match PATCH. This is the tradie-attached-photo
 // source for R2; customer /upload/[token] photo sourcing is gated on the spec's
 // open question (roofing jobs don't yet collect customer photos) and not wired.
 const RescanBodySchema = z.object({
+  expected_revision: z.string().regex(/^[a-f0-9]{64}$/),
   photos: z
     .array(z.object({ base64: z.string().min(1), mime: z.string().min(3).max(60) }))
     .min(1)
     .max(6),
 })
 
-type RescanRow = {
+type RescanRow = Record<string, unknown> & {
   id: string
   quote: MultiRoofQuote | null
   tenant_id: string | null
@@ -193,6 +228,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!token || token.length < 8) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+
+  const auth = await resolveTenantRequest(supabase, req, 'id')
+  const tenantId = auth?.tenant?.id
+  if (typeof tenantId !== 'string') return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
 
   let body: unknown
   try {
@@ -210,12 +249,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const { data: row, error: readErr } = await supabase
     .from('roofing_measurements')
-    .select('id, quote, tenant_id, provider, included_indices')
+    .select('*')
     .eq('measure_token', token)
+    .eq('tenant_id', tenantId)
     .maybeSingle<RescanRow>()
-  if (readErr || !row) {
+  if (readErr) return Response.json({ ok: false, error: 'measurement_unavailable' }, { status: 503 })
+  if (!row) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
+
+  if (row.paid_at) return Response.json({ ok: false, error: 'paid_quote_locked' }, { status: 409 })
+  if (parsed.data.expected_revision !== roofMeasurementVersion(row)) return Response.json({ ok: false, error: 'measurement_changed', detail: 'Reload the measurement before saving your changes.' }, { status: 409 })
 
   const fullQuote = row.quote
   if (!fullQuote || structureCount(fullQuote) === 0) {
@@ -262,20 +306,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // and leaving the old value stranded the dashboard list price below what
   // /m, /q/roof and the PDF now show.
   const denorm = denormFromSelection(updatedQuote, row.included_indices ?? null)
-  const { error: updErr } = await supabase
-    .from('roofing_measurements')
-    .update({
-      quote: updatedQuote,
-      combined_area_m2: denorm.combined_area_m2,
-      combined_better_inc_gst: denorm.combined_better_inc_gst,
-      structure_count: denorm.structure_count,
-      // Invalidate the cached PDF so it regenerates with the solar line.
-      pdf_path: null,
-    })
-    .eq('id', row.id)
-  if (updErr) {
-    return Response.json({ ok: false, error: 'update_failed', detail: updErr.message }, { status: 200 })
-  }
+  return saveRevision(row, { quote: updatedQuote, ...denorm, pdf_path: null }, { solar: solarAddon })
+}
 
-  return Response.json({ ok: true, solar: solarAddon }, { status: 200 })
+
+async function saveRevision(row: Row, changes: Record<string, unknown>, result: Record<string, unknown>) {
+  const { data: saved, error } = await supabase.rpc('sms_revise_roof_owned', {
+    p_tenant_id: row.tenant_id, p_id: row.id, p_expected: row, p_changes: changes,
+  })
+  if (error || !saved) return Response.json({ ok: false, error: 'measurement_changed_or_unavailable',
+    detail: 'The measurement changed while saving. Reload it before trying again.' }, { status: 409 })
+  const successor = saved.id !== row.id
+  return Response.json({ ok: true, ...result, successor,
+    measureToken: saved.measure_token, reviewUrl: `/dashboard/quote-review?family=roof&id=${saved.id}`,
+    ...(successor ? { detail: 'Saved a new draft for review. The previous customer quote is unchanged.' } : {}),
+  })
 }

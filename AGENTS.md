@@ -16,7 +16,7 @@ These were settled after substantive re-evaluation (see iteration history at the
 | Decision | What it means in practice |
 |---|---|
 | **Portal-first v1, not voice-first** | The AI receptionist (voice agent) is a v3+ premium tier. v1 is tradie-typed-intake on a portal. Voice has bad unit economics at SaaS price points (~$1,500/mo COGS per tradie at moderate call volume). |
-| **Electrical + plumbing pilots; roofing added in v10** | Electrical (NSW) and plumbing (QLD) remain the original portal wedges. Roofing is the deliberate third trade: dashboard-only, deterministic, and review-required for high-value work. Its current measurement path is Geoscape/form-based; semantic roof-edge candidates are permitted only under the v14/v15 source, legal, and human-review gates. Do not add a fourth trade without a new strategy iteration. |
+| **Existing trade evolution is recorded in strategy** | Electrical (NSW) and plumbing (QLD) are the original portal wedges; roofing was added in v10, commercial painting expanded in v11, and solar release policy evolved in v12. Roofing measurement/source gates remain unchanged. v24 restores explicit tradie approval before new customer quote releases for these existing tools. Do not add another trade without a new strategy iteration. |
 | **Four agents, not ten** | Quote Drafter, Quote Reviewer, Inspection Coordinator, Conversion Engine. Reception agent is reserved for v3. |
 | **Build the pricing book WITH the tradie** | Most owner-operators don't have a structured price list. Ship a base assembly library per trade (built by paid domain experts) and capture the tradie's overlay through guided onboarding. |
 | **Eval framework before prompt iteration** | 100 hold-out (intake → quote) pairs, scored by 5-dimension rubric. No prompt change ships without delta measurement. |
@@ -73,7 +73,7 @@ Don't add infrastructure speculatively — wait until the relevant phase begins.
 - **For strategy or product questions** — read `docs/strategy.md` first. It has the current thinking. The earlier chat-only analysis (recorded as v1 in the iteration history) is superseded.
 - **For visual context** — the assets in `assets/` are ground truth for the user-facing flow; both README and strategy doc reference them.
 - **When changing a "decisions that shape the work" entry** — append a new iteration entry to `docs/strategy.md` rather than editing the prior one in place. The history is the audit log.
-- **When in doubt about scope** — electrical and plumbing retain their narrow auto-quote wedges. Roofing is an explicit third-trade exception (v10): high-value roof work stays deterministic and tradie-review-required. Existing form/Geoscape measurement is the production fallback; the v14/v15 topology feature is source-gated, feature-flagged, and cannot affect a customer-visible quote without an authenticated tradie approval. Do not add a fourth trade without a new `docs/strategy.md` iteration.
+- **When in doubt about scope** — electrical and plumbing retain their narrow auto-quote wedges. Roofing is an explicit third-trade exception (v10): high-value roof work stays deterministic and tradie-review-required. Existing form/Geoscape measurement is the production fallback; the v14/v15 topology feature is source-gated, feature-flagged, and cannot affect a customer-visible quote without an authenticated tradie approval. Do not add another trade beyond those recorded in strategy without a new `docs/strategy.md` iteration.
 - **After editing `docs/strategy.md`** — invoke the `strategy-reviewer` agent to catch any drift across README, AGENTS.md, and the assets.
 
 ## Skills, agents, and commands toolkit
@@ -124,7 +124,7 @@ See [`.Codex/PLUGINS.md`](.Codex/PLUGINS.md) for the full list and rationale.
 ## How Codex should approach changes here
 
 - **Don't propose voice-agent work for v1** — deferred to v3+ premium tier by deliberate decision; surface that the request is out-of-scope and ask whether to add it as a v3 entry in the strategy doc.
-- **Don't propose a FOURTH trade without an iteration entry.** Roofing is the established third trade (v10); painting, carpentry, landscaping, or another new trade requires a fresh `docs/strategy.md` entry first.
+- **Don't propose another trade without an iteration entry.** Electrical, plumbing, roofing, painting and solar are already recorded in the strategy history; carpentry, landscaping or another new trade requires a fresh `docs/strategy.md` entry first.
 - **Don't recommend ServiceM8/Tradify-style features that already exist in incumbents.** The wedge is the AI quote draft + the paid inspection flow. Calendar, CRM, and invoicing are deferred until those are working.
 - **Treat the iteration log in `docs/strategy.md` as load-bearing.** When decisions evolve, the log is how everyone (including future Codex sessions) understands why.
 

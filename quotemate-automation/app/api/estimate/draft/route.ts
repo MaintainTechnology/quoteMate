@@ -1,5 +1,9 @@
+import { attributeSmsWorkTenant } from '@/lib/sms/durable-work'
 import { createClient } from '@supabase/supabase-js'
-import { after } from 'next/server'
+import { durableAfter as after, currentSmsWork, enqueueSmsWork, internalWorkPayload, runSmsWorkNow, withFencedSmsClient, assertSmsWorkOwnership, smsWorkCheckpoint, smsWorkFetch } from '@/lib/sms/durable-work'
+import { smsDeliveryWorkScope } from '@/lib/sms/work-delivery-context'
+import { updateSmsDeliveryContext } from '@/lib/sms/delivery-context'
+import { resumeSavedSmsQuote } from '@/lib/sms/quote-recovery'
 import { runEstimation } from '@/lib/estimate/run'
 import { sanitizeInspectionReason } from '@/lib/estimate/inspection-reason'
 import { dispatchQuoteMessage } from '@/lib/sms/dispatch'
@@ -29,6 +33,7 @@ import { stampScopeShort } from '@/lib/quote/scope-short'
 import { generatePreviewImage } from '@/lib/ig-engine/generate'
 import { generateSampleImages } from '@/lib/ig-engine/samples'
 import { resolvePricingBookForIntake } from '@/lib/estimate/pricing-book'
+import { versionedEstimationCheckpoint, QuotePricingVersionError } from '@/lib/quote/pricing-version'
 import {
   earlyBirdConfigFromOverlays,
   computeEarlyBirdOffer,
@@ -61,10 +66,11 @@ import { isCronAuthorised } from '@/lib/agents/cron'
 // getDeliveryKnobs() is still used at runtime below for send retry/backoff.
 export const maxDuration = 300
 
-const supabase = createClient(
+const supabase = withFencedSmsClient(createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch: smsWorkFetch } },
+))
 
 export async function POST(req: Request) {
   // Internal-only. This route mints a quotes row, real Stripe Checkout Sessions
@@ -87,11 +93,35 @@ export async function POST(req: Request) {
   // before the tradie presses Send. Fail-safe by construction: the only
   // effect of the flag is to HOLD, so an untrusted caller setting it can't
   // cause a send that wouldn't otherwise happen.
-  const { intakeId, tradieDrafted } = await req.json()
+  const requestBody = await req.json()
+  const { intakeId } = requestBody
+  // The draft route cannot authorise its own customer release.
+  const tradieDrafted = true
+  if (typeof intakeId !== 'string' || !/^[0-9a-f-]{36}$/i.test(intakeId)) return Response.json({ error: 'Invalid intakeId' }, { status: 400 })
+  if (!currentSmsWork()) {
+    const job = await enqueueSmsWork({ key: `estimate:initial:${intakeId}`, kind: 'estimate', serialKey: `estimate:${intakeId}`,
+      payload: internalWorkPayload('/api/estimate/draft', { intakeId, tradieDrafted: true }) })
+    return runSmsWorkNow(job, POST, { scope: smsDeliveryWorkScope })
+  }
+  await assertSmsWorkOwnership()
+
   const log = pipelineLog('estimate')
   log.step('received', { intakeId, tradieDrafted: !!tradieDrafted })
 
   try {
+    const estimateRequestKey = `initial:${intakeId}`
+    const { data: initialSavedQuote, error: savedQuoteError } = await supabase.from('quotes')
+      .select('*').eq('estimate_request_key', estimateRequestKey).maybeSingle()
+    let savedQuote = initialSavedQuote
+    if (savedQuoteError) throw new Error(`Quote recovery lookup failed: ${savedQuoteError.message}`)
+    if (!savedQuote) {
+      const legacy = await supabase.from('quotes').select('*').eq('intake_id', intakeId)
+        .is('parent_quote_id', null).order('created_at', { ascending: true }).limit(1).maybeSingle()
+      if (legacy.error) throw new Error('Existing initial quote lookup failed')
+      savedQuote = legacy.data
+    }
+
+    if (savedQuote) return Response.json({ ok: true, idempotent: true, ...await resumeSavedSmsQuote(supabase, savedQuote.id, intakeId) })
     log.step('loading intake, pricing_book, caller_number')
     const { data: intake } = await supabase.from('intakes').select('*').eq('id', intakeId).single()
 
@@ -100,6 +130,8 @@ export async function POST(req: Request) {
     // 'electrical' (the original NSW/NECA pilot trade).
     const intakeTrade = (intake?.trade as 'electrical' | 'plumbing' | undefined) ?? 'electrical'
     const intakeTenantId = (intake?.tenant_id as string | null) ?? null
+    updateSmsDeliveryContext({ tenantId: intakeTenantId })
+    await attributeSmsWorkTenant(intakeTenantId)
 
     // ── Billing enforcement gate (flag-gated by BILLING_ENFORCEMENT_ENABLED;
     // OFF by default). One chokepoint covers BOTH channels — voice and SMS
@@ -204,7 +236,7 @@ export async function POST(req: Request) {
       intakeTrade,
       tenantBook,
     })
-    const pricingBook: Record<string, unknown> | null = bookResolution.ok
+    let pricingBook: Record<string, unknown> | null = bookResolution.ok
       ? (bookResolution.pricingBook as Record<string, unknown>)
       : null
 
@@ -279,6 +311,7 @@ export async function POST(req: Request) {
         .maybeSingle()
       if (convo) {
         smsConversationId = convo.id
+        updateSmsDeliveryContext({ tenantId: intakeTenantId, conversationId: convo.id })
         call = { caller_number: convo.from_number ?? null }
         // conversation_state is jsonb on the DB; supabase-js returns
         // the parsed object (or null). Defensive shape check before we
@@ -330,6 +363,10 @@ export async function POST(req: Request) {
         : 0,
     })
 
+    const pricedCheckpoint = await versionedEstimationCheckpoint(supabase, {
+      tenantId: intakeTenantId, trade: intakeTrade, book: pricingBook,
+      checkpoint: smsWorkCheckpoint,
+      run: async () => {
     let estimation: Awaited<ReturnType<typeof runEstimation>>
     if (!bookResolution.ok) {
       // No valid tenant pricing book → synthesize an inspection-only draft
@@ -391,6 +428,11 @@ export async function POST(req: Request) {
         }
       )
     }
+    return estimation
+      },
+    })
+    const estimation = pricedCheckpoint.estimation
+    pricingBook = pricedCheckpoint.pricingVersion?.snapshot ?? null
     const draft = estimation.draft
 
     // Surface grounding failures clearly in the Vercel logs. Log EVERY
@@ -564,14 +606,16 @@ export async function POST(req: Request) {
     }
 
     log.step('inserting quotes row', { tenant_id: intakeTenantId })
-    const shareToken = generateShareToken()
-    const { data: quote } = await supabase.from('quotes').insert({
+    const shareToken = savedQuote?.share_token ?? await smsWorkCheckpoint('share_token', async () => generateShareToken())
+    const { data: quote, error: quoteInsertError } = savedQuote ? { data: savedQuote, error: null } : await supabase.from('quotes').insert({
+      estimate_request_key: estimateRequestKey,
       intake_id: intakeId,
       // v6 multi-tenant: propagate the tenant from the intake so the
       // dashboard's Quotes tab (which filters quotes by tenant_id) picks
       // up every quote drafted from that tradie's inbound traffic.
       tenant_id: intakeTenantId,
-      status: 'draft',
+      pricing_book_version_id: pricedCheckpoint.pricingVersion?.id ?? null,
+      status: 'awaiting_tradie_approval',
       // WP6 — stamp the price-hold window at creation so the customer SMS
       // and the quote page show a consistent "held until" countdown. The
       // page still derives from created_at as a legacy fallback when null.
@@ -603,7 +647,7 @@ export async function POST(req: Request) {
       // decision + a grounding summary. (auto_sent records the gated INTENT;
       // the live dispatch flip to honour it is the conscious go-live step.)
       pricing_path:        (draft as { pricing_path?: string }).pricing_path ?? 'opus_fallback',
-      auto_sent:           routing_decision === 'auto_send',
+      auto_sent:           false,
       // `failures` carries the SAME data the [grounding] risk_flags strings
       // above carry, structured instead of formatted. risk_flags is a text
       // array shared with billing/spec flags, so answering "which line was
@@ -628,6 +672,8 @@ export async function POST(req: Request) {
           : {}),
       },
     }).select().single()
+    if (quoteInsertError || !quote?.id || !quote?.share_token) throw new Error(`Quote persistence failed: ${quoteInsertError?.message ?? 'missing saved row'}`)
+    await markSmsQuoteSaved(intakeId, quote.id)
     log.ok('quote inserted', { quote_id: quote!.id, total_inc_gst: total, routing: routing_decision, inspection: isInspection, share_token: shareToken.slice(0, 8) + '…' })
 
     // Mig 175 — persist the one-line job summary (Section 2 of the quote
@@ -748,8 +794,8 @@ export async function POST(req: Request) {
         log.ok('Stripe sessions created (auto-quote)', {
           tiers_with_links: Object.values(payLinks).filter(Boolean).length,
         })
-      } catch (e: any) {
-        log.err('Stripe session creation failed — SMS will go without pay links', e?.message ?? e, {
+      } catch (e: unknown) {
+        log.err('Stripe session creation failed — SMS will go without pay links', (e instanceof Error ? e.message : undefined) ?? e, {
           quote_id: quote!.id,
         })
       }
@@ -779,8 +825,8 @@ export async function POST(req: Request) {
             quote_id: quote!.id,
           })
         }
-      } catch (e: any) {
-        log.err('Stripe inspection-fee creation failed — SMS will mention the fee without a link', e?.message ?? e, {
+      } catch (e: unknown) {
+        log.err('Stripe inspection-fee creation failed — SMS will mention the fee without a link', (e instanceof Error ? e.message : undefined) ?? e, {
           quote_id: quote!.id,
         })
       }
@@ -814,8 +860,8 @@ export async function POST(req: Request) {
         const [previewResult, samplesResult] = await Promise.all([previewPromise, samplesPromise])
         previewLog.ok('preview trigger 3 result', { status: previewResult.status })
         previewLog.ok('samples trigger 3 result', { status: samplesResult.status })
-      } catch (e: any) {
-        previewLog.err('preview/samples trigger 3 threw', e?.message ?? String(e))
+      } catch (e: unknown) {
+        previewLog.err('preview/samples trigger 3 threw', (e instanceof Error ? e.message : undefined) ?? String(e))
       }
     })
 
@@ -861,7 +907,7 @@ export async function POST(req: Request) {
       const { error: holdErr } = await supabase
         .from('quotes')
         .update({ status: 'awaiting_tradie_approval' })
-        .eq('id', quote!.id)
+        .eq('id', quote!.id).in('status', ['draft', 'awaiting_tradie_approval'])
       if (holdErr) {
         log.err('failed to mark quote awaiting_tradie_approval', null, {
           quote_id: quote!.id,
@@ -912,6 +958,8 @@ export async function POST(req: Request) {
       // tradie text that implies the send succeeded).
       let tradieNotifiedUndelivered = false
       if (reviewDecision.hold) {
+        await resumeSavedSmsQuote(supabase, quote!.id, intakeId)
+        return
         // Customer SMS is held — tradie review path. We fall through to
         // the tradie-notify block below, which uses
         // buildTradieReviewNotification() (approve + edit links)
@@ -1344,7 +1392,7 @@ export async function POST(req: Request) {
               () => dispatchQuoteMessage({
                 to: callerNumber!,
                 from: fromNumber,
-                text: 'Thanks — we hit a snag finalising your quote, but it’s on the way. We’ll text it through shortly.',
+                text: 'Your draft is saved, but the send could not be completed. No quote delivery is confirmed. You can reply here to check its status.',
               }),
               { knobs },
             )
@@ -1395,18 +1443,27 @@ export async function POST(req: Request) {
             })
           }
         }
+        throw afterErr
       }
     })
 
     log.done('estimate handler done', { quote_id: quote!.id })
     return Response.json({ ok: true, quoteId: quote!.id })
-  } catch (err: any) {
-    log.err('estimate handler failed', err, { stack: err?.stack?.split('\n').slice(0, 4).join(' | ') })
+  } catch (err: unknown) {
+    if (err instanceof QuotePricingVersionError) {
+      return Response.json({ ok: false, error: err.code }, { status: err.status })
+    }
+    log.err('estimate handler failed', err, { stack: (err instanceof Error ? err.stack : undefined)?.split('\n').slice(0, 4).join(' | ') })
     return Response.json({
       ok: false,
-      error: err?.message ?? String(err),
-      cause: err?.cause?.message,
-      stack: err?.stack?.split('\n').slice(0, 6).join('\n'),
+      error: (err instanceof Error ? err.message : undefined) ?? String(err),
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
+      stack: (err instanceof Error ? err.stack : undefined)?.split('\n').slice(0, 6).join('\n'),
     }, { status: 500 })
   }
+}
+
+async function markSmsQuoteSaved(intakeId: string, quoteId: string) {
+  const { error } = await supabase.from('sms_conversations').update({ quote_id: quoteId, quote_stage: 'awaiting_review', status: 'done', updated_at: new Date().toISOString() }).eq('intake_id', intakeId)
+  if (error) throw new Error(`Saved quote stage update failed: ${error.message}`)
 }

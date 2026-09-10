@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "timestamp": "2026-09-07T07:18:47.437Z",
-=======
-  "timestamp": "2026-09-08T04:10:10.765Z",
->>>>>>> sms-receptionist-fix
+  "timestamp": "2026-09-08T05:30:11.408Z",
   "mode": "local",
   "checks": {
     "envFilesProtected": false,

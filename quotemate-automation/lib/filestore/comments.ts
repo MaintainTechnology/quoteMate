@@ -250,18 +250,35 @@ export async function softDeleteComment(commentId: string): Promise<void> {
     .eq('id', commentId)
 }
 
+export class ThreadResolutionError extends Error {
+  constructor(public readonly code: 'not_found' | 'thread_resolution_failed') {
+    super(code)
+    this.name = 'ThreadResolutionError'
+  }
+}
+
 export async function setThreadResolved(
   docId: string,
   resolved: boolean,
   byRole: CommentAuthorRole,
+  tenantId: string,
 ): Promise<ThreadState> {
   const resolved_at = resolved ? new Date().toISOString() : null
   const resolved_by = resolved ? byRole : null
-  await svc()
+  const { data, error } = await svc()
     .from('tenant_file_documents')
     .update({ comments_resolved_at: resolved_at, comments_resolved_by: resolved_by })
     .eq('id', docId)
-  return { resolved, resolved_at, resolved_by }
+    .eq('tenant_id', tenantId)
+    .select('comments_resolved_at, comments_resolved_by')
+    .maybeSingle<{ comments_resolved_at: string | null; comments_resolved_by: string | null }>()
+  if (error) throw new ThreadResolutionError('thread_resolution_failed')
+  if (!data) throw new ThreadResolutionError('not_found')
+  return {
+    resolved: data.comments_resolved_at !== null,
+    resolved_at: data.comments_resolved_at,
+    resolved_by: data.comments_resolved_by,
+  }
 }
 
 /** True iff `c` belongs to `docId` and was authored by (role,userId). Used by

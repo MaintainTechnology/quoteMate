@@ -1,0 +1,14 @@
+import { recoverSmsOutbox } from '../lib/sms/dispatch'
+import { runSmsWorkBatch } from '../lib/sms/durable-work'
+import { smsDeliveryWorkScope } from '../lib/sms/work-delivery-context'
+import { POST as inbound } from '../receptionist/inbound.route'
+import { POST as intake } from '../intake/structure.route'
+import { POST as estimate } from '../estimate/draft.route'
+import { startIndependentPollers } from './scheduler'
+
+export function startWorkers(): () => void {
+  return startIndependentPollers(
+    () => runSmsWorkBatch({ inbound, intake, estimate }, { scope: smsDeliveryWorkScope, limit: 10 }),
+    () => recoverSmsOutbox(10),
+  )
+}

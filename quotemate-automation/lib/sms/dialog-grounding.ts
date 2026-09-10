@@ -112,8 +112,9 @@ const PROMISE_CLAUSE_RE =
  *  "tap the link to upload a photo"). Dangling without a URL, so it goes too. */
 const DANGLING_CLAUSE_RE = /\b(tap|click|follow|open|use)\b.*\b(it|link|below|through)\b/i
 
-/** Said when the reply would otherwise be emptied. True, and promises nothing. */
-export const NO_LINK_FALLBACK = "Thanks - I'll get your quote sorted and come back to you shortly."
+/** A stripped gather reply does not schedule quote work. Ask what is needed
+ * next without denying a link sent on an earlier turn or promising a follow-up. */
+export const NO_LINK_FALLBACK = 'I have not sent a link in this reply. What would you like help with next?'
 
 /**
  * Remove any promise to send a link from a drafted reply.

@@ -107,4 +107,22 @@ describe('dispatchQuoteWithPdf', () => {
       expect.not.objectContaining({ mediaUrl: expect.anything() }),
     )
   })
+  it('forwards the authorised send key and tenant/work identity without deriving identity from a signed URL',async()=>{
+    process.env.SMS_QUOTE_PDF_MMS='1'
+    const identity={deliveryKey:'quote:one:approve',tenantId:'tenant-one',conversationId:'conversation-one',turnId:'turn-one',workId:'work-one',workOwner:'owner-one'}
+    try {
+      await dispatchQuoteWithPdf({...identity,to:'+61400000000',text:'Approved quote',pdfPath:'quotes/one.pdf',signMediaUrl:async()=>'https://storage.test/one.pdf?token=first'})
+      await dispatchQuoteWithPdf({...identity,to:'+61400000000',text:'Approved quote',pdfPath:'quotes/one.pdf',signMediaUrl:async()=>'https://storage.test/one.pdf?token=renewed'})
+      for(const [opts] of dispatchQuoteMessage.mock.calls) expect(opts).toMatchObject({...identity,mediaKey:'quotes/one.pdf'})
+      expect(dispatchQuoteMessage.mock.calls[0][0]).toMatchObject({mediaUrl:'https://storage.test/one.pdf?token=first'})
+      expect(dispatchQuoteMessage.mock.calls[1][0]).toMatchObject({mediaUrl:'https://storage.test/one.pdf?token=renewed'})
+    } finally { delete process.env.SMS_QUOTE_PDF_MMS }
+  })
+  it('preserves different explicit manual-send request identities',async()=>{
+    for(const requestId of ['request-one','request-two']) {
+      await dispatchQuoteWithPdf({deliveryKey:`quote:one:manual:${requestId}`,to:'+61400000000',text:'Approved quote',pdfPath:null,signMediaUrl:async()=>''})
+    }
+    expect(dispatchQuoteMessage.mock.calls[0][0]).toMatchObject({deliveryKey:'quote:one:manual:request-one'})
+    expect(dispatchQuoteMessage.mock.calls[1][0]).toMatchObject({deliveryKey:'quote:one:manual:request-two'})
+  })
 })

@@ -1,0 +1,310 @@
+{
+  "completed": true,
+  "results": [
+    {
+      "mode": "accepted",
+      "passed": true,
+      "jobId": "9f53c1b1-acd4-41e0-8b7e-65a69c1e13ce",
+      "requestId": "09430d87-a253-44e5-80d0-6c2bee9b0cc3",
+      "conversationId": "1a29d041-cf74-4b85-9446-46ba3a9ad43f",
+      "token": "b09822f25d5648d889e3facf4b791b0e",
+      "outboxId": "a1b6b31c-1d2d-4020-90ad-767ecd4b6d7c",
+      "transcriptId": "567fee76-27cc-409d-afdb-cb9ae0caadab",
+      "carrierAttempts": 1,
+      "acceptedSid": "SM00000000000000000000000000000001",
+      "failureBeforeRecovery": null,
+      "ownerQueueBeforeRecovery": null
+    },
+    {
+      "mode": "transient",
+      "passed": true,
+      "jobId": "f5edbc4a-a2c5-460b-ba15-e6546b4caeda",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "conversationId": "d91a65f6-3ffd-4bfb-addc-2359c08fb65c",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "outboxId": "e24b304b-5296-413b-a950-781979350a17",
+      "transcriptId": "0851a8e4-eab8-491c-8f12-2f0796d170da",
+      "carrierAttempts": 5,
+      "acceptedSid": "SM00000000000000000000000000000002",
+      "failureBeforeRecovery": {
+        "outboxId": "e24b304b-5296-413b-a950-781979350a17",
+        "status": "retry",
+        "attempts": 1,
+        "code": "429"
+      },
+      "ownerQueueBeforeRecovery": {
+        "id": "e24b304b-5296-413b-a950-781979350a17",
+        "body": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+        "result": {
+          "ok": false,
+          "smsAttempt": {
+            "code": "429",
+            "reason": "Explicit fixture provider rejection"
+          },
+          "smsAttempts": 4
+        },
+        "status": "retry",
+        "payload": {
+          "to": "+61411111191",
+          "from": "+61488888888",
+          "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+          "turnId": "ee5d90e3-2aa3-4ef4-854e-633fd7bee788",
+          "workId": "f5edbc4a-a2c5-460b-ba15-e6546b4caeda",
+          "tenantId": "11111111-1111-4111-8111-111111111111",
+          "workOwner": "9cf0bc16-92a4-4dd1-bb0f-e0e4087dad14",
+          "deliveryKey": "plan-upload:SM00000000000000000000000000000101",
+          "conversationId": "d91a65f6-3ffd-4bfb-addc-2359c08fb65c"
+        },
+        "turn_id": "ee5d90e3-2aa3-4ef4-854e-633fd7bee788",
+        "attempts": 1,
+        "audience": "customer",
+        "tenant_id": "11111111-1111-4111-8111-111111111111",
+        "to_number": "+61411111191",
+        "created_at": "2026-09-09T15:32:34.59+08:00",
+        "updated_at": "2026-09-09T15:32:40.122+08:00",
+        "lease_until": null,
+        "sms_work_id": null,
+        "delivery_key": "plan-upload:SM00000000000000000000000000000101",
+        "payload_hash": "f434fffb99a1d62db6cfab6541e2cb54ae7eb104e2a16a5ad976088c2d017761",
+        "provider_sid": null,
+        "attempt_token": "00cf9830-dcd5-4e75-b8e3-45f651b83340",
+        "provider_error": null,
+        "sms_work_owner": null,
+        "conversation_id": "d91a65f6-3ffd-4bfb-addc-2359c08fb65c",
+        "next_attempt_at": "2026-09-09T15:33:10.122+08:00",
+        "provider_status": null,
+        "requires_attention": false
+      }
+    },
+    {
+      "mode": "permanent",
+      "passed": true,
+      "jobId": "434a3261-f120-4911-99b5-c0de6d692d12",
+      "requestId": "ed117ece-3d50-4ea4-9a66-7c712dc82007",
+      "conversationId": "04067799-0117-403c-8c70-b33a9083be3a",
+      "token": "286ecf04a69142fd90e4514ebbd4f979",
+      "outboxId": "104ac039-d0a8-4feb-99d4-0644aac5468a",
+      "transcriptId": "66fe58ed-e870-44ba-9400-c17e0a164fb9",
+      "carrierAttempts": 2,
+      "acceptedSid": "SM00000000000000000000000000000003",
+      "failureBeforeRecovery": {
+        "outboxId": "104ac039-d0a8-4feb-99d4-0644aac5468a",
+        "status": "failed",
+        "attempts": 1,
+        "code": "21612"
+      },
+      "ownerQueueBeforeRecovery": {
+        "id": "104ac039-d0a8-4feb-99d4-0644aac5468a",
+        "body": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/286ecf04a69142fd90e4514ebbd4f979 and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+        "result": {
+          "ok": false,
+          "smsAttempt": {
+            "code": "21612",
+            "reason": "Explicit fixture provider rejection"
+          },
+          "smsAttempts": 1
+        },
+        "status": "failed",
+        "payload": {
+          "to": "+61411111192",
+          "from": "+61488888888",
+          "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/286ecf04a69142fd90e4514ebbd4f979 and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+          "turnId": "8fc22862-a0f1-4ae7-a664-551f01621c33",
+          "workId": "434a3261-f120-4911-99b5-c0de6d692d12",
+          "tenantId": "11111111-1111-4111-8111-111111111111",
+          "workOwner": "72cc23e7-0bc0-488c-935f-19430bce8120",
+          "deliveryKey": "plan-upload:SM00000000000000000000000000000102",
+          "conversationId": "04067799-0117-403c-8c70-b33a9083be3a"
+        },
+        "turn_id": "8fc22862-a0f1-4ae7-a664-551f01621c33",
+        "attempts": 1,
+        "audience": "customer",
+        "tenant_id": "11111111-1111-4111-8111-111111111111",
+        "to_number": "+61411111192",
+        "created_at": "2026-09-09T15:32:40.182+08:00",
+        "updated_at": "2026-09-09T15:32:40.188+08:00",
+        "lease_until": null,
+        "sms_work_id": null,
+        "delivery_key": "plan-upload:SM00000000000000000000000000000102",
+        "payload_hash": "43545080363b41a19af7e2a955eb3fbeeb51c41ba52c2a8b38183af5d5aeb39f",
+        "provider_sid": null,
+        "attempt_token": "dd04b151-aa79-4c96-8351-f0d7c173a057",
+        "provider_error": null,
+        "sms_work_owner": null,
+        "conversation_id": "04067799-0117-403c-8c70-b33a9083be3a",
+        "next_attempt_at": "2026-09-09T15:33:10.188+08:00",
+        "provider_status": null,
+        "requires_attention": true
+      }
+    },
+    {
+      "mode": "enqueue",
+      "passed": true,
+      "jobId": "58e7dfc7-e917-4593-89ce-b14912394203",
+      "requestId": "6cbae5ef-de13-4cc9-b263-c3aa524003d8",
+      "conversationId": "2f644d16-ca5f-46bc-bee5-874a19b96f48",
+      "token": "9f0c11ed872b4882b41c32c6520530df",
+      "outboxId": "335bd306-7ff6-42ea-9fcf-f0c6d996ff2b",
+      "transcriptId": "66e1c4d2-700e-41e6-82e0-d4fee16b9ce1",
+      "carrierAttempts": 1,
+      "acceptedSid": "SM00000000000000000000000000000004",
+      "failureBeforeRecovery": {
+        "id": "58e7dfc7-e917-4593-89ce-b14912394203",
+        "kind": "inbound",
+        "result": null,
+        "status": "retry",
+        "payload": {
+          "url": "https://quotemax.com.au/offline-plan-invitation-adapter",
+          "body": "{\"fromNumber\":\"+61411111193\",\"toNumber\":\"+61488888888\",\"inboundBody\":\"Can you quote my electrical plan?\",\"messageSid\":\"SM00000000000000000000000000000103\",\"customerFirstName\":\"Sam\"}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        },
+        "turn_id": "f5b08c31-3166-42ff-867f-54196149f328",
+        "attempts": 1,
+        "sequence": 10,
+        "work_key": "inbound:SM00000000000000000000000000000103",
+        "tenant_id": "11111111-1111-4111-8111-111111111111",
+        "checkpoint": {},
+        "created_at": "2026-09-09T15:32:40.238+08:00",
+        "last_error": "Plan upload notification could not be queued",
+        "serial_key": "11111111-1111-4111-8111-111111111111:+61411111193",
+        "updated_at": "2026-09-09T15:32:40.254+08:00",
+        "lease_until": null,
+        "owner_token": null,
+        "service_key": "platform",
+        "available_at": "2026-09-09T15:32:50.254+08:00",
+        "completed_at": null
+      },
+      "ownerQueueBeforeRecovery": null
+    }
+  ],
+  "failedTests": [],
+  "sourceHashes": {
+    "tests/sms-plan-invitation-recovery.test.mjs": "4eb2de9d0d30e343f84ee5176d4503be7257e6d68c62843aa1c9bbdcc9950f03",
+    "scripts/sms-plan-invitation-fixture.mjs": "bcf41d634d6f3c6e650db43a05d4b4a1ba2b805056430c9881d4eb4dcfc7e9c5",
+    "scripts/vitest-sms-plan-created-release.config.mjs": "ff7b6574db7b2fa3c01caa0548ec6a156682e617374029dc5d3a864f962d6f14",
+    "scripts/sms-plan-created-release-fixture.mjs": "bd7a524b16f08d8a02a6ef7b8c30638451972df0d59952ba844962f5d8359446",
+    "scripts/sms-owner-release-fixture.mjs": "b011f17e5f74398ff5a787b31d5544a64a84c4cdb6c6cce4f527ee5d248cd296",
+    "scripts/sms-route-fixture-db.mjs": "0bddf6601bc9d33bf3ed4aaa51fe96f4b2f921b1d881d608bd3d522cd501eefa",
+    "lib/sms/plan-estimation.ts": "522ea5c09c57a31dfe49f9fc794860909f592bdee0623c8dbcd05b59e36aebe3",
+    "lib/estimation/plan-request.ts": "d104ef53b9fde846b762e65efcd550f907da4e2202d53bc1e09fcbabad9260c4",
+    "lib/sms/dispatch.ts": "e6229507b3d0fde594985ee4fff19bc4716135cb3be01084d342b14ed37bc10f",
+    "lib/sms/durable-work.ts": "384684697409da735d716b475a60444859459f4178482ca552b44049cd0f84f9",
+    "lib/sms/durable-outbox.ts": "df8b965e0efd9f0b76e40063d1b9e1da01464deab984d9e9779025826a365871",
+    "lib/sms/delivery-context.ts": "7869448628b679b9423769f4dd384cc98d136f149fe67bab3de49dc1fbfa6d1e",
+    "lib/sms/public-origin.ts": "3d5ba326368d0f5ee078b24eca6f3283b5c2e1fb1bb9b1f2dca853d50a23350d",
+    "app/api/tenant/sms-delivery/route.ts": "1227a68fbfa3976bc27800abcdfabe36b8bfaea5cb6d4cb19e3aaf228061ca21",
+    "sql/migrations/198_sms_durable_work.sql": "61fa08fd34d3a308bf983d87571d4e4a527159b03d548c083213fa500d500410",
+    "sql/migrations/199_sms_delivery_outbox.sql": "4692464f2e96a84066c06bf38ced1fec1a0b8a3ea40aaebe849921fc4e482e40",
+    "sql/migrations/201_sms_trade_quote_contract.sql": "582c21e49397faa4bcc6559dbe3fc98734a29567335ba4ae0bb0e3dfac8caae0",
+    "sql/migrations/202_job_quote_operations.sql": "fca26595e4eb06777ab166815f33ce4130147feba508a57b2c97113472bc03d9",
+    "sql/migrations/205_generic_quote_customer_release.sql": "9ac29c9570b229d99699002f5c339e815ed40dd15d20860d2f6e5db50e1f7c31",
+    "sql/migrations/207_quote_pricing_versions.sql": "c93834f4c80c40a35a6bc2d85eef7ddbe03d59bb1e8f25cbd95854cd30ffdfe2",
+    "sql/migrations/210_sms_plan_work.sql": "061631fce3d847230ef9f4568a95428ba91116132e9e0d51b07cfb3ab352cb8c",
+    "sql/migrations/211_commercial_quote_release_guard.sql": "7b0b2f0892fd1fe67489a1d8a731ae518591347e0fc0b88763421e6e3676c909",
+    "sql/migrations/212_plan_quote_release_guard.sql": "4046d1bb6687c99025ad5e2e42692c66dc58906cc90e6f875ebe1ba68d5887d9",
+    "sql/migrations/215_generic_release_snapshot.sql": "43b8d452909c4128f3c45bab270399dca9c839d5d154d81720302cd532c8f2df",
+    "sql/migrations/217_final_quote_credit_settlement.sql": "90f64159234f20456e7cfe4efbf65f23f028c0de0c4e0f46e4e5ec949f12c6d0"
+  },
+  "limits": [
+    "Actual plan invitation helper, SQL199 request/outbox, SQL198 claim/retry, dispatcher/recovery and owner delivery GET/POST execute over one local PGlite connection.",
+    "A fixture inbound adapter invokes the real helper under actual durable work and delivery ownership contexts; actual webhook signature parsing, routing and compiled bootstrap are not executed.",
+    "Only tenant identity is seeded. The actual request RPC creates the upload invitation, token, conversation and inbound message.",
+    "Carrier rejections/acceptance and one pre-enqueue database error are explicit fixtures. All network transports are denied and recorded.",
+    "Recovery due timestamps are advanced in local SQL; no real scheduler wait, process kill, production RLS/PostgREST or carrier delivery is claimed.",
+    "Upload, extraction, owner quote review/public access are retained in the separate same-config plan journey. Named hashes do not cover every transitive import."
+  ],
+  "generatedAt": "2026-09-09T07:32:40.324Z",
+  "carrierAttempts": [
+    {
+      "to": "+61411111190",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/b09822f25d5648d889e3facf4b791b0e and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=a1b6b31c-1d2d-4020-90ad-767ecd4b6d7c&attempt=88bc2aad-c374-4dc2-8a60-d4c12b73b807",
+      "requestId": "09430d87-a253-44e5-80d0-6c2bee9b0cc3",
+      "token": "b09822f25d5648d889e3facf4b791b0e",
+      "rejected": null
+    },
+    {
+      "to": "+61411111191",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=e24b304b-5296-413b-a950-781979350a17&attempt=00cf9830-dcd5-4e75-b8e3-45f651b83340",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "rejected": "429"
+    },
+    {
+      "to": "+61411111191",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=e24b304b-5296-413b-a950-781979350a17&attempt=00cf9830-dcd5-4e75-b8e3-45f651b83340",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "rejected": "429"
+    },
+    {
+      "to": "+61411111191",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=e24b304b-5296-413b-a950-781979350a17&attempt=00cf9830-dcd5-4e75-b8e3-45f651b83340",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "rejected": "429"
+    },
+    {
+      "to": "+61411111191",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=e24b304b-5296-413b-a950-781979350a17&attempt=00cf9830-dcd5-4e75-b8e3-45f651b83340",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "rejected": "429"
+    },
+    {
+      "to": "+61411111191",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/d9f41f1cd675464ca1cf68ef2ba3f6ab and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=e24b304b-5296-413b-a950-781979350a17&attempt=48f01e01-ddc1-43c3-8742-58c9eb7eefe0",
+      "requestId": "110069a9-d902-4834-af46-30704e22d2fa",
+      "token": "d9f41f1cd675464ca1cf68ef2ba3f6ab",
+      "rejected": null
+    },
+    {
+      "to": "+61411111192",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/286ecf04a69142fd90e4514ebbd4f979 and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=104ac039-d0a8-4feb-99d4-0644aac5468a&attempt=dd04b151-aa79-4c96-8351-f0d7c173a057",
+      "requestId": "ed117ece-3d50-4ea4-9a66-7c712dc82007",
+      "token": "286ecf04a69142fd90e4514ebbd4f979",
+      "rejected": "21612"
+    },
+    {
+      "to": "+61411111192",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/286ecf04a69142fd90e4514ebbd4f979 and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=104ac039-d0a8-4feb-99d4-0644aac5468a&attempt=c279675f-08a9-4c80-829f-dcc4c71ae99e",
+      "requestId": "ed117ece-3d50-4ea4-9a66-7c712dc82007",
+      "token": "286ecf04a69142fd90e4514ebbd4f979",
+      "rejected": null
+    },
+    {
+      "to": "+61411111193",
+      "text": "Hi Sam! Offline plan electrician here. Upload your electrical plan PDF at https://quotemax.com.au/upload/plan/9f0c11ed872b4882b41c32c6520530df and we'll read it automatically — every light, power point and data point counted off the drawing. Results land back here a couple of minutes after you upload.",
+      "from": "+61488888888",
+      "statusCallback": "https://quotemax.com.au/api/sms/status?outbox=335bd306-7ff6-42ea-9fcf-f0c6d996ff2b&attempt=ec81c921-e15b-4777-9fda-fa3e5da3be62",
+      "requestId": "6cbae5ef-de13-4cc9-b263-c3aa524003d8",
+      "token": "9f0c11ed872b4882b41c32c6520530df",
+      "rejected": null
+    }
+  ],
+  "acceptedCarrierCalls": 4,
+  "injectedFailures": [
+    {
+      "boundary": "sms_outbox_enqueue",
+      "key": "plan-upload:SM00000000000000000000000000000103"
+    }
+  ],
+  "unexpected": []
+}

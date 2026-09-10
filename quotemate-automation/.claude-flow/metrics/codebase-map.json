@@ -1,20 +1,11 @@
 {
-<<<<<<< HEAD
-  "timestamp": "2026-09-07T07:18:47.396Z",
-  "projectRoot": "C:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation",
-=======
-  "timestamp": "2026-09-08T04:08:10.947Z",
+  "timestamp": "2026-09-08T05:23:11.304Z",
   "projectRoot": "c:\\Users\\dalig\\Downloads\\QuoteMate\\quoteMate\\quotemate-automation",
->>>>>>> sms-receptionist-fix
   "structure": {
     "hasPackageJson": true,
     "hasTsConfig": true,
     "hasClaudeConfig": true,
     "hasClaudeFlow": true
   },
-<<<<<<< HEAD
-  "scannedAt": 1788765527399
-=======
-  "scannedAt": 1788840490948
->>>>>>> sms-receptionist-fix
+  "scannedAt": 1788844991305
 }

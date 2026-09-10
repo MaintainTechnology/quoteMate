@@ -120,7 +120,7 @@ describe('every other trade keeps the deposit shape (the allowlist fails open)',
   for (const trade of ['solar', 'commercial_painting', 'roofing', undefined, null]) {
     it(`trade ${JSON.stringify(trade)} still prints deposits + per-tier pay links`, () => {
       const body = buildQuoteSms(intake, baseQuote, { trade, tierMode: 'single' })
-      expect(body).toMatch(/BETTER: \$880 \(deposit \$264\)/)
+      expect(body).toMatch(/BETTER: \$880\.00 \(deposit \$264\.00\)/)
       expect(body).toContain('Tap to pay: https://www.quotemax.com.au/r/abc123/better')
       expect(body).not.toContain('$99 refundable')
       expect(body).toContain('confirm a tier')

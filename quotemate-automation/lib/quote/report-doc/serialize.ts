@@ -8,7 +8,7 @@ import { esc } from '../../pdf/report-chrome'
 import { renderQuoteTiersHtml, type QuoteReportInput } from '../report-html'
 import { ALLOWED_MARKS, type ReportDoc, type ReportDocText } from './types'
 
-type TierInput = Pick<QuoteReportInput, 'good' | 'better' | 'best' | 'selectedTier'>
+type TierInput = Pick<QuoteReportInput, 'good' | 'better' | 'best' | 'selectedTier' | 'gstRegistered' | 'appliedDiscountPct' | 'quoteKind'>
 
 const MARK_TAG: Record<string, [string, string]> = {
   bold: ['<strong>', '</strong>'],

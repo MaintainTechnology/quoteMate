@@ -18,7 +18,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { after } from 'next/server'
-import { resolveIdentityRequest } from '@/lib/tenant/from-request'
+import { resolveTenantRequest } from '@/lib/tenant/from-request'
 import { runSolarEstimate } from '@/lib/solar/intake'
 import { loadSolarConfig } from '@/lib/solar/config'
 import { depositPctFromOverlay, loadSolarTenantRates } from '@/lib/solar/rate-card-overlay'
@@ -57,8 +57,9 @@ export async function POST(
 
   // Dual-auth (Clerk↔Supabase) — same trust model as POST /api/solar/confirm.
   const supabase = getSupabase()
-  const identity = await resolveIdentityRequest(supabase, req)
-  if (!identity) {
+  const auth = await resolveTenantRequest(supabase, req, 'id')
+  const tenantId = auth?.tenant?.id
+  if (typeof tenantId !== 'string') {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
 
@@ -83,13 +84,16 @@ export async function POST(
 
   const { data: row, error } = await supabase
     .from('solar_estimates')
-    .select('id, tenant_id, public_token, address, state, postcode, confirmed_at, estimate, quote_variant')
+    .select('*')
     .eq('public_token', token)
+    .eq('tenant_id', tenantId)
     .maybeSingle()
-  if (error || !row) {
+  if (error) return Response.json({ ok: false, error: 'quote_unavailable' }, { status: 503 })
+  if (!row) {
     return Response.json({ ok: false, error: 'not_found' }, { status: 404 })
   }
 
+  if (row.paid_at) return Response.json({ ok: false, error: 'paid_quote_locked' }, { status: 409 })
   const eligibility = redraftEligibility({
     confirmedAt: (row.confirmed_at as string | null) ?? null,
   })
@@ -190,44 +194,20 @@ export async function POST(
     // Tenant deposit % from the solar rate card (null → keep stored/default).
     depositPct: depositPctFromOverlay(overlay),
   })
-  const {
-    tenant_id: _t,
-    public_token: _p,
-    address: _a,
-    state: _s,
-    postcode: _pc,
-    ...estimateUpdate
-  } = payloads.solarEstimate
+  const estimateUpdate = Object.fromEntries(Object.entries(payloads.solarEstimate).filter(([key]) => !['tenant_id','public_token','address','state','postcode'].includes(key)))
 
-  const { error: updErr } = await supabase
-    .from('solar_estimates')
-    .update({
-      ...estimateUpdate,
-      // Stale artefacts must regenerate against the new numbers: the PDF
-      // on next request, and the AI "panels installed" concept (its
-      // prompt is grounded on the headline tier's panel layout).
-      pdf_path: null,
-      panels_image_status: 'idle',
-      panels_image_path: null,
-    })
-    .eq('id', row.id)
-  if (updErr) {
-    return Response.json(
-      { ok: false, error: 'update_failed', detail: updErr.message },
-      { status: 500 },
-    )
-  }
-
-  // Refresh the linked quotes row (same share_token) so the dashboard
-  // pipeline shows the new totals. Best-effort — the solar_estimates row
-  // is the source of truth for the customer page.
-  const { tenant_id: _qt, status: _qs, share_token: _qst, ...quoteUpdate } = payloads.quote
-  const { error: quoteErr } = await supabase
-    .from('quotes')
-    .update(quoteUpdate)
-    .eq('share_token', row.public_token)
-  if (quoteErr) {
-    console.warn('[solar/redraft] quotes row refresh failed (non-fatal)', quoteErr.message)
+  // The RPC locks both saved records, checks the exact previously read snapshot
+  // and approval/payment state, then refreshes both prices in one transaction.
+  // A concurrent owner approval wins without a late redraft changing its prices.
+  const quoteUpdate = Object.fromEntries(Object.entries(payloads.quote).filter(([key]) => !['tenant_id','status','share_token'].includes(key)))
+  const { data: saved, error: updErr } = await supabase.rpc('sms_redraft_solar_owned', {
+    p_tenant_id: tenantId, p_id: row.id, p_expected: row,
+    p_changes: { ...estimateUpdate, pdf_path: null, panels_image_status: 'idle', panels_image_path: null },
+    p_quote_changes: quoteUpdate,
+  })
+  if (updErr || !saved) {
+    return Response.json({ ok: false, error: 'quote_changed_or_unavailable',
+      detail: 'The quote changed while re-drafting. Reload it before trying again.' }, { status: 409 })
   }
 
   // Re-run the Pylon STC cross-check against the new numbers (spec §4.5

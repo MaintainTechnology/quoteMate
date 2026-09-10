@@ -52,6 +52,10 @@ import {
 import { tradeGroundingMode } from '@/lib/quote/report-adapters/registry'
 import { shouldNotifyOnEdit } from '@/lib/quote/notify-policy'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { type QuoteEditRow, QUOTE_EDIT_FIELDS, quoteEditRevision, validOwnedQuoteBook, preserveLineProvenance } from '@/lib/quote/edit-authority'
+import { finiteQuoteNumber } from '@/lib/quote/numeric-input'
+import { loadQuotePricingVersion, versionedQuoteGst, QuotePricingVersionError, type QuotePricingVersion } from '@/lib/quote/pricing-version'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -61,14 +65,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+const QuoteNumberSchema = z.preprocess(finiteQuoteNumber, z.number().min(0))
 const LineItemSchema = z.object({
+  original_line_index: z.number().int().min(0).optional(),
   description: z.string().trim().min(1).max(200),
-  quantity: z.coerce.number().min(0),
+  quantity: QuoteNumberSchema,
   unit: z.string().trim().max(20).optional().or(z.literal('')),
-  unit_price_ex_gst: z.coerce.number().min(0),
+  unit_price_ex_gst: QuoteNumberSchema,
   // total_ex_gst is recomputed server-side from quantity * unit_price.
-  total_ex_gst: z.coerce.number().min(0).optional(),
+  total_ex_gst: QuoteNumberSchema.optional(),
   source: z.string().trim().max(120).optional().or(z.literal('')),
+  supplied_by: z.enum(['tradie', 'customer']).optional(),
+  safety_note: z.string().max(2000).optional(),
 })
 
 const TierEditSchema = z.object({
@@ -78,6 +86,7 @@ const TierEditSchema = z.object({
 })
 
 const BodySchema = z.object({
+  expected_revision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   good: TierEditSchema.optional(),
   better: TierEditSchema.optional(),
   best: TierEditSchema.optional(),
@@ -154,7 +163,7 @@ export async function POST(
   // re-issue below can preserve the early-bird discount the customer
   // already locked in at booking time. Previously the discount was
   // silently dropped — customer saw discounted SMS but paid full price.
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from('quotes')
     .select(
       // R8 (2026-06-18) — scope_of_works + assumptions are REAL quotes
@@ -168,10 +177,11 @@ export async function POST(
       // deliberately NOT selected here: this route neither reads nor writes
       // it (Section 2 is generated, not tradie-edited in v1), and leaving it
       // unselected keeps this edit path working on a pre-175 database.
-      'id, tenant_id, intake_id, share_token, status, paid_at, selected_tier, good, better, best, stripe_links, total_inc_gst, needs_inspection, inspection_reason, estimated_timeframe, risk_flags, applied_discount_pct, scope_of_works, assumptions, quote_kind, deposit_pct',
+      `${QUOTE_EDIT_FIELDS.join(',')}, share_token, inspection_reason, estimated_timeframe, scope_of_works, assumptions, display_mode`,
     )
     .eq('id', quoteId)
-    .maybeSingle()
+    .maybeSingle<QuoteEditRow>()
+  if (quoteError) return Response.json({ ok: false, error: 'quote_unavailable' }, { status: 503 })
   if (!quote) return Response.json({ ok: false, error: 'no_quote' }, { status: 404 })
   if (!quote.tenant_id) {
     return Response.json({ ok: false, error: 'unscoped_quote' }, { status: 403 })
@@ -199,6 +209,14 @@ export async function POST(
   if (!tenant || quote.tenant_id !== tenant.id) {
     return Response.json({ ok: false, error: 'not_owner' }, { status: 403 })
   }
+  const readiness = await readQuoteDraftReadiness(supabase, quote)
+  if (!readiness.ready) return Response.json({ ok: false, error: readiness.code }, { status: 409 })
+  if (edits.expected_revision && edits.expected_revision !== quoteEditRevision(quote)) {
+    return Response.json({ ok: false, error: 'quote_changed' }, { status: 409 })
+  }
+  if (!edits.expected_revision && [edits.good, edits.better, edits.best].some(
+    (tier) => tier?.line_items.some((line) => line.original_line_index !== undefined),
+  )) return Response.json({ ok: false, error: 'revision_required_for_line_identity' }, { status: 400 })
 
   // quotes.quote_kind — 'final'/'balance' rows are post-site-visit children
   // (spec post-visit-money-sequence R4). They carry a tradie-confirmed price,
@@ -209,11 +227,16 @@ export async function POST(
   // H-2 — pull intake.trade so candidates can be trade-scoped exactly
   // like the original draft (electrical quotes don't validate against
   // plumbing rows and vice versa).
-  const { data: intake } = await supabase
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('job_type, scope, caller, trade, customer_id, call_id')
+    .select('tenant_id, job_type, scope, caller, trade, customer_id, call_id')
     .eq('id', quote.intake_id)
+    .eq('tenant_id', tenant.id)
     .maybeSingle()
+  if (intakeError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  if (!intake || intake.tenant_id !== tenant.id || typeof intake.trade !== 'string' || !intake.trade.trim()) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
 
   // ─── Pricing context for GST handling + grounding revalidation ─
   // H-2 — we need the full pricing book (not just gst_registered) so
@@ -226,17 +249,26 @@ export async function POST(
   // Postgres returned first, so an electrical hand-edit could be GST'd
   // and grounded against the plumbing book. The draft route and the
   // customer page are already trade-scoped — this read must match them.
-  // Legacy intakes with no trade keep the old tenant-wide read.
-  let pricingBookQuery = supabase
+  let savedVersion: QuotePricingVersion | null
+  try { savedVersion = await loadQuotePricingVersion(supabase, quote, intake.trade) }
+  catch (error) {
+    return Response.json({ ok: false, error: error instanceof QuotePricingVersionError ? error.code : 'pricing_unavailable' },
+      { status: error instanceof QuotePricingVersionError ? error.status : 503 })
+  }
+  const pricingBookQuery = supabase
     .from('pricing_book')
     .select(
-      'gst_registered, trade, hourly_rate, apprentice_rate, senior_rate, call_out_minimum, default_markup_pct, min_labour_hours, after_hours_multiplier, quote_display, quote_tier_mode',
+      'id, tenant_id, gst_registered, trade, hourly_rate, apprentice_rate, senior_rate, call_out_minimum, default_markup_pct, min_labour_hours, after_hours_multiplier, quote_display, quote_tier_mode',
     )
-    .eq('tenant_id', quote.tenant_id)
-  const intakeTrade = (intake?.trade as string | null | undefined) ?? null
-  if (intakeTrade) pricingBookQuery = pricingBookQuery.eq('trade', intakeTrade)
-  const { data: pricingBook } = await pricingBookQuery.limit(1).maybeSingle()
-  const gstRegistered = (pricingBook?.gst_registered ?? true) as boolean
+    .eq('tenant_id', quote.tenant_id).eq('trade', intake.trade)
+  const intakeTrade = intake.trade as string
+  const { data: currentBook, error: bookError } = savedVersion ? { data: null, error: null } : await pricingBookQuery.maybeSingle()
+  const pricingBook = savedVersion?.snapshot ?? currentBook
+  if (bookError) return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  const gstRegistered = versionedQuoteGst(quote, savedVersion)
+  if (!validOwnedQuoteBook(pricingBook, tenant.id, intakeTrade) || gstRegistered === null) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  }
 
   // Per-trade grounding posture: catalogue trades (electrical/plumbing) are
   // gated by the grounding validator; tradie-authored trades (solar/roof/paint)
@@ -269,6 +301,8 @@ export async function POST(
       unit_price_ex_gst: number
       total_ex_gst: number
       source?: string
+      supplied_by?: 'tradie' | 'customer'
+      safety_note?: string
     }>
   } | null
 
@@ -295,17 +329,31 @@ export async function POST(
     // trust the unit + description from the caller but never the totals
     // — those have to be derived so a buggy or malicious client can't
     // ship a Stripe Session that doesn't match the visible line items.
-    const lineItems = edit.line_items.map((li) => ({
+    const identities = edit.line_items.flatMap((li) => li.original_line_index === undefined ? [] : [li.original_line_index])
+    if (new Set(identities).size !== identities.length) {
+      return Response.json({ ok: false, error: 'duplicate_line_identity' }, { status: 400 })
+    }
+    const provenance = edit.line_items.map((li) => preserveLineProvenance(li, existing.line_items ?? [], groundingMode === 'catalogue'))
+    if (provenance.some((item) => item === null)) {
+      return Response.json({ ok: false, error: 'line_provenance_conflict', tier: key }, { status: 409 })
+    }
+    const lineItems = edit.line_items.map((li, index) => ({
       description: li.description,
       quantity: li.quantity,
       unit: li.unit || existing.line_items?.[0]?.unit || 'hr',
       unit_price_ex_gst: +li.unit_price_ex_gst.toFixed(2),
-      total_ex_gst: +(li.quantity * li.unit_price_ex_gst).toFixed(2),
-      source: li.source || 'tradie_edit',
+      total_ex_gst: +(li.quantity * +li.unit_price_ex_gst.toFixed(2)).toFixed(2),
+      source: provenance[index]!.source,
+      ...(provenance[index]!.supplied_by !== undefined ? { supplied_by: provenance[index]!.supplied_by } : {}),
+      ...(provenance[index]!.safety_note !== undefined ? { safety_note: provenance[index]!.safety_note } : {}),
     }))
     const subtotal = +lineItems
       .reduce((acc, li) => acc + li.total_ex_gst, 0)
       .toFixed(2)
+    if (!Number.isFinite(subtotal) || !Number.isSafeInteger(Math.round(subtotal * 100)) ||
+        lineItems.some((li) => !Number.isFinite(li.total_ex_gst))) {
+      return Response.json({ ok: false, error: 'invalid_price_range' }, { status: 400 })
+    }
 
     const oldSubtotal =
       typeof existing.subtotal_ex_gst === 'number'
@@ -346,7 +394,8 @@ export async function POST(
   // ground against a catalogue, so a sparse book is acceptable.
   if (
     groundingMode === 'catalogue' &&
-    (!pricingBook || pricingBook.hourly_rate == null || pricingBook.default_markup_pct == null)
+    (!pricingBook || typeof pricingBook.hourly_rate !== 'number' || !Number.isFinite(pricingBook.hourly_rate) || pricingBook.hourly_rate <= 0 ||
+      typeof pricingBook.default_markup_pct !== 'number' || !Number.isFinite(pricingBook.default_markup_pct) || pricingBook.default_markup_pct < 0 || pricingBook.default_markup_pct > 100)
   ) {
     return Response.json(
       {
@@ -463,10 +512,11 @@ export async function POST(
     // result stays { valid: true }, warn logged. A misconfigured book
     // is caught above as 409; this is the strictly-infra path.
     const msg = e instanceof Error ? e.message : String(e)
-    console.warn('[quote/edit] grounding revalidation threw — skipping gate', {
+    console.warn('[quote/edit] grounding revalidation failed', {
       quoteId,
       error: msg,
     })
+    return Response.json({ ok: false, error: 'grounding_unavailable' }, { status: 503 })
    }
   }
 
@@ -486,6 +536,14 @@ export async function POST(
       { status: 422 },
     )
   }
+  if (!groundingFailures.valid && edits.force === true) {
+    // A forced human price may be saved under existing policy, but must not
+    // keep claiming that an unverified catalogue source established it.
+    for (const failure of groundingFailures.failures) {
+      const line = nextTiers[failure.tier]?.line_items?.[failure.lineIndex]
+      if (line) line.source = 'tradie_edit'
+    }
+  }
 
   // ─── Headline total — pick from selected_tier or fall back ─
   const selectedKey =
@@ -497,9 +555,11 @@ export async function POST(
   const newTotalIncGst = +(headlineSubtotal * gstMultiplier).toFixed(2)
 
   // ─── Stripe sync — only re-issue for tiers that changed ───
-  const stripeLinks: Record<string, string | undefined> = {
+  const originalStripeLinks: Record<string, string | undefined> = {
     ...((quote.stripe_links as Record<string, string | undefined>) ?? {}),
   }
+  const stripeLinks = { ...originalStripeLinks }
+  for (const key of changedTiers) delete stripeLinks[key]
   const appUrl =
     process.env.APP_URL ??
     process.env.NEXT_PUBLIC_APP_URL ??
@@ -514,78 +574,10 @@ export async function POST(
   // 15% platform limit and treats 0/null as no-discount (pre-C-1 behaviour
   // for any quote that wasn't booked yet).
   const appliedDiscountPct = ((quote.applied_discount_pct as number | null | undefined) ?? 0)
-
-  // A post-site-visit child takes this branch for the SAME reason as
-  // electrical/plumbing: its charge is not a G/B/B tier Session. /r mints the
-  // deposit per click from the row's stored total, so a tier Session minted
-  // here would be unreachable — and a stale one left behind could be paid at
-  // a price the tradie has just changed.
-  if (quoteKind !== 'initial' || isSiteVisitFirstRow({ trade: intakeTrade, quoteKind })) {
-    // Electrical/plumbing sell ONE thing: the flat $99 site visit (spec
-    // elec-plumb-site-visit-first). A G/B/B Session minted here would be
-    // permanently unreachable — /r/<token>/<tier> 302s those tiers onto the
-    // inspection mint and no surface exposes the stored URL — so re-minting is
-    // a wasted Stripe call plus a dead stripe_links write on every edit.
-    // Instead DROP the stale tier link and EXPIRE it, so a Checkout tab left
-    // open from the deposit era can never complete at a price the tradie has
-    // just changed. Same treatment painting gave its retired tier mint
-    // (app/api/painting/edit/[token]/route.ts).
-    //
-    // ⚠ stripe_links.inspection is deliberately untouched: it is the LIVE $99
-    // Session, and it does not move with the tier prices.
-    const stale: string[] = []
-    for (const key of changedTiers) {
-      const oldUrl = stripeLinks[key]
-      if (oldUrl) stale.push(oldUrl)
-      delete stripeLinks[key]
-    }
-    // Best-effort — expireCheckoutSession tolerates already-expired/paid.
-    await Promise.allSettled(stale.map((url) => expireCheckoutSession(url)))
-  } else {
-    // Connect routing (2% platform fee) — same decision the original Session
-    // used, re-read off the tenant row loaded for the ownership check above.
-    const connect = connectDestinationForTenant(tenant)
-
-    for (const key of changedTiers) {
-      const oldUrl = stripeLinks[key]
-      if (oldUrl) {
-        const exp = await expireCheckoutSession(oldUrl)
-        if (!exp.ok) {
-          console.warn('[quote/edit] expire failed (continuing)', {
-            quoteId,
-            tier: key,
-            reason: exp.reason,
-          })
-        }
-      }
-      // Cast each tier to the Stripe helper's strict { label, subtotal_ex_gst }
-      // shape — by this point every tier we'd actually re-issue has those
-      // fields populated (label from the edit, subtotal recomputed above).
-      type StripeTierShape = { label: string; subtotal_ex_gst: number | string } | null
-      const newUrl = await createCheckoutSessionForTier({
-        quote: {
-          id: quote.id as string,
-          good: nextTiers.good as StripeTierShape,
-          better: nextTiers.better as StripeTierShape,
-          best: nextTiers.best as StripeTierShape,
-          deposit_pct: 30,
-          // P1 — the re-issued Session honours gst_registered exactly like the
-          // total_inc_gst recomputed above.
-          gst_registered: gstRegistered,
-        },
-        tierKey: key,
-        intake: {
-          job_type: (intake?.job_type as string) ?? 'other',
-          scope: (intake?.scope as { item_count?: number } | null) ?? null,
-          caller: (intake?.caller as { name?: string; email?: string } | null) ?? null,
-        },
-        shareToken: quote.share_token as string,
-        appUrl,
-        discountPct: appliedDiscountPct,
-        connect,
-      })
-      if (newUrl) stripeLinks[key] = newUrl
-    }
+  const storedDepositPct = quote.deposit_pct
+  if (changedTiers.length && quoteKind === 'initial' && !isSiteVisitFirstRow({ trade: intakeTrade, quoteKind }) &&
+      (typeof storedDepositPct !== 'number' || !Number.isFinite(storedDepositPct) || storedDepositPct < 1 || storedDepositPct > 90)) {
+    return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
   }
 
   // ─── Persist ───────────────────────────────────────────────
@@ -619,10 +611,7 @@ export async function POST(
     // tradie prices it on site over several saves, and auto-flipping it to
     // 'sent' would both mislabel the pipeline and let the follow-up queues
     // start chasing a quote the customer has never seen.
-    status:
-      quoteKind === 'initial' && quote.status === 'draft' && changedTiers.length > 0
-        ? 'sent'
-        : quote.status,
+    status: quote.status,
     // 2026-07-02 — restart the 7-day price hold whenever a price actually
     // changed. The /q expired banner tells the customer to "reply for a
     // refreshed quote" and THIS is that refresh: without the restamp, an
@@ -664,16 +653,120 @@ export async function POST(
     updateBody.risk_flags = merged
   }
 
-  const { error: updErr } = await supabase
+  let save = supabase
     .from('quotes')
     .update(updateBody)
     .eq('id', quoteId)
+    .eq('tenant_id', tenant.id)
+    .is('paid_at', null)
+  for (const key of QUOTE_EDIT_FIELDS) {
+    if (['id', 'tenant_id', 'paid_at'].includes(key)) continue
+    const value = quote[key]
+    save = value == null ? save.is(key, null) : save.eq(key,
+      typeof value === 'object' ? JSON.stringify(value) : value)
+  }
+  const { data: persisted, error: updErr } = await save.select(QUOTE_EDIT_FIELDS.join(',')).maybeSingle<QuoteEditRow>()
   if (updErr) {
     return Response.json(
       { ok: false, error: `update_failed: ${updErr.message}` },
       { status: 500 },
     )
   }
+  if (!persisted) return Response.json({ ok: false, error: 'quote_changed' }, { status: 409 })
+
+  // External checkout work starts only after the conditional financial save.
+  let checkoutSync: 'complete' | 'pending' = 'complete'
+  try {
+  // A post-site-visit child takes this branch for the SAME reason as
+  // electrical/plumbing: its charge is not a G/B/B tier Session. /r mints the
+  // deposit per click from the row's stored total, so a tier Session minted
+  // here would be unreachable — and a stale one left behind could be paid at
+  // a price the tradie has just changed.
+  if (quoteKind !== 'initial' || isSiteVisitFirstRow({ trade: intakeTrade, quoteKind })) {
+    // Electrical/plumbing sell ONE thing: the flat $99 site visit (spec
+    // elec-plumb-site-visit-first). A G/B/B Session minted here would be
+    // permanently unreachable — /r/<token>/<tier> 302s those tiers onto the
+    // inspection mint and no surface exposes the stored URL — so re-minting is
+    // a wasted Stripe call plus a dead stripe_links write on every edit.
+    // Instead DROP the stale tier link and EXPIRE it, so a Checkout tab left
+    // open from the deposit era can never complete at a price the tradie has
+    // just changed. Same treatment painting gave its retired tier mint
+    // (app/api/painting/edit/[token]/route.ts).
+    //
+    // ⚠ stripe_links.inspection is deliberately untouched: it is the LIVE $99
+    // Session, and it does not move with the tier prices.
+    const stale: string[] = []
+    for (const key of changedTiers) {
+      const oldUrl = originalStripeLinks[key]
+      if (oldUrl) stale.push(oldUrl)
+      delete stripeLinks[key]
+    }
+    const expirations = await Promise.allSettled(stale.map((url) => expireCheckoutSession(url)))
+    if (expirations.some((result) => result.status === 'rejected' || !result.value.ok)) checkoutSync = 'pending'
+  } else {
+    // Connect routing (2% platform fee) — same decision the original Session
+    // used, re-read off the tenant row loaded for the ownership check above.
+    const connect = connectDestinationForTenant(tenant)
+
+    for (const key of changedTiers) {
+      const oldUrl = originalStripeLinks[key]
+      if (oldUrl) {
+        const exp = await expireCheckoutSession(oldUrl)
+        if (!exp.ok) {
+          checkoutSync = 'pending'
+          console.warn('[quote/edit] expire failed', {
+            quoteId,
+            tier: key,
+            reason: exp.reason,
+          })
+          continue
+        }
+      }
+      // Cast each tier to the Stripe helper's strict { label, subtotal_ex_gst }
+      // shape — by this point every tier we'd actually re-issue has those
+      // fields populated (label from the edit, subtotal recomputed above).
+      type StripeTierShape = { label: string; subtotal_ex_gst: number | string } | null
+      const newUrl = await createCheckoutSessionForTier({
+        quote: {
+          id: quote.id as string,
+          good: nextTiers.good as StripeTierShape,
+          better: nextTiers.better as StripeTierShape,
+          best: nextTiers.best as StripeTierShape,
+          deposit_pct: storedDepositPct as number,
+          // P1 — the re-issued Session honours gst_registered exactly like the
+          // total_inc_gst recomputed above.
+          gst_registered: gstRegistered,
+        },
+        tierKey: key,
+        intake: {
+          job_type: (intake?.job_type as string) ?? 'other',
+          scope: (intake?.scope as { item_count?: number } | null) ?? null,
+          caller: (intake?.caller as { name?: string; email?: string } | null) ?? null,
+        },
+        shareToken: quote.share_token as string,
+        appUrl,
+        discountPct: appliedDiscountPct,
+        connect,
+      })
+      if (newUrl) stripeLinks[key] = newUrl
+      else checkoutSync = 'pending'
+    }
+  }
+
+  } catch {
+    checkoutSync = 'pending'
+  }
+  let linkSave = supabase.from('quotes').update({ stripe_links: stripeLinks })
+    .eq('id', quoteId).eq('tenant_id', tenant.id).is('paid_at', null)
+  for (const key of QUOTE_EDIT_FIELDS) {
+    if (['id', 'tenant_id', 'paid_at'].includes(key)) continue
+    const value = persisted[key]
+    linkSave = value == null ? linkSave.is(key, null) : linkSave.eq(key,
+      typeof value === 'object' ? JSON.stringify(value) : value)
+  }
+  const { data: linked, error: linkError } = await linkSave.select(QUOTE_EDIT_FIELDS.join(',')).maybeSingle<QuoteEditRow>()
+  if (linkError || !linked) checkoutSync = 'pending'
+
 
   // Notify the customer that their quote was updated. Three modes,
   // driven by the optional `notify_customer` flag on the request body:
@@ -699,7 +792,7 @@ export async function POST(
   // line and no deposit maths — and the tradie is mid-pricing on site. The
   // explicit Send is the only thing that reaches the customer.
   const shouldNotify =
-    quoteKind === 'initial' &&
+    checkoutSync === 'complete' && quoteKind === 'initial' &&
     shouldNotifyOnEdit({
       status: quote.status as string | null | undefined,
       notifyCustomer: edits.notify_customer,
@@ -709,6 +802,10 @@ export async function POST(
   if (shouldNotify) {
     after(async () => {
       try {
+        const { data: current, error: currentError } = await supabase.from('quotes')
+          .select(QUOTE_EDIT_FIELDS.join(',')).eq('id', quoteId).eq('tenant_id', tenant.id).maybeSingle<QuoteEditRow>()
+        if (currentError || !current || current.paid_at ||
+            quoteEditRevision(current) !== quoteEditRevision(linked ?? persisted)) return
         // Resolve customer phone through a 4-source fallback chain.
         // intake.caller.phone is often EMPTY STRING on SMS-sourced quotes
         // (the structurer doesn't always backfill it from the conversation
@@ -727,7 +824,6 @@ export async function POST(
         //
         // Empty strings are treated as missing (`.trim() || null`).
         const callerObj = (intake?.caller as { name?: string; phone?: string } | null) ?? null
-        const firstName = callerObj?.name?.split(' ')[0] ?? undefined
         let callerNumber: string | null = (callerObj?.phone ?? '').trim() || null
         let phoneSource: 'intake_caller' | 'sms_conversation' | 'call' | 'customer' | null =
           callerNumber ? 'intake_caller' : null
@@ -903,6 +999,20 @@ export async function POST(
           signMediaUrl: signQuotePdfUrl,
         })
         if (result.ok) {
+          // Provider acceptance is distinct from a quiet edit. A held quote
+          // never enters this path, and a later edit/payment cannot be stamped
+          // sent by an older queued callback.
+          if (quote.status === 'draft') {
+            let accepted = supabase.from('quotes').update({ status: 'sent', sent_at: new Date().toISOString() })
+              .eq('id', quoteId).eq('tenant_id', tenant.id).is('paid_at', null)
+            for (const key of QUOTE_EDIT_FIELDS) {
+              if (['id', 'tenant_id', 'paid_at'].includes(key)) continue
+              const value = current[key]
+              accepted = value == null ? accepted.is(key, null) : accepted.eq(key,
+                typeof value === 'object' ? JSON.stringify(value) : value)
+            }
+            await accepted.select('id').maybeSingle()
+          }
           console.log('[quote/edit] customer notify sent', {
             quoteId,
             channel: result.channel,
@@ -966,10 +1076,15 @@ export async function POST(
 
   return Response.json({
     ok: true,
+    persisted: true,
+    edit_revision: quoteEditRevision(linked ?? persisted),
+    checkout_sync: checkoutSync,
+    notification_requested: shouldNotify,
+    gst_registered: gstRegistered,
     quoteId,
     changedTiers,
     total_inc_gst: newTotalIncGst,
-    stripe_links: stripeLinks,
+    stripe_links: linked ? stripeLinks : persisted.stripe_links,
     tiers: {
       good: nextTiers.good,
       better: nextTiers.better,

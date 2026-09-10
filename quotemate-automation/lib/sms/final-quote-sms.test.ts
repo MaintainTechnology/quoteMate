@@ -43,9 +43,7 @@ const opts = {
 
 describe('buildQuoteSms — quoteKind: final', () => {
   // $5,000 ex-GST → $5,500 inc GST. 50% = $2,750, less the $99 credit =
-  // $2,651 deposit, + 2% fee = $2,704. Balance = $2,750.
-  // (Amounts print without thousands separators, matching every other price
-  // line in this SMS builder.)
+  // $2,651 deposit, + 2% fee = $2,704.02. Balance = $2,750.00.
   const body = buildQuoteSms(intake, finalQuote(5000), opts)
 
   it('never offers a second site visit', () => {
@@ -56,20 +54,20 @@ describe('buildQuoteSms — quoteKind: final', () => {
 
   it('leads with the confirmed price, inc GST', () => {
     expect(body).toContain('Your final quote for 1 EV charger from Statewide Electrical')
-    expect(body).toContain('$5500 inc GST')
+    expect(body).toContain('$5,500.00 inc GST')
   })
 
   it('shows the deposit, the $99 credit and the platform fee', () => {
     expect(body).toContain('Accept with a 50% deposit')
-    expect(body).toContain('$2750') // gross deposit before the credit
+    expect(body).toContain('$2,750.00') // gross deposit before the credit
     expect(body).toContain('less your $99 site-visit credit')
     expect(body).toContain('2% platform fee')
-    expect(body).toContain('$2704') // what they actually pay
+    expect(body).toContain('$2,704.02') // what they actually pay, including cents
   })
 
   it('links the deposit short-link and the balance to come', () => {
     expect(body).toContain('https://app.test/r/tok-final/deposit')
-    expect(body).toContain('Balance $2750 is requested on completion')
+    expect(body).toContain('Balance $2,750.00 is requested on completion')
   })
 
   it('says tap, never reply — replies land at the external receptionist', () => {
@@ -103,7 +101,7 @@ describe('buildQuoteSms — the R8 zero-deposit variant', () => {
   })
 
   it('still names the balance owed on completion', () => {
-    expect(body).toContain('Balance $51 on completion')
+    expect(body).toContain('Balance $51.00 on completion')
   })
 })
 

@@ -37,7 +37,7 @@ import {
   brandingFromName,
   type TenantBranding,
 } from '../pdf/report-chrome'
-import { asMoneyNumber, totalIncGstCents, dollars } from './money'
+import { asMoneyNumber, totalIncGstCents } from './money'
 import { clampDiscountPct } from './early-bird'
 
 /** Body-template key folded into quotes.pdf_signature (R15). Bump on any change
@@ -111,6 +111,7 @@ export type EvEstimateImage = {
 }
 
 export type EvChargerEstimateInput = {
+  reportStyle?: import('./report-doc/style').ReportStyle | null
   businessName: string
   branding?: TenantBranding
   /** "EST-0534", or the 8-character quote reference when no number could be
@@ -519,9 +520,7 @@ function optionalUpgradesSection(input: EvChargerEstimateInput): string {
           // is quoted on site — never a figure this template invented (R10).
           const priced =
             typeof price === 'number' && Number.isFinite(price)
-              ? `$${dollars(
-                  totalIncGstCents(price, { gstRegistered: input.gstRegistered }),
-                ).toLocaleString('en-AU')} inc GST`
+              ? `${aud2(totalIncGstCents(price, { gstRegistered: input.gstRegistered }) / 100)} ${input.gstRegistered === false ? 'No GST' : 'inc GST'}`
               : 'quoted on site'
           return `
         <div class="ev-upsell"><span class="ev-upsell-name">${esc(
@@ -926,6 +925,7 @@ ${EV_STYLE}
   </div>`
 
   return renderReportDocument(branding, {
+    appearance: input.reportStyle,
     docTitle: `Estimate ${input.estimateRef} — ${branding.businessName}`,
     titleText: 'ESTIMATE',
     eyebrow: input.estimateRef,

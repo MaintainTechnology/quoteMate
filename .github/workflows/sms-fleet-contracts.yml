@@ -1,0 +1,211 @@
+name: sms-fleet-contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: sms-fleet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: quotemate-automation
+        shell: bash
+    env:
+      LIVE_DB: ''
+      LIVE_LLM: ''
+      LIVE_REFINE: ''
+      SENTRY_AUTH_TOKEN: ''
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: quotemate-automation/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: quotemate-automation/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Website and quote contract tests without live providers
+        run: node scripts/test-sms-audit-offline.mjs --artifacts="$RUNNER_TEMP/website-offline-tests" --maxWorkers=2
+      - name: Required standalone tool, form, approval and recovery contracts
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { runOfflineTests } from './scripts/test-sms-audit-offline.mjs';
+          // Fixed repository configs only; use the same environment, network,
+          // timeout, cleanup and JSON-result checks as the ordinary TS suite.
+          // Owner seeds are explicit repository test fixtures; no generated
+          // parity PASS report or compiled fleet is needed by these groups.
+          const groups = [
+            { name: 'tool-creation', config: 'scripts/vitest-sms-tool-creation.config.mjs' },
+            { name: 'residential-form-parity', config: 'scripts/vitest-sms-residential-form-parity.config.mjs',
+              reports: [{ name: '2026-09-09-sms-residential-form-parity-results.json', minimumResults: 3,
+                expectedTrades: ['electrical', 'plumbing', 'roofing'] }] },
+            { name: 'created-tool-release', config: 'scripts/vitest-sms-created-tool-release.config.mjs',
+              reports: [{ name: '2026-09-09-sms-created-tool-release.json', minimumResults: 2 }] },
+            { name: 'plan-created-release', config: 'scripts/vitest-sms-plan-created-release.config.mjs',
+              reports: [{ name: '2026-09-09-sms-plan-created-release.json', minimumResults: 1 },
+                { name: '2026-09-09-sms-plan-invitation-recovery.json', minimumResults: 4 }] },
+            { name: 'owner-release', config: 'scripts/vitest-sms-owner-release.config.mjs',
+              reports: [{ name: '2026-09-09-sms-owner-release-journeys.json', minimumResults: 7, minimumAdditional: 4 }] },
+          ];
+          const base = join(process.env.RUNNER_TEMP, 'website-composed-tests');
+          for (const group of groups) {
+            const artifacts = join(base, group.name);
+            for (const report of group.reports ?? []) rmSync(join('../docs/audits', report.name), { force: true });
+            const result = await runOfflineTests({ artifacts, maxWorkers: 1,
+              files: [`--config=${group.config}`, ...(group.files ?? [])] });
+            for (const report of group.reports ?? []) {
+              const source = join('../docs/audits', report.name);
+              if (existsSync(source)) {
+                mkdirSync(join(artifacts, 'composition'), { recursive: true });
+                copyFileSync(source, join(artifacts, 'composition', report.name));
+              }
+              assert.ok(existsSync(source), `Missing fresh composition report: ${report.name}`);
+              const proof = JSON.parse(readFileSync(source, 'utf8'));
+              assert.equal(proof.completed, true, report.name);
+              assert.deepEqual(proof.failedTests, [], report.name);
+              assert.deepEqual(proof.unexpected, [], report.name);
+              assert.ok(Array.isArray(proof.results) && proof.results.length >= report.minimumResults, report.name);
+              assert.ok(proof.results.every(result => result.passed === true), report.name);
+              if (report.expectedTrades) {
+                assert.deepEqual(proof.results.map(result => result.trade).sort(), report.expectedTrades, report.name);
+              }
+              if (report.minimumAdditional) {
+                assert.ok(Array.isArray(proof.additionalScenarios) && proof.additionalScenarios.length >= report.minimumAdditional, report.name);
+                assert.ok(proof.additionalScenarios.every(result => result.passed === true), report.name);
+              }
+            }
+            console.log(JSON.stringify({ group: group.name, success: result.success,
+              exitCode: result.exitCode, errors: result.errors, artifacts }));
+            if (result.success !== true || result.exitCode !== 0) {
+              process.exitCode = result.exitCode || 1;
+              break;
+            }
+          }
+          NODE
+      - name: Website type consistency
+        run: pnpm typecheck
+      - name: Website production build with inert credentials and no source-map upload
+        run: node scripts/build-sms-audit-offline.mjs
+      - name: Preserve offline website test evidence even when a gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-offline-test-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/website-offline-tests
+            ${{ runner.temp }}/website-composed-tests
+
+  built-service-contract:
+    needs: website-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        trade: [electrical, plumbing, roofing, painting, solar]
+    defaults:
+      run:
+        working-directory: quotemate-automation
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: quotemate-automation/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: quotemate-automation/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Generate compatible candidate
+        run: node scripts/export-receptionist.mjs --out-root="$RUNNER_TEMP/sms-fleet" "${{ matrix.trade }}"
+      - name: Clean install and build generated service
+        working-directory: ${{ runner.temp }}/sms-fleet/qm-${{ matrix.trade }}-receptionist
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
+          node "$GITHUB_WORKSPACE/quotemate-automation/scripts/seal-receptionist-release.mjs" .
+          npm run build
+      - name: Verify source, website and built runtime contracts
+        run: node scripts/verify-receptionist-release.mjs "$RUNNER_TEMP/sms-fleet/qm-${{ matrix.trade }}-receptionist"
+      - name: Exercise built HTTP ingress without provider IO
+        run: node scripts/smoke-built-receptionist.mjs "$RUNNER_TEMP/sms-fleet/qm-${{ matrix.trade }}-receptionist" 3199
+      - name: Build the actual deployment image from its sealed candidate
+        run: |
+          docker build --iidfile "$RUNNER_TEMP/sms-${{ matrix.trade }}-image.id" "$RUNNER_TEMP/sms-fleet/qm-${{ matrix.trade }}-receptionist" 2>&1 | tee "$RUNNER_TEMP/sms-${{ matrix.trade }}-image-build.log"
+      - name: Verify isolated image bootstrap and durable ingress contracts
+        run: node scripts/test-receptionist-image.mjs "$RUNNER_TEMP/sms-fleet/qm-${{ matrix.trade }}-receptionist" "$(cat "$RUNNER_TEMP/sms-${{ matrix.trade }}-image.id")" "$RUNNER_TEMP/sms-${{ matrix.trade }}-image-contract.json"
+      - name: Preserve the exact tested image for a separately approved promotion
+        run: docker image save "$(cat "$RUNNER_TEMP/sms-${{ matrix.trade }}-image.id")" | gzip > "$RUNNER_TEMP/sms-${{ matrix.trade }}-tested-image.tar.gz"
+      - name: Preserve exact service release contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-${{ matrix.trade }}-release-contract
+          path: |
+            ${{ runner.temp }}/sms-fleet/qm-${{ matrix.trade }}-receptionist/release-manifest.json
+            ${{ runner.temp }}/sms-fleet/qm-${{ matrix.trade }}-receptionist/build-attestation.json
+            ${{ runner.temp }}/sms-fleet/qm-${{ matrix.trade }}-receptionist/package.json
+            ${{ runner.temp }}/sms-fleet/qm-${{ matrix.trade }}-receptionist/package-lock.json
+      - name: Preserve image identity, contract result and tested image
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-${{ matrix.trade }}-tested-image
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image.id
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-build.log
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-contract.json
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-contract.json.container.log
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-tested-image.tar.gz
+      - name: Preserve available image diagnostics even when a gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-${{ matrix.trade }}-image-diagnostics
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image.id
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-build.log
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-contract.json
+            ${{ runner.temp }}/sms-${{ matrix.trade }}-image-contract.json.container.log
+
+  release-contract-gate:
+    # Configure branch protection/promotion to require this check separately.
+    # Front desk lives in another repository and retains its own workflow.
+    if: always()
+    needs: [website-contract, built-service-contract]
+    runs-on: ubuntu-latest
+    env:
+      WEBSITE_RESULT: ${{ needs.website-contract.result }}
+      TRADE_RESULT: ${{ needs.built-service-contract.result }}
+    steps:
+      - name: Require the website and every trade candidate to pass
+        run: |
+          test "$WEBSITE_RESULT" = success
+          test "$TRADE_RESULT" = success

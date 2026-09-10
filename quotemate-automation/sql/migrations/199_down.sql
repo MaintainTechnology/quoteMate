@@ -1,0 +1,13 @@
+drop function if exists public.sms_plan_request(uuid,text,text,text,text,uuid,uuid);
+drop function if exists public.sms_outbox_retry(uuid,uuid);
+drop trigger if exists sms_messages_delivery_evidence on public.sms_messages;
+drop function if exists public.classify_sms_outbound();
+drop function if exists public.sms_outbox_receipt(uuid,uuid,text,text,text);
+drop function if exists public.sms_outbox_finish(uuid,uuid,text,jsonb,text);
+drop function if exists public.sms_outbox_publish(uuid);
+drop function if exists public.sms_outbox_claim(uuid,uuid);
+drop function if exists public.sms_outbox_enqueue(text,jsonb,text);
+alter table public.sms_messages drop column if exists outbox_id;
+alter table public.sms_messages drop column if exists turn_id;
+alter table public.sms_messages drop column if exists delivery_status;
+drop table if exists public.sms_outbox;

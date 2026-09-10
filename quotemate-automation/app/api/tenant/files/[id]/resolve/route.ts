@@ -6,6 +6,7 @@ import {
   tenantFromBearer,
   getFileDocMeta,
   setThreadResolved,
+  ThreadResolutionError,
 } from '@/lib/filestore/comments'
 
 export const dynamic = 'force-dynamic'
@@ -25,9 +26,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     body = await req.json()
   } catch {
-    body = {}
+    return Response.json({ error: 'invalid_json' }, { status: 400 })
   }
-  const resolved = !!(body as { resolved?: unknown } | null)?.resolved
-  const state = await setThreadResolved(id, resolved, 'tenant')
-  return Response.json({ ok: true, ...state })
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      typeof (body as { resolved?: unknown }).resolved !== 'boolean') {
+    return Response.json({ error: 'resolved must be a boolean' }, { status: 400 })
+  }
+  const resolved = (body as { resolved: boolean }).resolved
+  try {
+    const state = await setThreadResolved(id, resolved, 'tenant', tenant.id)
+    return Response.json({ ok: true, ...state })
+  } catch (error) {
+    if (error instanceof ThreadResolutionError && error.code === 'not_found') {
+      return Response.json({ error: 'not_found' }, { status: 404 })
+    }
+    return Response.json({ error: 'thread_resolution_failed' }, { status: 503 })
+  }
 }

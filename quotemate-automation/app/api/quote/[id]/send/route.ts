@@ -1,32 +1,16 @@
-// POST /api/quote/[id]/send
-//
-// Manual send/resend of a quote to the customer, triggered by the tradie from
-// the dashboard quote viewer ("Send to Customer"). Two channels:
-//
-//   { channel: 'sms',   to? } — the same customer-quote SMS the pipeline/approve
-//     path sends: /q share link in the body, PDF as best-effort MMS, /r-gated
-//     pay links, price hold restarted from the send moment.
-//   { channel: 'email', to? } — the quote email with the rendered PDF attached
-//     (degrades to a link-only email when no PDF can be produced).
-//
-// `to` optionally overrides the on-file recipient; otherwise the shared
-// 4-source contact chain (lib/quote/send-customer.ts) resolves it.
-//
-// Unlike /approve (which only releases 'awaiting_tradie_approval' holds), this
-// endpoint sends from ANY pre-payment status — a send from a held quote is the
-// tradie's approval, and a resend of a sent quote is a legitimate nudge. Paid
-// and accepted quotes are refused (409). On success the quote advances to
-// 'sent' via the monotonic lifecycle advancer; a failed dispatch leaves the
-// status untouched so the tradie can retry.
-//
-// Auth: bearer token (Clerk or legacy Supabase), owner-only — mirrors /approve.
+// POST /api/quote/[id]/send: authenticated owner approval and manual delivery.
+// SMS approval and its durable intent commit atomically. An omitted requestId
+// reuses the initial intent shared with /approve; a deliberate resend supplies
+// one new client UUID and keeps it across network retries. Paid/accepted quotes
+// remain protected. Email preserves the existing provider response contract.
 
 import { createClient } from '@supabase/supabase-js'
 import { dispatchQuoteWithPdf } from '@/lib/sms/send-quote-pdf'
+import { genericQuoteSendKey, persistGenericQuoteRelease, quoteReleaseReviewMatches, quoteCustomerReleaseRevision } from '@/lib/quote/customer-release'
+import { publicWebOrigin } from '@/lib/sms/public-origin'
 import {
   downloadQuotePdf,
   ensureQuotePdf,
-  quotePdfUrl,
   signQuotePdfUrl,
 } from '@/lib/quote/pdf'
 import { buildQuoteSms } from '@/lib/sms/templates'
@@ -41,17 +25,20 @@ import { asQuoteKind, isSiteVisitFirstRow } from '@/lib/quote/mint-tier'
 import {
   MIN_STRIPE_CHARGE_CENTS,
   asMoneyNumber,
-  clampDepositPct,
-  finalDepositBaseCents,
 } from '@/lib/quote/money'
-import { pipelineLog } from '@/lib/log/pipeline'
+import { settleFinalQuoteCredit } from '@/lib/quote/credit-settlement'
 import { normaliseAuMobile } from '@/lib/phone/au'
 import { resolveTenantRequest } from '@/lib/tenant/from-request'
+import { readQuoteDraftReadiness } from '@/lib/quote/job-quote-operation'
+import { resolveQuoteOriginConversation } from '@/lib/sms/quote-origin-conversation'
+import { assertExpectedQuoteRecipient, QuoteDeliveryRecipientError, resolveOwnedQuoteCustomerContact } from '@/lib/quote/delivery-recipient'
+import { loadQuoteReportPricing } from '@/lib/quote/report-pricing'
+import { QuotePricingVersionError } from '@/lib/quote/pricing-version'
+import { storedDepositPercent } from '@/lib/quote/chain-money'
 import { sendEmail } from '@/lib/email/resend'
 import {
   buildQuoteEmail,
   canSendQuote,
-  resolveCustomerContact,
 } from '@/lib/quote/send-customer'
 
 export const dynamic = 'force-dynamic'
@@ -73,12 +60,16 @@ export async function POST(
     return Response.json({ error: 'missing_quote_id' }, { status: 400 })
   }
 
-  let body: { channel?: string; to?: string } = {}
+  let body: { channel?: string; to?: string; requestId?: string; expected_revision?:unknown; expected_recipient?:unknown } = {}
   try {
     body = (await req.json()) as typeof body
   } catch {
     /* empty/malformed body → validated below */
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({error:'invalid_request'},{status:400})
+  let deliveryKey: string
+  try { deliveryKey = genericQuoteSendKey(quoteId, body.requestId) }
+  catch { return Response.json({ok:false,error:'invalid_request_id'},{status:400}) }
   const channel = body?.channel
   if (channel !== 'sms' && channel !== 'email') {
     return Response.json(
@@ -129,7 +120,7 @@ export async function POST(
   const { data: quote, error: qErr } = await supabase
     .from('quotes')
     .select(
-      'id, tenant_id, intake_id, status, share_token, good, better, best, selected_tier, total_inc_gst, scope_of_works, assumptions, estimated_timeframe, needs_inspection, inspection_reason, stripe_links, deposit_pct, display_mode, price_hold_until, applied_discount_pct, quote_kind, paid_at',
+      'id, tenant_id, intake_id, status, share_token, good, better, best, selected_tier, total_inc_gst, scope_of_works, assumptions, estimated_timeframe, needs_inspection, inspection_reason, stripe_links, deposit_pct, display_mode, price_hold_until, applied_discount_pct, quote_kind, parent_quote_id, paid_at, customer_released_at, sent_at, pricing_book_version_id, report_doc, report_style',
     )
     .eq('id', quoteId)
     .maybeSingle()
@@ -142,6 +133,11 @@ export async function POST(
     return Response.json({ error: 'forbidden' }, { status: 403 })
   }
 
+  const readiness = await readQuoteDraftReadiness(supabase, quote)
+  if (!readiness.ready) return Response.json({ ok: false, error: readiness.code }, { status: 409 })
+
+  if (!quoteReleaseReviewMatches(quote,body.expected_revision)) return Response.json({ok:false,error:'quote_review_required',message:'Open and review the current quote before sending.',review_url:`/dashboard/quote/${quote.share_token}`},{status:409})
+
   const gate = canSendQuote(quote.status as string | null)
   if (!gate.ok) {
     return Response.json(
@@ -151,38 +147,36 @@ export async function POST(
   }
 
   // ─── Load intake + pricing book + customer contact ──
-  const { data: intake } = await supabase
+  const { data: intake, error: intakeError } = await supabase
     .from('intakes')
-    .select('id, caller, suburb, job_type, scope, call_id, customer_id, trade')
+    .select('id, tenant_id, caller, suburb, job_type, scope, call_id, customer_id, trade')
     .eq('id', quote.intake_id as string)
+    .eq('tenant_id', tenant.id)
     .maybeSingle()
-  // Trade-scoped (CLAUDE.md: multi-trade scoping is by the trade column
-  // everywhere) so a cross-trade tenant's SMS display/tier mode matches the
-  // trade-scoped PDF render rather than an arbitrary pricing_book row.
-  const trade = ((intake?.trade as string | null | undefined) ?? 'electrical').trim() || 'electrical'
-  // The site-visit-first gate must read the RAW trade, never the display
-  // fallback above: a trade-less row defaulted to 'electrical' would be sent
-  // the $99-only SMS while its /r mint still fails open to a deposit — the
-  // message and the money would disagree. approve/ and edit/ already do this.
-  const rawTrade = (intake?.trade as string | null | undefined) ?? null
-  const { data: pricingBook } = await supabase
+  if (intakeError || !intake || intake.id !== quote.intake_id || intake.tenant_id !== tenant.id)
+    return Response.json({ ok: false, error: 'quote_contact_unavailable' }, { status: 503 })
+  const rawTrade = typeof intake.trade === 'string' ? intake.trade.trim() : ''
+  if (!rawTrade) return Response.json({ ok: false, error: 'quote_pricing_review_required' }, { status: 409 })
+  const { data: currentBook } = await supabase
     .from('pricing_book')
-    .select('quote_display, quote_tier_mode, gst_registered')
+    .select('quote_display, quote_tier_mode')
     .eq('tenant_id', quote.tenant_id)
-    .eq('trade', trade)
-    .limit(1)
+    .eq('trade', rawTrade)
     .maybeSingle()
 
   const caller =
     (intake?.caller as { name?: string; phone?: string; email?: string } | null) ?? null
-  const contact = await resolveCustomerContact(supabase, {
-    caller,
-    intakeId: (quote.intake_id as string | null) ?? null,
-    callId: (intake?.call_id as string | null) ?? null,
-    customerId: (intake?.customer_id as string | null) ?? null,
-  })
-
-  const recipient = toOverride ?? (channel === 'sms' ? contact.phone : contact.email)
+  let contact: Awaited<ReturnType<typeof resolveOwnedQuoteCustomerContact>>
+  let recipient: string | null
+  try {
+    contact = await resolveOwnedQuoteCustomerContact(supabase, tenant.id, intake)
+    recipient = toOverride ?? (channel === 'sms' ? contact.phone : contact.email)
+    assertExpectedQuoteRecipient(channel, body.expected_recipient, recipient)
+  } catch (error) {
+    if (error instanceof QuoteDeliveryRecipientError)
+      return Response.json({ ok: false, error: error.code, message: error.message }, { status: error.status })
+    return Response.json({ ok: false, error: 'quote_contact_unavailable' }, { status: 503 })
+  }
   if (!recipient) {
     return Response.json(
       channel === 'sms'
@@ -198,16 +192,26 @@ export async function POST(
     )
   }
 
-  const appUrl = process.env.APP_URL ?? 'https://www.quotemax.com.au'
+  let conversationId: string | null = null
+  if (channel === 'sms') {
+    // An owner may deliberately send to a different recipient. That message
+    // must not be inserted into the original customer's SMS conversation.
+    const recipientChanged = !!toOverride && !!contact.phone &&
+      toOverride !== (normaliseAuMobile(contact.phone) ?? contact.phone)
+    if (!recipientChanged) {
+      try {
+        conversationId = await resolveQuoteOriginConversation(supabase, { tenantId: tenant.id, family: 'generic',
+          resourceId: quote.id as string, intakeId: quote.intake_id, customerPhone: recipient, fromNumber: tenant.twilio_sms_number })
+      } catch { return Response.json({ ok: false, error: 'quote_origin_unavailable', message: 'Saved quote conversation unavailable; retry sending shortly.' }, { status: 503 }) }
+    }
+  }
+
+  const appUrl = publicWebOrigin()
   const shareToken = quote.share_token as string
   const quoteViewUrl = `${appUrl}/q/${shareToken}`
 
-  // Restart the 7-day price hold from the moment the customer actually
-  // receives the quote (same rationale as /approve — a stale hold would let
-  // the /r + booking gates block the customer before they had a window to
-  // act). Computed here because the SMS body embeds it, but only WRITTEN
-  // after a successful dispatch: a failed send must not silently re-arm an
-  // expired hold for a quote the customer never received.
+  // Release owns the initial quote hold. Replaying the same delivery intent
+  // reuses its saved message and hold; a deliberate resend creates a new intent.
   const quoteKind = asQuoteKind(quote.quote_kind as string | null)
 
   if (quoteKind !== 'initial') {
@@ -256,6 +260,18 @@ export async function POST(
     }
   }
 
+  let pricing: Awaited<ReturnType<typeof loadQuoteReportPricing>> | null = null
+  try {
+    if (!(quote.needs_inspection === true && quoteKind === 'initial'))
+      pricing = await loadQuoteReportPricing(supabase, quote, intake)
+    if (pricing && !isSiteVisitFirstRow({ trade: rawTrade, quoteKind }) &&
+        storedDepositPercent(quote.deposit_pct) === null) throw new QuotePricingVersionError('quote_pricing_review_required')
+  } catch (error) {
+    return Response.json({ ok: false, error: error instanceof QuotePricingVersionError ? error.code : 'pricing_unavailable' },
+      { status: error instanceof QuotePricingVersionError ? error.status : 503 })
+  }
+  const pricingBook = pricing?.pricingVersion?.snapshot ?? currentBook
+
   // Mig 146 — fresh render on a human send so the PDF reflects the tenant's
   // current tier mode / template at send time. Inspection-routed quotes carry
   // no committable prices, so no PDF. Best-effort: null never blocks the send.
@@ -263,9 +279,16 @@ export async function POST(
   // Deliberately AFTER the child guards above: rendering first meant a send
   // refused as `not_priced` still cached a $0 PDF on the row, which the
   // customer's /q page would then offer for download.
-  const quotePdfPath = quote.needs_inspection
-    ? null
-    : await ensureQuotePdf(quote.id as string, { regenerate: true })
+  let quotePdfPath: string | null = null
+  try {
+    if (!quote.needs_inspection) quotePdfPath = await ensureQuotePdf(quote.id as string, {
+      regenerate: true, strictPricing: true, expectedReleaseRevision: quoteCustomerReleaseRevision(quote),
+    })
+  } catch (error) {
+    if (error instanceof QuotePricingVersionError)
+      return Response.json({ ok: false, error: error.code }, { status: error.status })
+    return Response.json({ ok: false, error: 'pricing_unavailable' }, { status: 503 })
+  }
 
   // A final/balance row carries no price hold (spec R9): the hold is a
   // freshness window on an unaccepted estimate, and the mint skips its gate
@@ -308,12 +331,7 @@ export async function POST(
       delete payLinks.inspection
       payLinks.deposit = `${appUrl}/r/${shareToken}/deposit`
     }
-    const depositPct =
-      typeof quote.deposit_pct === 'number'
-        ? quote.deposit_pct
-        : typeof quote.deposit_pct === 'string'
-          ? parseFloat(quote.deposit_pct)
-          : 30
+    const depositPct = typeof quote.deposit_pct === 'number' ? quote.deposit_pct : 0
 
     const quoteForSms = {
       ...quote,
@@ -323,12 +341,11 @@ export async function POST(
       needs_inspection: !!quote.needs_inspection,
       inspection_reason: quote.inspection_reason as string | null,
       quote_view_url: quoteViewUrl,
-      pdf_url: quotePdfPath ? quotePdfUrl(shareToken) : null,
+      pdf_url: quotePdfPath ? `${appUrl}/api/q/${shareToken}/pdf` : null,
       // P6 — SMS prices match the /r-minted Session: discounted when the
       // customer booked in time, GST-conditional (lib/quote/money.ts).
       applied_discount_pct: (quote.applied_discount_pct as number | null) ?? 0,
-      gst_registered:
-        ((pricingBook as { gst_registered?: boolean | null } | null)?.gst_registered ?? true),
+      ...(pricing ? { gst_registered: pricing.gstRegistered } : {}),
     }
     const intakeForSms = {
       job_type: (intake?.job_type as string) ?? 'other',
@@ -345,32 +362,30 @@ export async function POST(
       quoteKind,
       businessName: (tenant as { business_name?: string | null }).business_name ?? null,
     })
-    const fromNumber = tenant.twilio_sms_number ?? process.env.TWILIO_SMS_NUMBER ?? undefined
+    const fromNumber = tenant.twilio_sms_number ?? undefined
+    if (!fromNumber) return Response.json({ok:false,error:'tenant_messaging_unavailable'},{status:503})
 
+    let release
+    try {
+      release = await persistGenericQuoteRelease(supabase, {
+        quote,tenantId:tenant.id,ownerId:resolved.identity.userId,holdUntil:refreshedHoldUntil,signMediaUrl:signQuotePdfUrl,
+        outbound:{ to:normaliseAuMobile(recipient) ?? recipient,text:smsBody,from:fromNumber,
+          ...(conversationId ? { conversationId } : {}),
+          tenantId:tenant.id,deliveryKey,...(quotePdfPath ? {mediaKey:quotePdfPath} : {}) },
+      })
+    } catch (error) {
+      return Response.json({ok:false,error:'approval_unavailable',message:String(error)},{status:409})
+    }
     const dispatch = await dispatchQuoteWithPdf({
-      // On-file numbers can carry AU-local formatting (LLM-structured
-      // intake.caller.phone) — normalise to E.164 when possible, pass through
-      // otherwise (from_number is already E.164).
-      to: normaliseAuMobile(recipient) ?? recipient,
-      text: smsBody,
-      from: fromNumber,
-      pdfPath: quotePdfPath,
-      signMediaUrl: signQuotePdfUrl,
+      ...release.outbound!, pdfPath:typeof release.outbound?.mediaKey === 'string' ? release.outbound.mediaKey : null,signMediaUrl:signQuotePdfUrl,
     })
-
     if (!dispatch.ok) {
-      return Response.json(
-        {
-          error: 'dispatch_failed',
-          sms_code: dispatch.smsAttempt?.code,
-          wa_code: dispatch.waAttempt?.code,
-          message: 'Could not deliver the SMS. Try again or call the customer directly.',
-        },
-        { status: 502 },
-      )
+      return Response.json({ok:true,approved:true,accepted:false,outboxId:release.outboxId,
+        status:'approved_delivery_pending',message:'Approved. Customer SMS delivery needs recovery; check SMS delivery.'},{status:202})
     }
 
-    await markSent(quote.id as string, quote.tenant_id as string, refreshedHoldUntil, 'sms')
+    // The outbox acceptance trigger also advances this lifecycle after worker recovery.
+    await markSent(quote.id as string, quote.tenant_id as string, null, 'sms')
 
     // ── R8: the $99 already covers the deposit ──────────────────────
     // A job small enough that pct% of it is under the site-visit fee has
@@ -380,18 +395,21 @@ export async function POST(
     // any other paid row. paid_amount_cents 0 with a NULL Connect destination
     // keeps it out of Payouts — there is no money to release.
     //
-    // Stamped HERE, after a delivered dispatch, and never before: the house
-    // rule is that nothing may report a state the customer was not actually
-    // told about.
-    const creditStamped = await stampDepositCoveredByCredit(quote, quoteKind)
+    // Reconcile the actual accepted outbox snapshot. Migration217 also runs
+    // this proof when a queued delivery is accepted after this request ends.
+    const creditSettlement = quoteKind === 'final' ? await settleFinalQuoteCredit(supabase, {
+      quoteId: quote.id as string, tenantId: tenant.id, outboxId: release.outboxId,
+    }) : null
 
     return Response.json({
       ok: true,
       quote_id: quote.id,
+      approved:true, accepted:true, outboxId:release.outboxId,
       channel: dispatch.channel,
       sid: dispatch.sid,
       status: 'sent',
-      ...(creditStamped ? { deposit_covered_by_credit: true } : {}),
+      ...(creditSettlement ? { credit_settlement: creditSettlement } : {}),
+      ...(creditSettlement?.status === 'settled' ? { deposit_covered_by_credit: true } : {}),
     })
   }
 
@@ -419,6 +437,11 @@ export async function POST(
     pdfAttached: !!attachments,
   })
 
+  try {
+    await persistGenericQuoteRelease(supabase,{quote,tenantId:tenant.id,ownerId:resolved.identity.userId,holdUntil:refreshedHoldUntil})
+  } catch (error) {
+    return Response.json({ok:false,error:'approval_unavailable',message:String(error)},{status:409})
+  }
   const result = await sendEmail({
     to: recipient,
     subject: email.subject,
@@ -448,55 +471,6 @@ export async function POST(
     messageId: result.messageId,
     status: 'sent',
   })
-}
-
-/**
- * R8 — mark a FINAL row's deposit as already covered by the $99 site visit.
- *
- * Returns true when the stamp was applied. No-op for anything that is not an
- * unpaid final row whose deposit lands under Stripe's minimum charge, so a
- * normal final quote is untouched. The `.is('paid_at', null)` guard makes it
- * a conditional claim, matching the payment path: a re-send can never
- * overwrite a real deposit payment that landed in between.
- */
-async function stampDepositCoveredByCredit(
-  quote: { id: unknown; total_inc_gst: unknown; deposit_pct: unknown; paid_at: unknown },
-  quoteKind: string,
-): Promise<boolean> {
-  if (quoteKind !== 'final' || quote.paid_at) return false
-  const totalCents = Math.round(asMoneyNumber(quote.total_inc_gst as number | string | null) * 100)
-  // An UNPRICED row is not a small job — it is a draft. R3 seeds every final
-  // quote off an inspection-routed parent with a $0 whole-of-job line, so
-  // without this guard the very first Send (before the tradie types the price
-  // they confirmed on site) computes max(0, 0 − $99) = 0, stamps the row paid
-  // by "credit", and freezes it forever: edit 409s on paid_at, and Request
-  // final payment 409s nothing_to_charge because the balance is −$99.
-  if (totalCents < MIN_STRIPE_CHARGE_CENTS) return false
-  const depositBase = finalDepositBaseCents(
-    totalCents,
-    clampDepositPct(quote.deposit_pct as number | null),
-  )
-  if (depositBase >= MIN_STRIPE_CHARGE_CENTS) return false
-
-  const { data, error } = await supabase
-    .from('quotes')
-    .update({
-      paid_at: new Date().toISOString(),
-      paid_tier: 'credit',
-      paid_amount_cents: 0,
-      paid_stripe_session_id: null,
-      stripe_connect_destination: null,
-    })
-    .eq('id', quote.id as string)
-    .is('paid_at', null)
-    .select('id')
-  if (error) {
-    pipelineLog('dispatch').err('deposit-credit stamp failed', error.message, {
-      quote_id: String(quote.id),
-    })
-    return false
-  }
-  return !!data && data.length > 0
 }
 
 /** Post-success bookkeeping: restart the price hold, advance the lifecycle,

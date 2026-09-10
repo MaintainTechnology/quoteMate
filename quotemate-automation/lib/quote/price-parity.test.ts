@@ -84,8 +84,8 @@ describe.each([
       quoteFixture(discountPct) as unknown as Parameters<typeof buildQuoteSms>[1],
       { tierMode: 'single', trade: 'roofing' },
     )
-    expect(sms).toContain(`BETTER: $${pageTotal}`)
-    expect(sms).toContain(`(deposit $${pageDeposit})`)
+    expect(sms).toContain(discountPct ? 'BETTER: $19,800.00' : 'BETTER: $22,000.00')
+    expect(sms).toContain(discountPct ? '(deposit $5,940.00)' : '(deposit $6,600.00)')
   })
 
   it('the customer PDF prints the same headline price (P7)', () => {
@@ -119,7 +119,9 @@ describe('price parity — non-GST-registered tradie (P1)', () => {
       tierMode: 'single',
       trade: 'roofing',
     })
-    expect(sms).toContain(`BETTER: $${EX}`)
+    expect(sms).toContain('BETTER: $20,000.00')
+    expect(sms).toContain('No GST')
+    expect(sms).not.toContain('inc 10% GST')
 
     const html = renderQuoteTiersHtml({
       good: null,

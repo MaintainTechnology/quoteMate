@@ -1,33 +1,11 @@
-// ════════════════════════════════════════════════════════════════════
-// Roofing: measure → save → photo MMS → confirm-roof SMS.
-//
-// Extracted from app/api/sms/inbound/route.ts (2026-07-23) so the VOICE
-// path can run the identical sequence after a call instead of re-asking
-// the caller everything by text. Two callers, one implementation — the
-// customer gets byte-identical messages whichever channel they came in on:
-//   • handleRoofingTurn (SMS)         — the customer's confirm_address YES
-//   • runVoiceTradeHandover (voice)   — the call ended with the brief agreed
-//
-// I/O by injection (sendReply / supabase) so it is testable and so each
-// channel keeps its own reply plumbing (SMS persists into the live
-// conversation thread; voice seeds one).
-//
-// Behaviour notes preserved verbatim from the route:
-//   • complete per-tenant pricing card only; missing setup stops before save/send
-//   • BOTH capability tokens minted as a pair (public_token + measure_token)
-//     or the tradie gets no Measurement Results page
-//   • roof-photo MMS goes BEFORE the confirm SMS, is fully guarded, and
-//     never falls back to a plain SMS (that would spam non-MMS numbers)
-//   • an inspection-routed job still saves + links, parked at await_booking
-// ════════════════════════════════════════════════════════════════════
-
+// SMS, public form and voice handover share tenant pricing, checked persistence,
+// a durable tradie review task and an honest saved-draft status. Customer quote
+// links are available only after authenticated approval.
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  applySolarToTiers,
-  buildRoofingReplyMessage,
-  buildRoofPhotoMedia,
-  composeConfirmMessage,
-} from './roofing-compose'
+import { applySolarToTiers, buildRoofPhotoMedia } from './roofing-compose'
+import { createHash } from 'node:crypto'
+import { persistHumanHandoff } from './human-handoff'
+import { publicWebOrigin } from './public-origin'
 import { toRoofingRequest, type RoofingSlots } from './roofing-intake'
 import type { RoofingConversationState } from './roofing-receptionist'
 import { sendSms } from './twilio'
@@ -38,9 +16,7 @@ import type { MultiRoofQuote } from '@/lib/roofing/types'
 
 /** Base URL every /q/roof link is built from. Shared by the SMS route and
  *  the voice handover so a voice-origin link is identical to an SMS one. */
-export const ROOFING_APP_BASE_URL = (
-  process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.quotemax.com.au'
-).replace(/\/$/, '')
+export const ROOFING_APP_BASE_URL = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://quotemax.com.au'
 
 /** Best-effort roof-photo MMS. One image for a single building, one per
  *  building (capped) for several. Uses sendSms directly (NOT
@@ -64,6 +40,7 @@ export async function sendRoofPhotoMms(args: {
         const res = await sendSms({ to, from, text: caption, mediaUrl })
         if (!res.ok) {
           console.warn('[roofing-measure-dispatch] roof photo MMS not sent (non-fatal)', { code: res.code })
+          continue
         }
         await supabase.from('sms_messages').insert({
           conversation_id: conversationId,
@@ -83,7 +60,7 @@ export type RoofingMeasureDispatchResult =
   /** Measured + saved + messaged. Persist `state` against the conversation. */
   | { ok: true; state: RoofingConversationState; token: string; quote: MultiRoofQuote }
   /** Nothing sent — the caller falls back to its own unavailable path. */
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; savedToken?: string }
 
 export async function measureAndDispatchRoofing(args: {
   supabase: SupabaseClient
@@ -102,6 +79,8 @@ export async function measureAndDispatchRoofing(args: {
    *  saved quote's routing is overridden and the message uses that path. */
   isInspection: boolean
   inspectionReason?: string
+  /** Stable durable turn key; retrying the same job must reuse its saved token. */
+  requestKey?: string
   /** Sends one SMS to the customer and persists it on the thread. */
   sendReply: (text: string) => Promise<unknown>
 }): Promise<RoofingMeasureDispatchResult> {
@@ -109,7 +88,16 @@ export async function measureAndDispatchRoofing(args: {
   if (!reqInput) return { ok: false, reason: 'incomplete brief — nothing to measure' }
   if (!args.tenantId) return { ok: false, reason: 'tenant pricing setup required' }
 
+  let savedToken: string | undefined
   try {
+    const requestKey = args.requestKey ?? createHash('sha256').update(JSON.stringify([args.conversationId, reqInput])).digest('hex')
+    const baseUrl = publicWebOrigin({ ...process.env, APP_URL: args.baseUrl })
+    const { data: existing, error: lookupError } = await args.supabase.from('roofing_measurements')
+      .select('id,public_token,quote').eq('tenant_id', args.tenantId)
+      .eq('source_request_key', requestKey).maybeSingle()
+    if (lookupError) return { ok: false, reason: 'saved roofing work unavailable; retry required' }
+    let saved = existing as { id: string; public_token: string; quote: MultiRoofQuote } | null
+    if (!saved) {
     const pricing = await loadTenantRoofingPricingContext(
       args.supabase,
       args.tenantId,
@@ -132,7 +120,6 @@ export async function measureAndDispatchRoofing(args: {
     }
 
     const tokens = newMeasurementTokens()
-    const token = tokens.public_token
     // The SMS caller always supplies the gate's own reason; the fallback
     // only guards a caller that flags an inspection without one (the field
     // is rendered on the page + message, so it can't be blank).
@@ -150,8 +137,10 @@ export async function measureAndDispatchRoofing(args: {
         }
       : authorisedQuote
 
-    await args.supabase.from('roofing_measurements').insert({
+    const { data: inserted, error: saveError } = await args.supabase.from('roofing_measurements').insert({
       tenant_id: args.tenantId,
+      source_request_key: requestKey,
+      released_at: null,
       address: reqInput.address.address,
       postcode: reqInput.address.postcode || null,
       state: reqInput.address.state,
@@ -165,52 +154,41 @@ export async function measureAndDispatchRoofing(args: {
       structures: quote.structures,
       quote,
       ...tokens,
-    })
-
-    const quoteUrl = `${args.baseUrl}/q/roof/${token}`
-    await sendRoofPhotoMms({
-      supabase: args.supabase,
-      conversationId: args.conversationId,
-      to: args.customerPhone,
-      from: args.replyFrom,
-      baseUrl: args.baseUrl,
-      token,
-      quote,
-    })
-
-    if (args.isInspection) {
-      await args.sendReply(
-        buildRoofingReplyMessage({ quote, address: reqInput.address.address, quoteUrl, firstName: args.firstName }),
-      )
-      return {
-        ok: true,
-        token,
-        quote,
-        state: {
-          slots: args.slots,
-          last_step: 'await_booking',
-          pending_quote_token: token,
-          pending_structure_count: null,
-        },
-      }
+    }).select('id,public_token,quote').single()
+    if (saveError?.code === '23505') {
+      const retry = await args.supabase.from('roofing_measurements').select('id,public_token,quote')
+        .eq('tenant_id', args.tenantId).eq('source_request_key', requestKey).single()
+      if (retry.error || !retry.data) return { ok: false, reason: 'roofing save race needs retry' }
+      saved = retry.data as { id: string; public_token: string; quote: MultiRoofQuote }
+    } else {
+      if (saveError || !inserted?.id || !inserted.public_token) return { ok: false, reason: 'roofing save failed; retry required' }
+      saved = inserted as { id: string; public_token: string; quote: MultiRoofQuote }
     }
-
-    await args.sendReply(
-      composeConfirmMessage({ quote, address: reqInput.address.address, quoteUrl, firstName: args.firstName }),
-    )
+    }
+    if (!saved?.id || !saved.public_token || !saved.quote) return { ok: false, reason: 'saved roofing result incomplete' }
+    savedToken = saved.public_token
+    await persistHumanHandoff({ supabase: args.supabase, tenantId: args.tenantId,
+      customerPhone: args.customerPhone, conversationId: args.conversationId,
+      requestKey: `roof:${saved.id}:review`, trade: 'roofing', reason: `Review saved roof draft at ${reqInput.address.address}`,
+      resourceType: 'roof', resourceId: saved.id, baseUrl })
+    const sent = await args.sendReply(`Your roofing details and draft are saved. ${args.isInspection ? 'An on-site inspection needs the roofer’s review.' : 'The roofer needs to review the draft before the quote can be shared.'}`)
+    if (!sent || typeof sent !== 'object' || !('ok' in sent) || sent.ok !== true) {
+      return { ok: false, reason: 'roofing saved; customer status send failed', savedToken }
+    }
     return {
       ok: true,
-      token,
-      quote,
+      token: saved.public_token,
+      quote: saved.quote,
       state: {
         slots: args.slots,
-        last_step: 'confirm_roof',
-        pending_quote_token: token,
-        pending_structure_count: quote.structures.length,
+        last_step: 'closed',
+        workflow_stage: 'awaiting_review',
+        pending_quote_token: saved.public_token,
+        pending_structure_count: saved.quote.structures.length,
       },
     }
   } catch (e) {
     console.error('[roofing-measure-dispatch] measure/save failed', e)
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+    return { ok: false, reason: e instanceof Error ? e.message : String(e), savedToken }
   }
 }

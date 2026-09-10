@@ -148,7 +148,7 @@ export function looksLikePaintingEnquiry(text: string): boolean {
   if (/^\s*(so\s+)?(do|does)?\s*(you|yous|u|ya)\s*(guys\s*)?(do|offer)?\s*(re-?)?paint\w*\s*\??\s*$/.test(t)) {
     return false
   }
-  return /\bre-?paints?\b|\bpaints?\b|\bpainting\b|\bpainter\b|\bpainted\b|\bpaintwork\b|\bcoat of paint\b|\bfeature wall\b|\bunder-?coat\b/.test(
+  return /\bre-?paint(?:s|ing)?\b|\bpaints?\b|\bpainting\b|\bpainter\b|\bpainted\b|\bpaintwork\b|\bcoat of paint\b|\bfeature wall\b|\bunder-?coat\b/.test(
     t,
   )
 }

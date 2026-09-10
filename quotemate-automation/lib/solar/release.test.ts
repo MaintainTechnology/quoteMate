@@ -25,16 +25,16 @@ import {
 } from './release'
 
 describe('solarAutoReleaseEnabled', () => {
-  it('defaults ON when unset', () => {
-    expect(solarAutoReleaseEnabled({})).toBe(true)
+  it('requires human approval when unset', () => {
+    expect(solarAutoReleaseEnabled({})).toBe(false)
   })
   it('is OFF when explicitly disabled', () => {
     expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: 'false' })).toBe(false)
     expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: '0' })).toBe(false)
   })
-  it('is ON for any other value', () => {
-    expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: 'true' })).toBe(true)
-    expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: '1' })).toBe(true)
+  it('cannot be bypassed by an environment value', () => {
+    expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: 'true' })).toBe(false)
+    expect(solarAutoReleaseEnabled({ SOLAR_AUTO_RELEASE: '1' })).toBe(false)
   })
 })
 
@@ -94,12 +94,11 @@ const cleanRow = {
 describe('autoReleaseSolarEstimate', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('releases a clean, unconfirmed estimate (stamps confirmed_at)', async () => {
+  it('does not auto-release even a clean estimate', async () => {
     const supabase = makeSupabase(cleanRow)
     const r = await autoReleaseSolarEstimate(supabase, { token: 'tok_clean' })
-    expect(r.released).toBe(true)
-    expect(supabase.updateCalls).toHaveLength(1)
-    expect(supabase.updateCalls[0].vals.confirmed_at).toBeTypeOf('string')
+    expect(r.released).toBe(false)
+    expect(supabase.updateCalls).toHaveLength(0)
   })
 
   it('does NOT release a flagged estimate (no stamp, no send)', async () => {

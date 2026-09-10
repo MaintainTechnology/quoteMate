@@ -19,8 +19,73 @@
 // ════════════════════════════════════════════════════════════════════
 
 import { uploadIntakePhoto } from '@/lib/storage/upload'
+import sharp from 'sharp'
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const MAX_MEDIA_BYTES = 5 * 1024 * 1024
+const MAX_ATTACHMENTS = 10
+
+export function detectedImageType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 8 && Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png'
+  if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString() === 'RIFF' &&
+      Buffer.from(bytes.subarray(8, 12)).toString() === 'WEBP') return 'image/webp'
+  return null
+}
+
+/** Provider credentials are sent only to this account's canonical media resource. */
+export function authorisedTwilioMediaUrl(raw: string, accountSid: string): URL {
+  const url = new URL(raw)
+  const expected = `/2010-04-01/Accounts/${accountSid}/Messages/`
+  if (url.protocol !== 'https:' || url.hostname !== 'api.twilio.com' || url.port ||
+      url.username || url.password || url.search || url.hash || !url.pathname.startsWith(expected) ||
+      !/^SM[0-9a-f]{32}\/Media\/ME[0-9a-f]{32}$/.test(url.pathname.slice(expected.length))) {
+    throw new Error('Untrusted Twilio media resource')
+  }
+  return url
+}
+
+async function fetchMediaBytes(raw: string, accountSid: string, auth: string): Promise<Uint8Array> {
+  let url = authorisedTwilioMediaUrl(raw, accountSid)
+  const signal = AbortSignal.timeout(15_000)
+  let authenticated = true
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    const res = await fetch(url.href, { redirect: 'manual', signal,
+      headers: authenticated ? { Authorization: auth } : {} })
+    if ([301,302,303,307,308].includes(res.status)) {
+      const location = res.headers.get('location')
+      await res.body?.cancel()
+      if (!location) throw new Error('Media redirect has no location')
+      const target = new URL(location, url)
+      // Twilio's secured media redirect host. Never send Basic credentials to its CDN.
+      if (target.protocol !== 'https:' || target.hostname !== 'mms.twiliocdn.com' || target.port || target.username || target.password) {
+        throw new Error('Untrusted media redirect')
+      }
+      url = target
+      authenticated = false
+      continue
+    }
+    if (!res.ok) throw new Error(`Twilio media GET ${res.status}`)
+    if (Number(res.headers.get('content-length') ?? 0) > MAX_MEDIA_BYTES) {
+      await res.body?.cancel(); throw new Error('Media exceeds 5 MB')
+    }
+    if (!res.body) throw new Error('Empty media response')
+    const reader = res.body.getReader()
+    const chunks: Uint8Array[] = []
+    let length = 0
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > MAX_MEDIA_BYTES) throw new Error('Media exceeds 5 MB')
+        chunks.push(value)
+      }
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
+    return Buffer.concat(chunks, length)
+  }
+  throw new Error('Too many media redirects')
+}
 
 export type MmsExtractResult = {
   /** Signed URLs ready for storage on sms_messages.photo_urls */
@@ -45,6 +110,7 @@ export async function extractAndStoreMmsPhotos(opts: {
   if (!Number.isFinite(numMedia) || numMedia <= 0) {
     return { signedUrls: [], paths: [], attempts: [] }
   }
+  if (numMedia > MAX_ATTACHMENTS) return { signedUrls: [], paths: [], attempts: [{ index: 0, ok: false, reason: 'Too many attachments' }] }
 
   const sid = process.env.TWILIO_ACCOUNT_SID
   const token = process.env.TWILIO_AUTH_TOKEN
@@ -82,12 +148,16 @@ export async function extractAndStoreMmsPhotos(opts: {
 
     try {
       // 1. Fetch the media binary from Twilio.
-      const res = await fetch(url, { headers: { Authorization: auth } })
-      if (!res.ok) {
-        attempts.push({ index: i, ok: false, reason: `Twilio media GET ${res.status}`, contentType })
-        continue
-      }
-      const buf = await res.arrayBuffer()
+      const bytes = await fetchMediaBytes(url, sid, auth)
+      const actualType = detectedImageType(bytes)
+      if (actualType !== contentType) throw new Error('Media bytes do not match declared image type')
+      // Decode under a pixel ceiling as well as a compressed-byte ceiling.
+      // Magic bytes alone would accept truncated images or decompression bombs.
+      const decoder = sharp(bytes, { failOn: 'warning', limitInputPixels: 25_000_000 })
+      const metadata = await decoder.metadata()
+      if (!metadata.width || !metadata.height) throw new Error('Image dimensions missing')
+      await decoder.stats()
+      const buf = new Uint8Array(bytes).buffer
 
       // 2. Upload via our existing storage helper (re-using callId param for the
       //    path key — works fine for conversationIds, paths read as
@@ -102,8 +172,8 @@ export async function extractAndStoreMmsPhotos(opts: {
       signedUrls.push(signedUrl)
       paths.push(path)
       attempts.push({ index: i, ok: true, signedUrl, path, contentType })
-    } catch (e: any) {
-      attempts.push({ index: i, ok: false, reason: e?.message ?? String(e), contentType })
+    } catch (e) {
+      attempts.push({ index: i, ok: false, reason: e instanceof Error ? e.message : String(e), contentType })
     }
   }
 

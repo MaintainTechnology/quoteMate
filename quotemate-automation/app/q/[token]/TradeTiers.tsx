@@ -11,7 +11,8 @@
 
 import Link from 'next/link'
 import { tierLabelsForTrade } from '@/lib/quote/trade-format'
-import { displayDeposit, displayIncGst, fmtAud } from '@/lib/quote/money'
+import { depositCents, totalIncGstCents } from '@/lib/quote/money'
+import { quoteAmount, formatQuoteAmount } from '@/lib/quote/display-money'
 
 type Tier = {
   label: string
@@ -69,7 +70,7 @@ const ROOF_FOOTNOTE =
 // order (discount the ex-GST base → GST if registered → round once) the page,
 // SMS, PDF and Stripe charge all use (P4: this file previously discounted
 // before rounding while the page rounded before discounting).
-const fmt = fmtAud
+const fmt = formatQuoteAmount
 
 export function TradeTiers({
   tiers,
@@ -100,8 +101,10 @@ export function TradeTiers({
         {keys.map((key) => {
           const tier = tiers[key]!
           const money = { discountPct: appliedDiscountPct, gstRegistered }
-          const priceInc = displayIncGst(tier.subtotal_ex_gst, money)
-          const dep = displayDeposit(tier.subtotal_ex_gst, depositPct, money)
+          const totalCents = totalIncGstCents(tier.subtotal_ex_gst, money)
+          const priceInc = quoteAmount(totalCents)
+          const depCents = depositCents(totalCents, depositPct)
+          const dep = depCents > 0 ? quoteAmount(depCents) : null
           // A confirmed, deposit-payable tier links straight to the short-link
           // (which mints a fresh Session per click); an indicative tier has no
           // deposit CTA. stripeLinks is retained only as a legacy fallback.
@@ -134,7 +137,7 @@ export function TradeTiers({
                   ${fmt(priceInc)}
                 </div>
                 <div className="mt-1 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-text-dim">
-                  inc GST
+                  {gstRegistered === false ? 'No GST' : 'inc GST'}
                   {appliedDiscountPct > 0 ? ` · ${appliedDiscountPct}% off applied` : ''}
                 </div>
                 {dep !== null ? (

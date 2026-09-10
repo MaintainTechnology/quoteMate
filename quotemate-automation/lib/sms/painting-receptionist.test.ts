@@ -30,6 +30,13 @@ function drive(messages: Array<string>): {
 }
 
 describe('advancePainting — opener offers the form first', () => {
+  it('engages the fresh specialist for repainting while retaining gather and decline guards', () => {
+    const message = 'Please quote repainting interior walls at 12 Example Road, Sydney NSW 2000.'
+    expect(shouldEngagePainting(null, message, false)).toBe(true)
+    expect(advancePainting(null, message).action).toBe('offer_form')
+    expect(shouldEngagePainting(null, message, false, true)).toBe(false)
+    expect(shouldEngagePainting({ slots: {}, last_step: 'closed', declined_trades: ['painting'] }, message, false)).toBe(false)
+  })
   it('offers the form on a fresh painting enquiry', () => {
     const d = advancePainting(null, 'I want to paint my house')
     expect(d.action).toBe('offer_form')
@@ -46,6 +53,10 @@ describe('advancePainting — replying to the form offer', () => {
   it('acknowledges + waits when the customer chooses the form', () => {
     const d = advancePainting(offered, 'send me the form link')
     expect(d.action).toBe('await_form')
+    if (d.action === 'await_form') {
+      expect(d.reply).toMatch(/painter to review before sending/)
+      expect(d.reply).not.toMatch(/straight back|straight over|on.*way/)
+    }
   })
   it('starts the questions when the customer declines the link', () => {
     const d = advancePainting(offered, 'just ask me here')

@@ -11,9 +11,10 @@
 // ════════════════════════════════════════════════════════════════════
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createHash } from 'node:crypto'
 import { estimatePainting } from './measure'
 import { buildSavedPaintingRow } from './save-row'
-import { effectivePaintingRateCardFromOverlay } from './rate-card-overlay'
+import { completePaintingRateCard } from './complete-rate-card'
 import type { EstimateRequest } from './request-schema'
 import type { PaintingEstimate, PaintingRateCard } from './types'
 import { ensurePaintingPdf, signQuotePdfUrl } from '@/lib/quote/pdf'
@@ -41,11 +42,11 @@ export async function loadPaintingRateCard(
   primaryTrade: string | null,
 ): Promise<PaintingRateCard | undefined> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('pricing_book')
       .select('trade, overlays')
       .eq('tenant_id', tenantId)
-    if (!Array.isArray(data) || data.length === 0) return undefined
+    if (error || !Array.isArray(data) || data.length === 0) return undefined
     const cardOf = (row: { overlays?: unknown } | undefined): unknown => {
       const overlays = (row?.overlays as Record<string, unknown> | null | undefined) ?? null
       return overlays?.painting_rate_card ?? null
@@ -56,7 +57,7 @@ export async function loadPaintingRateCard(
       (primaryTrade ? cardOf(byTrade(primaryTrade)) : null) ??
       cardOf(data.find((r) => cardOf(r) != null)) ??
       null
-    return overlayJson != null ? effectivePaintingRateCardFromOverlay(overlayJson) : undefined
+    return completePaintingRateCard(overlayJson)
   } catch {
     return undefined
   }
@@ -76,10 +77,22 @@ export async function runAndSavePaintingQuote(args: {
   customerPhone?: string | null
   customerName?: string | null
   request: EstimateRequest
+  requestKey?: string
 }): Promise<PaintingQuoteDispatch> {
+  if (!args.tenantId) return { ok: false, reason: 'tenant painting pricing setup required' }
+  const requestKey = args.requestKey ?? createHash('sha256').update(JSON.stringify([args.customerPhone, args.request])).digest('hex')
+  const { data: existing, error: lookupError } = await args.supabase.from('painting_measurements')
+    .select('public_token,estimate_token,estimate,routing').eq('tenant_id', args.tenantId)
+    .eq('source_request_key', requestKey).maybeSingle()
+  if (lookupError) return { ok: false, reason: 'painting saved-work lookup unavailable' }
+  if (existing?.public_token && existing.estimate_token && existing.estimate) {
+    return { ok: true, token: existing.public_token, estimateToken: existing.estimate_token,
+      estimate: existing.estimate as PaintingEstimate, inspection: existing.routing === 'inspection_required' }
+  }
   const rateCard = args.tenantId
     ? await loadPaintingRateCard(args.supabase, args.tenantId, args.primaryTrade ?? null)
     : undefined
+  if (!rateCard) return { ok: false, reason: 'tenant painting pricing setup required' }
 
   const est = await estimatePainting(args.request.address, args.request.inputs, {
     rateCard,
@@ -98,7 +111,7 @@ export async function runAndSavePaintingQuote(args: {
   const row = buildSavedPaintingRow({
     tenantId: args.tenantId,
     userId: null,
-    releasedAt: inspection ? null : new Date().toISOString(),
+    releasedAt: null,
     data: {
       address: args.request.address,
       source: estimate.provider,
@@ -111,10 +124,20 @@ export async function runAndSavePaintingQuote(args: {
 
   const { data, error } = await args.supabase
     .from('painting_measurements')
-    .insert(row)
+    .insert({ ...row, source_request_key: requestKey })
     .select('public_token, estimate_token')
     .single()
   if (error || !data) {
+    if (error?.code === '23505') {
+      // Another attempt committed first. Read its exact persisted token.
+      const winner = await args.supabase.from('painting_measurements')
+        .select('public_token,estimate_token,estimate,routing').eq('tenant_id', args.tenantId)
+        .eq('source_request_key', requestKey).maybeSingle()
+      if (!winner.error && winner.data?.public_token && winner.data.estimate_token && winner.data.estimate) {
+        return { ok: true, token: winner.data.public_token, estimateToken: winner.data.estimate_token,
+          estimate: winner.data.estimate as PaintingEstimate, inspection: winner.data.routing === 'inspection_required' }
+      }
+    }
     return { ok: false, reason: error?.message ?? 'painting save failed' }
   }
 

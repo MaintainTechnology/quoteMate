@@ -160,7 +160,7 @@ describe('saveAirconRecommendation', () => {
       }),
     )
     const { client, operations } = sequenceClient([
-      { data: { id: 'rec-existing', public_token: token }, error: null },
+      { data: { id: 'rec-existing', public_token: token, recommendation }, error: null },
     ])
     await expect(
       saveAirconRecommendation(client, {
@@ -171,7 +171,7 @@ describe('saveAirconRecommendation', () => {
         requestId: 'ac_request_1234',
         idempotencySecret: 'test-secret',
       }),
-    ).resolves.toEqual({ id: 'rec-existing', public_token: token })
+    ).resolves.toEqual({ id: 'rec-existing', public_token: token, recommendation })
     expect(operations).not.toContain('insert')
   })
 
@@ -184,7 +184,7 @@ describe('saveAirconRecommendation', () => {
     const { client } = sequenceClient([
       { data: null, error: null },
       { data: null, error: { message: 'duplicate' } },
-      { data: { id: 'rec-winner', public_token: token }, error: null },
+      { data: { id: 'rec-winner', public_token: token, recommendation }, error: null },
     ])
     await expect(
       saveAirconRecommendation(client, {
@@ -195,6 +195,6 @@ describe('saveAirconRecommendation', () => {
         requestId: 'ac_request_1234',
         idempotencySecret: 'test-secret',
       }),
-    ).resolves.toEqual({ id: 'rec-winner', public_token: token })
+    ).resolves.toEqual({ id: 'rec-winner', public_token: token, recommendation })
   })
 })

@@ -26,7 +26,7 @@ Existing job-management tools (ServiceM8, Tradify, AroFlo) handle scheduling and
 
 1. **Captures the job for you** — a dedicated AI receptionist answers the call and asks the right job-specific questions. The moment the call ends, the customer gets an SMS with a one-tap link to add photos — optional, races the quote draft, lifts confidence when it arrives.
 2. **Drafts the quote** — an AI engine generates a structured quote (scope, line items, labour, materials, exclusions, risks) using the tradie's own pricing book and prior quote history.
-3. **Routes by confidence** — quotable jobs auto-send to the customer immediately with the tradie notified to review after the fact; complex ones trigger a paid site inspection instead.
+3. **Routes for review** — quotable jobs become saved drafts for authenticated tradie approval; complex work becomes a review or paid-inspection proposal. Customer quotes are sent only after approval.
 4. **Sends a polished customer experience** — mobile-first, branded quote with Good / Better / Best options and a one-tap deposit button.
 5. **Closes the loop** — availability nudges, SMS follow-ups, calendar booking on accept.
 
@@ -38,7 +38,7 @@ Existing job-management tools (ServiceM8, Tradify, AroFlo) handle scheduling and
 
 QuoteMax routes every job into one of two paths based on whether the tradie can quote it remotely.
 
-**Standard flow** — the AI drafts the quote and sends it to the customer the moment it's ready; the tradie is notified and can edit before acceptance. The customer accepts and pays a deposit through the portal. The flow ends with the job confirmed and on the calendar.
+**Standard flow** — the AI saves a draft using the tenant pricing book. The tradie reviews it, makes any changes and explicitly approves sending it to the customer. Provider acceptance and delivery receipts are tracked separately. The customer accepts and pays a deposit through the portal. The flow ends with the job confirmed and on the calendar.
 
 **Inspection flow** — when remote scoping isn't enough, the tradie creates a paid site-visit request. The customer pays a $99 inspection fee (refundable on accepted quote), the tradie attends in person, then completes the full quote in QuoteMax before rejoining the standard send/accept/deposit path.
 
@@ -64,8 +64,8 @@ Intake Engine        → scope, photos, address, urgency, confidence score
 Estimation Engine    → scope of works + labour + materials + risks
    ↓
 Confidence-based routing
-   ├─ HIGH/MED: quote auto-sent to customer; tradie notified to review
-   └─ LOW:      paid $99 site-visit triggered instead
+   ├─ HIGH/MED: saved quote → tradie review and approval → tracked send
+   └─ LOW:      review or paid site-visit proposal → tradie approval
    ↓
 Mobile customer portal (Good / Better / Best + deposit)
    ↓
@@ -80,7 +80,7 @@ Availability nudge → Follow-up engine → Job won → Calendar + CRM
 |---|---|
 | **AI receptionist** | Always-answered phone line per tradie; structured job-specific Q&A; SMS photo capture mid-call |
 | **AI quote engine** | Drafts scope, line items, labour, materials, risks from the intake; uses the tradie's own pricing book |
-| **Confidence routing** | Automatically decides whether to auto-quote, ask for tradie review, or trigger a paid inspection |
+| **Confidence routing** | Prepares a priced draft or inspection proposal; every new customer quote requires tradie approval |
 | **Paid site-inspection** | $99 refundable fee filters tire-kickers and pays for trips that don't convert |
 | **Mobile customer portal** | Branded, mobile-first quote view with Good / Better / Best and one-tap deposit |
 | **Availability nudge** | "We've had a spot open up this week" — creates urgency on high-intent quotes |

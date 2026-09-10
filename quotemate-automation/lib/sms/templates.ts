@@ -15,12 +15,12 @@ import {
   chargedCents,
   clampDepositPct,
   depositCents,
-  dollars,
   finalBalanceBaseCents,
   finalDepositBaseCents,
   totalIncGstCents,
 } from '@/lib/quote/money'
 import { isSiteVisitFirstRow } from '@/lib/quote/mint-tier'
+import { formatQuoteAmount, quoteAmount } from '@/lib/quote/display-money'
 
 /** Phase A — caller-supplied display mode flag. 'summary' suppresses the
  *  per-tier "X items + Yhr labour" component line so the SMS reads as a
@@ -174,10 +174,11 @@ export function buildQuoteUpdatedSms(intake: Intake, quote: Quote, options?: Quo
     tierCount === 2 ? '2 OPTIONS' :
     tierCount === 3 ? '3 OPTIONS' :
     'YOUR OPTIONS'
+  const taxLabel = quote.gst_registered === false ? 'No GST' : 'inc 10% GST'
   if (hasPayLinks && depositPct > 0 && !siteVisitFirst) {
-    lines.push(`${heading} (inc 10% GST - ${depositPct}% deposit to confirm):`)
+    lines.push(`${heading} (${taxLabel} - ${depositPct}% deposit to confirm):`)
   } else {
-    lines.push(`${heading} (inc 10% GST):`)
+    lines.push(`${heading} (${taxLabel}):`)
   }
   lines.push('')
 
@@ -189,9 +190,9 @@ export function buildQuoteUpdatedSms(intake: Intake, quote: Quote, options?: Quo
       discountPct: quote.applied_discount_pct,
       gstRegistered: quote.gst_registered,
     })
-    const price = dollars(incCents)
+    const price = formatQuoteAmount(quoteAmount(incCents))
     const depCents = depositCents(incCents, depositPct)
-    const deposit = depCents > 0 ? dollars(depCents) : null
+    const deposit = depCents > 0 ? formatQuoteAmount(quoteAmount(depCents)) : null
     // No "recommended" badge when only one option is shown — it IS the offer.
     const recommended = visibleTierKeys.length > 1 && quote.selected_tier === key ? ' (recommended)' : ''
 
@@ -424,7 +425,6 @@ export function buildTradieReviewNotification(opts: {
   noAddressOnFile?: boolean
 }): string {
   const greet = opts.tradieFirstName ? `Hi ${opts.tradieFirstName}` : 'Hi'
-  const who = opts.customerName?.split(' ')[0] || opts.customerPhone || 'a customer'
   const job = JOB_TYPE_LABEL[opts.jobType] ?? opts.jobType.replace(/_/g, ' ')
   const qty = opts.itemCount ? `${opts.itemCount} ${job}` : job
   const total = opts.totalIncGst.toFixed(0)
@@ -952,14 +952,7 @@ export function buildPhotoRequestSms(opts: {
 // the dialog. Falls back to no name when we don't.
 export function buildQuoteFailureSms(opts: { firstName?: string; jobType?: string | null }): string {
   const first = (opts.firstName ?? '').split(' ')[0] || ''
-  const sorry = first ? `Sorry ${first}, ` : 'Sorry, '
-  const tradie = tradieNoun(opts.jobType)
-  const variants = [
-    `${sorry}we hit a technical snag finalising your quote on our end. The ${tradie}'s been pinged and will give you a callback shortly. Apologies for the wait.`,
-    `${sorry}our system tripped up finalising your quote. The ${tradie}'s been notified and will call back soon, apologies for the hassle.`,
-    `${sorry}something glitched on our end while putting your quote together. The ${tradie}'s been alerted and will be in touch shortly.`,
-  ]
-  return gsm7Safe(pickVariant(variants))
+  return gsm7Safe(`${first ? `Sorry ${first}, ` : 'Sorry, '}the quote could not be completed because of a technical problem. It has not been sent. Reply here to check the request or contact the tradie directly.`)
 }
 
 // Quote-in-flight hold-on SMS — sent when the customer texts a NEW message
@@ -1291,10 +1284,11 @@ export function buildQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOp
     tierCount === 2 ? '2 OPTIONS' :
     tierCount === 3 ? '3 OPTIONS' :
     'YOUR OPTIONS'
+  const taxLabel = quote.gst_registered === false ? 'No GST' : 'inc 10% GST'
   if (hasPayLinks && depositPct > 0 && !siteVisitFirst) {
-    lines.push(`${heading} (inc 10% GST - ${depositPct}% deposit to confirm):`)
+    lines.push(`${heading} (${taxLabel} - ${depositPct}% deposit to confirm):`)
   } else {
-    lines.push(`${heading} (inc 10% GST):`)
+    lines.push(`${heading} (${taxLabel}):`)
   }
   lines.push('')
 
@@ -1306,9 +1300,9 @@ export function buildQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOp
       discountPct: quote.applied_discount_pct,
       gstRegistered: quote.gst_registered,
     })
-    const price = dollars(incCents)
+    const price = formatQuoteAmount(quoteAmount(incCents))
     const depCents = depositCents(incCents, depositPct)
-    const deposit = depCents > 0 ? dollars(depCents) : null
+    const deposit = depCents > 0 ? formatQuoteAmount(quoteAmount(depCents)) : null
     // No "recommended" badge when only one option is shown — it IS the offer.
     const recommended = visibleTierKeys.length > 1 && quote.selected_tier === key ? ' (recommended)' : ''
 
@@ -1403,7 +1397,7 @@ function buildFinalQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOpti
   const lines: string[] = []
   lines.push(`Hi ${firstName},`)
   lines.push('')
-  lines.push(`Your final quote for ${job} from ${business}: $${dollars(totalCents)} inc GST.`)
+  lines.push(`Your final quote for ${job} from ${business}: $${formatQuoteAmount(quoteAmount(totalCents))} ${quote.gst_registered === false ? 'No GST' : 'inc GST'}.`)
   lines.push('')
   if (quote.quote_view_url) lines.push(`View quote: ${quote.quote_view_url}`)
   if (quote.pdf_url) lines.push(`PDF copy: ${quote.pdf_url}`)
@@ -1411,11 +1405,11 @@ function buildFinalQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOpti
 
   if (depositBase >= MIN_STRIPE_CHARGE_CENTS) {
     lines.push(
-      `Accept with a ${pct}% deposit: $${dollars(
+      `Accept with a ${pct}% deposit: $${formatQuoteAmount(quoteAmount(
         depositCents(totalCents, pct),
-      )} less your $${INSPECTION_FEE_AUD} site-visit credit + ${PLATFORM_FEE_PCT}% platform fee = $${dollars(
+      ))} less your $${INSPECTION_FEE_AUD} site-visit credit + ${PLATFORM_FEE_PCT}% platform fee = $${formatQuoteAmount(quoteAmount(
         charged,
-      )}.`,
+      ))}.`,
     )
     if (payUrl) {
       lines.push('Tap to pay:')
@@ -1423,7 +1417,7 @@ function buildFinalQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOpti
     }
     lines.push('')
     if (balanceBase >= MIN_STRIPE_CHARGE_CENTS) {
-      lines.push(`Balance $${dollars(balanceBase)} is requested on completion.`)
+      lines.push(`Balance $${formatQuoteAmount(quoteAmount(balanceBase))} is requested on completion.`)
       lines.push('')
     }
   } else {
@@ -1433,7 +1427,7 @@ function buildFinalQuoteSms(intake: Intake, quote: Quote, options?: QuoteSmsOpti
       `Your $${INSPECTION_FEE_AUD} site visit covers the deposit - nothing to pay now.`,
     )
     if (balanceBase >= MIN_STRIPE_CHARGE_CENTS) {
-      lines.push(`Balance $${dollars(balanceBase)} on completion.`)
+      lines.push(`Balance $${formatQuoteAmount(quoteAmount(balanceBase))} on completion.`)
     }
     lines.push('')
   }

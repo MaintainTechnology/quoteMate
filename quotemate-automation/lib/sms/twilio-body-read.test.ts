@@ -55,13 +55,13 @@ describe('postTwilioMessage — defensive body read (Phase 6 R46 review fix)', (
     }
   })
 
-  it('classifies a 5xx with an unreadable body by status (retryable band), not NETWORK', async () => {
+  it('quarantines a 5xx with an unreadable body because provider acceptance is unknown', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       fakeRes(503, () => Promise.reject(new Error('boom'))),
     ) as unknown as typeof fetch
     const r = await sendSms({ to: '+61400000000', text: 'hi' })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('503')
+    if (!r.ok) expect(r.code).toBe('AMBIGUOUS')
   })
 
   it('still returns the real sid on a normal 2xx with a readable JSON body', async () => {
@@ -73,10 +73,10 @@ describe('postTwilioMessage — defensive body read (Phase 6 R46 review fix)', (
     if (r.ok) expect(r.sid).toBe('SM123')
   })
 
-  it('a pre-Response fetch throw is still a retryable NETWORK failure', async () => {
+  it('a pre-Response fetch throw cannot prove the request never reached the provider', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNRESET')) as unknown as typeof fetch
     const r = await sendSms({ to: '+61400000000', text: 'hi' })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('NETWORK')
+    if (!r.ok) expect(r.code).toBe('AMBIGUOUS')
   })
 })

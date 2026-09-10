@@ -137,6 +137,7 @@ function request(body: unknown = {
 }
 
 beforeEach(() => {
+  vi.stubEnv('PUBLIC_WEB_ORIGIN', 'https://quotemax.com.au')
   h.results.length = 0
   h.queries.length = 0
   h.resolveTenantRequest.mockReset()
@@ -224,7 +225,7 @@ describe('POST /api/roofing/save-as-quote pricing authority', () => {
     h.results.push({
       data: measurement({ quote_id: 'quote-existing', quote_share_token: 'share-existing' }),
       error: null,
-    })
+    }, { data: { id: 'quote-existing', share_token: 'share-existing' }, error: null }, { data: null, error: null })
     const response = await POST(request())
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
@@ -235,6 +236,21 @@ describe('POST /api/roofing/save-as-quote pricing authority', () => {
     })
     expect(h.queries.some((query) => query.ops.some((op) => op.op === 'insert'))).toBe(false)
     expect(h.queries[0]!.ops).toContainEqual({ op: 'eq', args: ['tenant_id', 'tenant-1'] })
+  })
+
+  it('never returns a claimed token until the tenant-owned quote exists', async () => {
+    h.results.push({data:measurement({quote_share_token:'share-pending'}),error:null},{data:null,error:null})
+    const response=await POST(request())
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ok:false,error:'promotion_pending'})
+    expect(h.queries.some((q)=>q.ops.some((o)=>o.op==='insert'))).toBe(false)
+  })
+
+  it('reports lookup and link persistence failures without returning a share URL', async () => {
+    h.results.push({data:measurement({quote_share_token:'share-existing'}),error:null},{data:null,error:{message:'offline'}})
+    const lookup=await POST(request());expect(lookup.status).toBe(503);expect((await lookup.json()).shareUrl).toBeUndefined()
+    h.results.push({data:measurement({quote_share_token:'share-existing'}),error:null},{data:{id:'quote-existing',share_token:'share-existing'},error:null},{data:null,error:{message:'offline'}})
+    const release=await POST(request());expect(release.status).toBe(503);expect((await release.json()).shareUrl).toBeUndefined()
   })
 
   it('reconstructs and promotes the persisted server snapshot only', async () => {
@@ -265,5 +281,38 @@ describe('POST /api/roofing/save-as-quote pricing authority', () => {
       total_inc_gst: number
     }
     expect(quote.total_inc_gst).toBe(13_200)
+  })
+})
+
+
+describe('draft promotion does not approve customer prices', () => {
+  it.each([null, '2026-08-01T00:00:00Z'])('reopening a promotion preserves released_at=%s', async (releasedAt) => {
+    h.results.push(
+      { data: measurement({ quote_id: 'quote-existing', quote_share_token: 'share-existing', released_at: releasedAt }), error: null },
+      { data: { id: 'quote-existing', share_token: 'share-existing' }, error: null },
+      { data: null, error: null },
+    )
+    expect((await POST(request())).status).toBe(200)
+    const writes = h.queries.flatMap((query) => query.ops.filter((op) => op.op === 'update'))
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.args[0]).toEqual({ quote_id: 'quote-existing' })
+  })
+
+  it('saving a new editable draft leaves roofing customer release unset', async () => {
+    h.results.push(
+      { data: measurement({ released_at: null }), error: null },
+      { data: [{ id: 'measurement-1' }], error: null },
+      { data: { id: 'intake-1' }, error: null },
+      { data: { id: 'quote-1', share_token: 'share-new' }, error: null },
+      { data: null, error: null },
+    )
+    expect((await POST(request())).status).toBe(200)
+    const quoteInsert = h.queries.find((query) => query.table === 'quotes')?.ops.find((op) => op.op === 'insert')
+    expect(quoteInsert?.args[0]).toMatchObject({ status: 'draft' })
+    for (const query of h.queries.filter((query) => query.table === 'roofing_measurements')) {
+      for (const operation of query.ops.filter((op) => op.op === 'update')) {
+        expect(operation.args[0]).not.toHaveProperty('released_at')
+      }
+    }
   })
 })
